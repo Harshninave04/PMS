@@ -21,6 +21,63 @@ interface SidebarProps {
   setMobileOpen?: (open: boolean) => void;
 }
 
+// Frontend-only hide: add path or name to hide a top-level section.
+// To hide: keep/uncomment the entry. To show: remove/comment it out.
+// Matching is case-insensitive and checks both `path` and `name`.
+const HIDDEN_ROUTES: string[] = [
+  // "Dashboard",                  // path: /dashboard
+  // "Patient Management",         // path: /patients
+  // "Doctor & Staff Management",  // path: /staff
+  // "Appointments",               // path: /appointments
+  // "Admissions & Discharge",     // path: /admissions
+  // "Ward & Bed Management",     // path: /wards
+  "Clinical / EMR",             // path: /clinical
+  "Nursing",                    // path: /nursing
+  "Laboratory",                 // path: /lab
+  "Radiology / Imaging",        // path: /radiology
+  // "Pharmacy",                   // path: /pharmacy
+  "Emergency / Casualty",       // path: /emergency
+  "Operation Theatre",          // path: /ot
+  "Blood Bank",                 // path: /blood-bank
+  "Inventory",                  // path: /inventory
+  "Procurement",                // path: /procurement
+  // "Billing & Finance",          // path: /finance
+  "Insurance / TPA",            // path: /insurance
+  "Reports & Analytics",        // path: /reports
+  "Staff & HR",                 // path: /hr
+  "Notifications",              // path: /notifications
+  "Administration",             // path: /admin
+  "Organization Management",    // path: /organization
+  "Audit & Compliance",         // path: /audit
+  "System Configuration",       // path: /config
+  // --- also supports raw paths if you prefer ---
+  // "/dashboard",
+  // "/patients",
+  // "/staff",
+  // "/appointments",
+  // "/admissions",
+  // "/wards",
+  // "/clinical",
+  // "/nursing",
+  // "/lab",
+  // "/radiology",
+  // "/pharmacy",
+  // "/emergency",
+  // "/ot",
+  // "/blood-bank",
+  // "/inventory",
+  // "/procurement",
+  // "/finance",
+  // "/insurance",
+  // "/reports",
+  // "/hr",
+  // "/notifications",
+  // "/admin",
+  // "/organization",
+  // "/audit",
+  // "/config",
+];
+
 export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) => {
   const pathname = usePathname();
   const { data: session } = useSession();
@@ -47,7 +104,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
               });
             }
           });
-          const topLevel = json.data.filter((m: MenuItem) => !childIds.has(m._id.toString()));
+          const hiddenSet = new Set(HIDDEN_ROUTES.map((s) => s.toLowerCase().trim()));
+          const topLevel = json.data.filter((m: MenuItem) => {
+            if (childIds.has(m._id.toString())) return false;
+            const pathKey = (m.path || "").toLowerCase().trim();
+            const nameKey = (m.name || "").toLowerCase().trim();
+            if (hiddenSet.has(pathKey) || hiddenSet.has(nameKey)) return false;
+            return true;
+          });
           setMenus(topLevel);
 
           // Auto-expand menu that matches current pathname
