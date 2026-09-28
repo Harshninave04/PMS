@@ -50,6 +50,7 @@ export const AppointmentService = {
         if (filter.status && filter.status !== 'ALL') query.status = filter.status;
         if (filter.type && filter.type !== 'ALL') query.type = filter.type;
         if (filter.doctorId && Types.ObjectId.isValid(filter.doctorId)) query.doctorId = filter.doctorId;
+        if (filter.branchId && Types.ObjectId.isValid(filter.branchId)) query.branchId = filter.branchId;
 
         if (filter.date) {
             const start = new Date(filter.date);

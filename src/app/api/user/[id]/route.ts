@@ -42,11 +42,12 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return UserController.deleteUser(id);
-    } catch (e: any) {
+        return UserController.deleteUser(id, request);
+    } catch (e: unknown) {
+        const err = e as { message?: string };
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to delete user"
+            message: err?.message || "Failed to delete user"
         }, { status: 500 });
     }
 }

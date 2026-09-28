@@ -1,9 +1,9 @@
 import LabOrder, { ILabOrder } from "../models/lab-order.model";
 import LabTest from "../models/lab-test.model";
-import Patient from "../models/patient.model";
-import Doctor from "../models/doctor.model";
+import "@/models/patient.model";
+import "@/models/doctor.model";
 
-export const createLabOrder = async (data: any) => {
+export const createLabOrder = async (data: Record<string, unknown>) => {
   // 1. Auto generate barcode if not provided
   if (!data.barcode) {
     const randomSuffix = Math.floor(100000 + Math.random() * 900000);
@@ -11,12 +11,12 @@ export const createLabOrder = async (data: any) => {
   }
 
   // 2. Pre-populate results array if tests are provided and results not specified
-  if (data.tests && (!data.results || data.results.length === 0)) {
+  if (data.tests && Array.isArray(data.tests) && (!data.results || (Array.isArray(data.results) && data.results.length === 0))) {
     const testDocs = await LabTest.find({ _id: { $in: data.tests } });
     data.results = testDocs.map((t) => ({
       test: t._id,
       value: "",
-      unit: (t as any).unit || "",
+      unit: (t as unknown as { unit?: string }).unit || "",
       normalRange: t.normalRange || "",
       isAbnormal: false,
       flag: "Normal",
@@ -30,8 +30,8 @@ export const createLabOrder = async (data: any) => {
   return await LabOrder.findById(saved._id).populate("patient tests doctor results.test");
 };
 
-export const getAllLabOrders = async (query: any = {}) => {
-  const filter: any = {};
+export const getAllLabOrders = async (query: Record<string, unknown> = {}) => {
+  const filter: Record<string, unknown> = {};
 
   if (query.status && query.status !== "ALL") {
     filter.status = query.status;
@@ -42,12 +42,12 @@ export const getAllLabOrders = async (query: any = {}) => {
   if (query.patient) {
     filter.patient = query.patient;
   }
-  if (query.barcode) {
+  if (query.barcode && typeof query.barcode === "string") {
     filter.barcode = { $regex: query.barcode, $options: "i" };
   }
 
   return await LabOrder.find(filter)
-    .populate("patient", "name uhid age gender contact bloodGroup")
+    .populate("patient", "name uhid age gender contact bloodGroup branchId")
     .populate("doctor", "name specialty email")
     .populate("tests", "name code category price normalRange turnaroundTime")
     .populate("results.test", "name code category normalRange")
@@ -56,11 +56,12 @@ export const getAllLabOrders = async (query: any = {}) => {
 
 export const getLabOrderById = async (id: string) => {
   return await LabOrder.findById(id)
-    .populate("patient", "name uhid age gender contact bloodGroup allergies")
+    .populate("patient", "name uhid age gender contact bloodGroup allergies branchId")
     .populate("doctor", "name specialty email")
     .populate("tests", "name code category price normalRange turnaroundTime")
     .populate("results.test", "name code category normalRange");
 };
+
 
 export const updateLabOrder = async (id: string, data: Partial<ILabOrder>) => {
   return await LabOrder.findByIdAndUpdate(id, data, { new: true })

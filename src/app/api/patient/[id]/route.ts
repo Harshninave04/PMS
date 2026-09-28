@@ -6,11 +6,12 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return PatientController.getPatientById(id);
-    } catch (e: any) {
+        return PatientController.getPatientById(id, request);
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to fetch patient";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to fetch patient"
+            message
         }, { status: 500 });
     }
 }
@@ -19,10 +20,11 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
     try {
         const { id } = await params;
         return PatientController.updatePatient(request, id);
-    } catch (e: any) {
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to update patient";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to update patient"
+            message
         }, { status: 500 });
     }
 }
@@ -30,11 +32,13 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return PatientController.deletePatient(id);
-    } catch (e: any) {
+        return PatientController.deletePatient(id, request);
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to delete patient";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to delete patient"
+            message
         }, { status: 500 });
     }
 }
+

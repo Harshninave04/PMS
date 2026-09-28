@@ -3,6 +3,8 @@ import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultRoomService, { RoomService } from "@/services/room.service";
 import { CreateRoomDto, UpdateRoomDto } from "@/dto/room.dto";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class RoomController {
     constructor(private roomService: RoomService = defaultRoomService) { }
@@ -10,6 +12,9 @@ export class RoomController {
     async createRoom(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Room");
+            if (!auth.isAuthorized) return auth.response;
+
             const data: CreateRoomDto = await request.json();
 
             if (!data.roomNumber || !data.wardId) {
@@ -32,10 +37,11 @@ export class RoomController {
                 { success: true, message: "Room created successfully", data: room },
                 { status: 201 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to create room" },
+                { success: false, message: err?.message || "Failed to create room" },
                 { status: statusCode }
             );
         }
@@ -44,7 +50,9 @@ export class RoomController {
     async getRooms(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_VIEW, "Room");
+            if (!auth.isAuthorized) return auth.response;
+
             const { searchParams } = new URL(request.url);
             const wardId = searchParams.get('wardId');
             
@@ -66,17 +74,22 @@ export class RoomController {
                 { success: true, count: rooms.length, data: rooms },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch rooms";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch rooms" },
+                { success: false, message },
                 { status: 500 }
             );
         }
     }
 
-    async getRoomById(id: string): Promise<NextResponse> {
+    async getRoomById(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            if (request) {
+                const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_VIEW, "Room");
+                if (!auth.isAuthorized) return auth.response;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -97,9 +110,10 @@ export class RoomController {
                 { success: true, data: room },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch room";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch room" },
+                { success: false, message },
                 { status: 500 }
             );
         }
@@ -108,6 +122,8 @@ export class RoomController {
     async updateRoom(request: NextRequest, id: string): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Room");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -131,18 +147,23 @@ export class RoomController {
                 { success: true, message: "Room updated successfully", data: room },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to update room" },
+                { success: false, message: err?.message || "Failed to update room" },
                 { status: statusCode }
             );
         }
     }
 
-    async deleteRoom(id: string): Promise<NextResponse> {
+    async deleteRoom(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            if (request) {
+                const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Room");
+                if (!auth.isAuthorized) return auth.response;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -157,14 +178,16 @@ export class RoomController {
                 { success: true, message: "Room deleted successfully" },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to delete room" },
+                { success: false, message: err?.message || "Failed to delete room" },
                 { status: statusCode }
             );
         }
     }
 }
 
-export default new RoomController();
+const roomController = new RoomController();
+export default roomController;

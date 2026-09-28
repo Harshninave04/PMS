@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import DynamicIcon from "./dynamic-icon";
-import { ChevronDown, ChevronRight, LogOut, Activity, User as UserIcon, Shield } from "lucide-react";
+import { ChevronDown, ChevronRight, LogOut, Activity, Shield } from "lucide-react";
 
 interface MenuItem {
   _id: string;
@@ -20,63 +20,6 @@ interface SidebarProps {
   mobileOpen?: boolean;
   setMobileOpen?: (open: boolean) => void;
 }
-
-// Frontend-only hide: add path or name to hide a top-level section.
-// To hide: keep/uncomment the entry. To show: remove/comment it out.
-// Matching is case-insensitive and checks both `path` and `name`.
-const HIDDEN_ROUTES: string[] = [
-  // "Dashboard",                  // path: /dashboard
-  // "Patient Management",         // path: /patients
-  // "Doctor & Staff Management",  // path: /staff
-  // "Appointments",               // path: /appointments
-  // "Admissions & Discharge",     // path: /admissions
-  // "Ward & Bed Management",     // path: /wards
-  "Clinical / EMR",             // path: /clinical
-  "Nursing",                    // path: /nursing
-  "Laboratory",                 // path: /lab
-  "Radiology / Imaging",        // path: /radiology
-  // "Pharmacy",                   // path: /pharmacy
-  "Emergency / Casualty",       // path: /emergency
-  "Operation Theatre",          // path: /ot
-  "Blood Bank",                 // path: /blood-bank
-  "Inventory",                  // path: /inventory
-  "Procurement",                // path: /procurement
-  // "Billing & Finance",          // path: /finance
-  "Insurance / TPA",            // path: /insurance
-  "Reports & Analytics",        // path: /reports
-  "Staff & HR",                 // path: /hr
-  "Notifications",              // path: /notifications
-  "Administration",             // path: /admin
-  "Organization Management",    // path: /organization
-  "Audit & Compliance",         // path: /audit
-  "System Configuration",       // path: /config
-  // --- also supports raw paths if you prefer ---
-  // "/dashboard",
-  // "/patients",
-  // "/staff",
-  // "/appointments",
-  // "/admissions",
-  // "/wards",
-  // "/clinical",
-  // "/nursing",
-  // "/lab",
-  // "/radiology",
-  // "/pharmacy",
-  // "/emergency",
-  // "/ot",
-  // "/blood-bank",
-  // "/inventory",
-  // "/procurement",
-  // "/finance",
-  // "/insurance",
-  // "/reports",
-  // "/hr",
-  // "/notifications",
-  // "/admin",
-  // "/organization",
-  // "/audit",
-  // "/config",
-];
 
 export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) => {
   const pathname = usePathname();
@@ -95,8 +38,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
           const childIds = new Set<string>();
           json.data.forEach((m: MenuItem) => {
             if (m.children && Array.isArray(m.children)) {
-              m.children.forEach((c: any) => {
-                if (typeof c === "object" && c._id) {
+              m.children.forEach((c: MenuItem | string) => {
+                if (typeof c === "object" && c && c._id) {
                   childIds.add(c._id.toString());
                 } else if (typeof c === "string") {
                   childIds.add(c);
@@ -104,12 +47,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
               });
             }
           });
-          const hiddenSet = new Set(HIDDEN_ROUTES.map((s) => s.toLowerCase().trim()));
           const topLevel = json.data.filter((m: MenuItem) => {
             if (childIds.has(m._id.toString())) return false;
-            const pathKey = (m.path || "").toLowerCase().trim();
-            const nameKey = (m.name || "").toLowerCase().trim();
-            if (hiddenSet.has(pathKey) || hiddenSet.has(nameKey)) return false;
             return true;
           });
           setMenus(topLevel);

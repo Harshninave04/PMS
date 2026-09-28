@@ -3,6 +3,8 @@ import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import { taskService, TaskService } from "@/services/task.service";
 import { CreateTaskDto, UpdateTaskDto } from "@/dto/task.dto";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class TaskController {
   constructor(private svc: TaskService = taskService) {}
@@ -10,6 +12,10 @@ export class TaskController {
   async createTask(request: NextRequest): Promise<NextResponse> {
     try {
       await dbConnect();
+
+      const authResult = await authorizeRequest(request, PERMISSION_KEYS.TASK_CREATE, "Task");
+      if (!authResult.isAuthorized) return authResult.response;
+
       const data: CreateTaskDto = await request.json();
 
       if (!data.title || !data.assignedTo || !data.assignedBy || !data.dueDate) {
@@ -24,9 +30,10 @@ export class TaskController {
         { success: true, message: "Task created successfully", data: task },
         { status: 201 }
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string };
       return NextResponse.json(
-        { success: false, message: error?.message || "Failed to create task" },
+        { success: false, message: err?.message || "Failed to create task" },
         { status: 500 }
       );
     }
@@ -35,6 +42,10 @@ export class TaskController {
   async getTasks(request: NextRequest): Promise<NextResponse> {
     try {
       await dbConnect();
+
+      const authResult = await authorizeRequest(request, PERMISSION_KEYS.TASK_VIEW, "Task");
+      if (!authResult.isAuthorized) return authResult.response;
+
       const { searchParams } = new URL(request.url);
       const assignedTo = searchParams.get("assignedTo");
 
@@ -49,17 +60,31 @@ export class TaskController {
         { success: true, count: tasks.length, data: tasks },
         { status: 200 }
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string };
       return NextResponse.json(
-        { success: false, message: error?.message || "Failed to fetch tasks" },
+        { success: false, message: err?.message || "Failed to fetch tasks" },
         { status: 500 }
       );
     }
   }
 
-  async getTaskById(id: string): Promise<NextResponse> {
+  async getTaskById(id: string, request?: NextRequest): Promise<NextResponse> {
     try {
       await dbConnect();
+
+      if (request) {
+        const authResult = await authorizeRequest(request, PERMISSION_KEYS.TASK_VIEW, "Task");
+        if (!authResult.isAuthorized) return authResult.response;
+      }
+
+      if (!Types.ObjectId.isValid(id)) {
+        return NextResponse.json(
+          { success: false, message: "Invalid task ID" },
+          { status: 400 }
+        );
+      }
+
       const task = await this.svc.getTaskById(id);
       if (!task) {
         return NextResponse.json(
@@ -71,9 +96,10 @@ export class TaskController {
         { success: true, data: task },
         { status: 200 }
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string };
       return NextResponse.json(
-        { success: false, message: error?.message || "Failed to fetch task" },
+        { success: false, message: err?.message || "Failed to fetch task" },
         { status: 500 }
       );
     }
@@ -82,6 +108,17 @@ export class TaskController {
   async updateTask(request: NextRequest, id: string): Promise<NextResponse> {
     try {
       await dbConnect();
+
+      const authResult = await authorizeRequest(request, PERMISSION_KEYS.TASK_UPDATE, "Task");
+      if (!authResult.isAuthorized) return authResult.response;
+
+      if (!Types.ObjectId.isValid(id)) {
+        return NextResponse.json(
+          { success: false, message: "Invalid task ID" },
+          { status: 400 }
+        );
+      }
+
       const data: UpdateTaskDto = await request.json();
       const task = await this.svc.updateTask(id, data);
       if (!task) {
@@ -94,17 +131,31 @@ export class TaskController {
         { success: true, message: "Task updated successfully", data: task },
         { status: 200 }
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string };
       return NextResponse.json(
-        { success: false, message: error?.message || "Failed to update task" },
+        { success: false, message: err?.message || "Failed to update task" },
         { status: 500 }
       );
     }
   }
 
-  async deleteTask(id: string): Promise<NextResponse> {
+  async deleteTask(id: string, request?: NextRequest): Promise<NextResponse> {
     try {
       await dbConnect();
+
+      if (request) {
+        const authResult = await authorizeRequest(request, PERMISSION_KEYS.TASK_UPDATE, "Task");
+        if (!authResult.isAuthorized) return authResult.response;
+      }
+
+      if (!Types.ObjectId.isValid(id)) {
+        return NextResponse.json(
+          { success: false, message: "Invalid task ID" },
+          { status: 400 }
+        );
+      }
+
       const task = await this.svc.deleteTask(id);
       if (!task) {
         return NextResponse.json(
@@ -116,13 +167,15 @@ export class TaskController {
         { success: true, message: "Task deleted successfully" },
         { status: 200 }
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string };
       return NextResponse.json(
-        { success: false, message: error?.message || "Failed to delete task" },
+        { success: false, message: err?.message || "Failed to delete task" },
         { status: 500 }
       );
     }
   }
 }
 
-export default new TaskController();
+const taskController = new TaskController();
+export default taskController;

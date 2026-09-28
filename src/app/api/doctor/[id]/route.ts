@@ -10,11 +10,12 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return DoctorController.getDoctorById(id);
-    } catch (e: any) {
+        return DoctorController.getDoctorById(id, request);
+    } catch (e: unknown) {
+        const err = e as { message?: string };
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to fetch doctor"
+            message: err?.message || "Failed to fetch doctor"
         }, { status: 500 });
     }
 }
@@ -27,10 +28,11 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
     try {
         const { id } = await params;
         return DoctorController.updateDoctor(request, id);
-    } catch (e: any) {
+    } catch (e: unknown) {
+        const err = e as { message?: string };
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to update doctor"
+            message: err?.message || "Failed to update doctor"
         }, { status: 500 });
     }
 }
@@ -42,11 +44,12 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return DoctorController.deleteDoctor(id);
-    } catch (e: any) {
+        return DoctorController.deleteDoctor(id, request);
+    } catch (e: unknown) {
+        const err = e as { message?: string };
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to delete doctor"
+            message: err?.message || "Failed to delete doctor"
         }, { status: 500 });
     }
 }

@@ -5,16 +5,16 @@ import NursingIntakeOutput from "@/models/nursing-intake-output.model";
 import NursingMedication from "@/models/nursing-medication.model";
 import NursingHandover from "@/models/nursing-handover.model";
 import Admission from "@/models/admission.model";
-import Bed from "@/models/bed.model";
-import Patient from "@/models/patient.model";
+import "@/models/bed.model";
+import "@/models/patient.model";
 import "@/models/user.model";
 import "@/models/room.model";
 import "@/models/ward.model";
 
 export class NursingService {
   // 1. My Inpatients (Real admitted ward inpatients)
-  async getMyPatients(filter: any = {}) {
-    const query: any = { status: { $in: ["ADMITTED", "ACTIVE"] } };
+  async getMyPatients(filter: Record<string, unknown> = {}) {
+    const query: Record<string, unknown> = { status: { $in: ["ADMITTED", "ACTIVE"] }, ...filter };
 
     const admissions = await Admission.find(query)
       .populate("patientId", "name uhid age gender contact bloodGroup allergies medicalHistory")
@@ -29,11 +29,13 @@ export class NursingService {
       .sort({ admissionDate: -1 })
       .lean();
 
-    return admissions.map((adm: any) => {
-      const bed = adm.bedId as any;
-      const room = bed?.roomId as any;
-      const ward = room?.wardId as any;
-      const patient = adm.patientId as any;
+    return admissions.map((adm: Record<string, unknown>) => {
+      const bed = adm.bedId as Record<string, unknown> | undefined;
+      const room = bed?.roomId as Record<string, unknown> | undefined;
+      const ward = room?.wardId as Record<string, unknown> | undefined;
+      const patient = adm.patientId as Record<string, unknown> | undefined;
+      const doctor = adm.doctorId as Record<string, unknown> | undefined;
+      const insurance = adm.insurance as { provider?: string } | undefined;
 
       return {
         admissionId: adm._id,
@@ -50,12 +52,12 @@ export class NursingService {
         wardName: ward?.wardName || "General Ward",
         wardType: ward?.wardType || "General",
         floor: ward?.floor || 1,
-        doctorName: adm.doctorId?.name ? `Dr. ${adm.doctorId.name}` : "Attending Physician",
-        doctorId: adm.doctorId?._id,
+        doctorName: doctor?.name ? `Dr. ${doctor.name}` : "Attending Physician",
+        doctorId: doctor?._id,
         diagnosis: adm.initialDiagnosis || adm.reasonForAdmission || "Clinical Care",
         admissionDate: adm.admissionDate,
         admissionType: adm.admissionType || "ELECTIVE",
-        insurance: adm.insurance?.provider || "Self Pay"
+        insurance: insurance?.provider || "Self Pay"
       };
     });
   }
@@ -90,7 +92,7 @@ export class NursingService {
 
   // 3. Care Plans
   async getCarePlans(patientId?: string) {
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     if (patientId) filter.patient = patientId;
     return NursingCarePlan.find(filter)
       .populate("patient", "name uhid age gender")
@@ -98,11 +100,11 @@ export class NursingService {
       .sort({ createdAt: -1 });
   }
 
-  async createCarePlan(data: any) {
+  async createCarePlan(data: Record<string, unknown>) {
     return NursingCarePlan.create(data);
   }
 
-  async updateCarePlan(id: string, data: any) {
+  async updateCarePlan(id: string, data: Record<string, unknown>) {
     return NursingCarePlan.findByIdAndUpdate(id, data, { new: true });
   }
 
@@ -111,8 +113,8 @@ export class NursingService {
   }
 
   // 4. Nursing Tasks
-  async getTasks(patientId?: string) {
-    const filter: any = {};
+  async getTasks(patientId?: string, scopeFilter: Record<string, unknown> = {}) {
+    const filter: Record<string, unknown> = { ...scopeFilter };
     if (patientId) filter.patient = patientId;
     return NursingTask.find(filter)
       .populate("patient", "name uhid")
@@ -122,11 +124,15 @@ export class NursingService {
       .sort({ dueDate: 1, createdAt: -1 });
   }
 
-  async createTask(data: any) {
+  async getTaskById(id: string) {
+    return NursingTask.findById(id);
+  }
+
+  async createTask(data: Record<string, unknown>) {
     return NursingTask.create(data);
   }
 
-  async updateTask(id: string, data: any) {
+  async updateTask(id: string, data: Record<string, unknown>) {
     return NursingTask.findByIdAndUpdate(id, data, { new: true });
   }
 
@@ -136,7 +142,7 @@ export class NursingService {
 
   // 5. Fluid Intake & Output
   async getIntakeOutputs(patientId?: string) {
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     if (patientId) filter.patient = patientId;
     return NursingIntakeOutput.find(filter)
       .populate("patient", "name uhid")
@@ -144,7 +150,7 @@ export class NursingService {
       .sort({ recordDate: -1, createdAt: -1 });
   }
 
-  async createIntakeOutput(data: any) {
+  async createIntakeOutput(data: Record<string, unknown>) {
     return NursingIntakeOutput.create(data);
   }
 
@@ -154,7 +160,7 @@ export class NursingService {
 
   // 6. Medication Administration Record (eMAR)
   async getMedications(patientId?: string) {
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     if (patientId) filter.patient = patientId;
     return NursingMedication.find(filter)
       .populate("patient", "name uhid")
@@ -162,11 +168,11 @@ export class NursingService {
       .sort({ scheduledTime: 1, createdAt: -1 });
   }
 
-  async createMedication(data: any) {
+  async createMedication(data: Record<string, unknown>) {
     return NursingMedication.create(data);
   }
 
-  async updateMedication(id: string, data: any) {
+  async updateMedication(id: string, data: Record<string, unknown>) {
     return NursingMedication.findByIdAndUpdate(id, data, { new: true });
   }
 
@@ -176,7 +182,7 @@ export class NursingService {
 
   // 7. Shift Handover (SBAR)
   async getHandovers(wardId?: string) {
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     if (wardId) filter.ward = wardId;
     return NursingHandover.find(filter)
       .populate("ward", "wardName wardCode floor")
@@ -186,11 +192,11 @@ export class NursingService {
       .sort({ handoverDate: -1, createdAt: -1 });
   }
 
-  async createHandover(data: any) {
+  async createHandover(data: Record<string, unknown>) {
     return NursingHandover.create(data);
   }
 
-  async updateHandover(id: string, data: any) {
+  async updateHandover(id: string, data: Record<string, unknown>) {
     return NursingHandover.findByIdAndUpdate(id, data, { new: true });
   }
 
@@ -200,7 +206,7 @@ export class NursingService {
 
   // 8. Shift Duty Roster
   async getShifts(wardId?: string) {
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     if (wardId) filter.ward = wardId;
     return Shift.find(filter)
       .populate("user", "name email contact")
@@ -208,11 +214,11 @@ export class NursingService {
       .sort({ startTime: -1 });
   }
 
-  async createShift(data: any) {
+  async createShift(data: Record<string, unknown>) {
     return Shift.create(data);
   }
 
-  async updateShift(id: string, data: any) {
+  async updateShift(id: string, data: Record<string, unknown>) {
     return Shift.findByIdAndUpdate(id, data, { new: true });
   }
 
@@ -221,4 +227,5 @@ export class NursingService {
   }
 }
 
-export default new NursingService();
+const nursingService = new NursingService();
+export default nursingService;

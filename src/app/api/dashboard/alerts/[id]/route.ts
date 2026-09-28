@@ -14,5 +14,5 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id } = await params;
-  return await AlertController.deleteAlert(id);
+  return await AlertController.deleteAlert(id, request);
 }

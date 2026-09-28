@@ -14,11 +14,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
     try {
-        return OrganizationController.getOrganizations();
-    } catch (e: any) {
+        return OrganizationController.getOrganizations(request);
+    } catch (e: unknown) {
+        const err = e as { message?: string };
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to fetch organizations"
+            message: err?.message || "Failed to fetch organizations"
         }, { status: 500 });
     }
 }

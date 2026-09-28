@@ -10,11 +10,12 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return RoomController.getRoomById(id);
-    } catch (e: any) {
+        return await RoomController.getRoomById(id, request);
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to fetch room";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to fetch room"
+            message
         }, { status: 500 });
     }
 }
@@ -26,11 +27,12 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
 export async function PUT(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return RoomController.updateRoom(request, id);
-    } catch (e: any) {
+        return await RoomController.updateRoom(request, id);
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to update room";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to update room"
+            message
         }, { status: 500 });
     }
 }
@@ -42,11 +44,12 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return RoomController.deleteRoom(id);
-    } catch (e: any) {
+        return await RoomController.deleteRoom(id, request);
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to delete room";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to delete room"
+            message
         }, { status: 500 });
     }
 }

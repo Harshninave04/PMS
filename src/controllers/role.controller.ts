@@ -3,37 +3,45 @@ import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultRoleService, { RoleService } from "@/services/role.service";
 import { CreateRoleDto, UpdateRoleDto } from "@/dto/role.dto";
-import { getServerSession } from "next-auth";
-import authOptions from "@/lib/auth";
 import Role from "@/models/role.model";
 import roleHierarchyRepository from "@/repositories/role-hierarchy.repository";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
+import { IRole, IManagedRole, IAccess } from "@/interfaces/role.interface";
 
 const ROLE_PERMISSIONS: string[] = [];
 type RolePermission = string;
 
-function normalizeRoleId(value: any): string {
+function normalizeRoleId(value: unknown): string {
+    if (!value) return "";
     if (typeof value === "string") return value;
     if (value instanceof Types.ObjectId) return value.toString();
-    if (value?._id) return normalizeRoleId(value._id);
-    if (value?.roleId) return normalizeRoleId(value.roleId);
-    if (value?.role) return normalizeRoleId(value.role);
-    if (value?.buffer && Array.isArray(value.buffer?.data)) {
-        return new Types.ObjectId(Buffer.from(value.buffer.data)).toString();
+    const obj = value as {
+        roleId?: { _id?: unknown } | unknown;
+        targetRole?: { _id?: unknown } | unknown;
+        role?: { _id?: unknown } | unknown;
+        buffer?: { data?: number[] };
+        _id?: unknown;
+    };
+    if (obj.buffer && Array.isArray(obj.buffer.data)) {
+        return new Types.ObjectId(Buffer.from(obj.buffer.data)).toString();
     }
-    return (value ?? "").toString();
+    const inner =
+        (obj.roleId as { _id?: unknown })?._id ??
+        obj.roleId ??
+        (obj.targetRole as { _id?: unknown })?._id ??
+        obj.targetRole ??
+        (obj.role as { _id?: unknown })?._id ??
+        obj.role ??
+        obj._id ??
+        value;
+    return (inner ?? "").toString();
 }
 
-function hasModulePermission(role: any, moduleName: string, permission: RolePermission): boolean {
-    return Boolean(
-        role?.access?.some(
-            (item: any) => item.moduleName === moduleName && item.permissions?.includes(permission)
-        )
-    );
-}
-
-async function getManagedRolePermissions(parentRole: any, targetRoleId: string): Promise<RolePermission[]> {
+async function getManagedRolePermissions(parentRole: IRole, targetRoleId: string): Promise<RolePermission[]> {
+    const parentId = typeof parentRole._id === "string" ? new Types.ObjectId(parentRole._id) : (parentRole._id as Types.ObjectId);
     const hierarchy = await roleHierarchyRepository.findByParentAndTarget(
-        parentRole._id,
+        parentId,
         new Types.ObjectId(targetRoleId)
     );
 
@@ -41,7 +49,7 @@ async function getManagedRolePermissions(parentRole: any, targetRoleId: string):
         return hierarchy.permissions as RolePermission[];
     }
 
-    const legacy = parentRole.managedRoles?.find((item: any) => normalizeRoleId(item) === targetRoleId);
+    const legacy = parentRole.managedRoles?.find((item: IManagedRole) => normalizeRoleId(item) === targetRoleId);
     return (legacy?.permissions || []) as RolePermission[];
 }
 
@@ -51,6 +59,10 @@ export class RoleController {
     async createRole(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.ROLE_CREATE, "Role");
+            if (!authResult.isAuthorized) return authResult.response;
+
             const data: CreateRoleDto = await request.json();
 
             if (!data.role || !data.access || !Array.isArray(data.access)) {
@@ -60,33 +72,16 @@ export class RoleController {
                 );
             }
 
-            // Security: Ensure user only creates roles inside their delegated access.
-            const session = await getServerSession(authOptions);
-            if (!session?.user?.role) {
-                return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-            }
-
-            const creatorRoleId = normalizeRoleId(session.user.role);
-            if (!Types.ObjectId.isValid(creatorRoleId)) {
-                return NextResponse.json({ success: false, message: "Invalid current user role" }, { status: 403 });
-            }
-
-            const creatorRole = await Role.findById(creatorRoleId);
+            const { context } = authResult;
+            const creatorRole = await Role.findById(context.roleId);
             if (!creatorRole) {
                 return NextResponse.json({ success: false, message: "Current user role not found" }, { status: 403 });
             }
 
             if (creatorRole.role !== "SYSTEM_SUPER_ADMIN") {
-                if (!hasModulePermission(creatorRole, "role", "role.role.create")) {
-                    return NextResponse.json(
-                        { success: false, message: "You do not have permission to create roles" },
-                        { status: 403 }
-                    );
-                }
-
-                // 1. Verify Module Access
+                // 1. Verify Module Access (cannot grant permissions higher than own)
                 for (const reqAccess of data.access) {
-                    const creatorAccess = creatorRole.access?.find((a: any) => a.moduleName === reqAccess.moduleName);
+                    const creatorAccess = creatorRole.access?.find((a: IAccess) => a.moduleName === reqAccess.moduleName);
                     if (!creatorAccess) {
                         return NextResponse.json({ success: false, message: `You do not have access to module: ${reqAccess.moduleName}` }, { status: 403 });
                     }
@@ -96,7 +91,7 @@ export class RoleController {
                         }
                     }
                 }
-                    
+
                 // 2. Verify Managed Roles Access
                 if (data.managedRoles && Array.isArray(data.managedRoles)) {
                     for (const reqManaged of data.managedRoles) {
@@ -123,8 +118,8 @@ export class RoleController {
             // Sync to dedicated RoleHierarchy table
             if (data.managedRoles && Array.isArray(data.managedRoles)) {
                 await roleHierarchyRepository.setHierarchiesForParent(
-                    role._id,
-                    data.managedRoles.map((m: any) => ({
+                    role._id as Types.ObjectId,
+                    data.managedRoles.map((m) => ({
                         targetRole: normalizeRoleId(m),
                         permissions: m.permissions,
                     }))
@@ -134,16 +129,16 @@ export class RoleController {
             const superAdminRole = await Role.findOne({ role: "SYSTEM_SUPER_ADMIN" });
             if (superAdminRole) {
                 await roleHierarchyRepository.upsertHierarchy(
-                    superAdminRole._id,
-                    role._id,
+                    superAdminRole._id as Types.ObjectId,
+                    role._id as Types.ObjectId,
                     [...ROLE_PERMISSIONS]
                 );
             }
 
             if (creatorRole.role !== "SYSTEM_SUPER_ADMIN") {
                 await roleHierarchyRepository.upsertHierarchy(
-                    creatorRole._id,
-                    role._id,
+                    creatorRole._id as Types.ObjectId,
+                    role._id as Types.ObjectId,
                     [...ROLE_PERMISSIONS]
                 );
             }
@@ -152,10 +147,11 @@ export class RoleController {
                 { success: true, message: "Role created successfully", data: role },
                 { status: 201 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to create role" },
+                { success: false, message: err?.message || "Failed to create role" },
                 { status: statusCode }
             );
         }
@@ -164,15 +160,17 @@ export class RoleController {
     async getRoles(request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            let currentUserRoleId: string | null = null;
+            if (request) {
+                const authResult = await authorizeRequest(request, PERMISSION_KEYS.ROLE_VIEW, "Role");
+                if (!authResult.isAuthorized) return authResult.response;
+                currentUserRoleId = authResult.context.roleId ? authResult.context.roleId.toString() : null;
+            }
+
             let roles = await this.roleService.getAllRoles();
 
-            const session = await getServerSession(authOptions);
-            if (session?.user?.role) {
-                const currentUserRoleId = normalizeRoleId(session.user.role);
-                if (!Types.ObjectId.isValid(currentUserRoleId)) {
-                    return NextResponse.json({ success: false, message: "Invalid current user role" }, { status: 403 });
-                }
-
+            if (currentUserRoleId && Types.ObjectId.isValid(currentUserRoleId)) {
                 const currentUserRole = await Role.findById(currentUserRoleId);
                 if (currentUserRole && currentUserRole.role !== "SYSTEM_SUPER_ADMIN") {
                     let reqPerm: string | null = null;
@@ -181,27 +179,27 @@ export class RoleController {
                     if (request?.url) {
                         try {
                             const { searchParams } = new URL(request.url);
-                            reqPerm = searchParams.get('permission') || searchParams.get('action');
-                            managedOnly = searchParams.get('managedOnly') === 'true';
-                        } catch {}
+                            reqPerm = searchParams.get("permission") || searchParams.get("action");
+                            managedOnly = searchParams.get("managedOnly") === "true";
+                        } catch {
+                            // URL parsing fallback
+                        }
                     }
 
-                    // If a specific permission (like CREATE when creating a user) or managedOnly is requested
                     if (reqPerm || managedOnly) {
-                        const hierarchies = await roleHierarchyRepository.findByParentRole(currentUserRole._id);
+                        const hierarchies = await roleHierarchyRepository.findByParentRole(currentUserRole._id as Types.ObjectId);
                         const hierarchyIds = hierarchies
-                            .filter((h: any) => !reqPerm || h.permissions?.includes(reqPerm.toUpperCase() as any))
-                            .map((h: any) => (h.targetRole?._id || h.targetRole)?.toString());
+                            .filter((h) => !reqPerm || h.permissions?.includes(reqPerm.toUpperCase()))
+                            .map((h) => normalizeRoleId(h.targetRole));
 
                         const legacyIds = currentUserRole.managedRoles
-                            ?.filter((mr: any) => !reqPerm || mr.permissions?.includes(reqPerm.toUpperCase()))
-                            ?.map((mr: any) => (mr.roleId?._id || mr.roleId)?.toString()) || [];
-                        
+                            ?.filter((mr: IManagedRole) => !reqPerm || mr.permissions?.includes(reqPerm.toUpperCase()))
+                            ?.map((mr: IManagedRole) => normalizeRoleId(mr.roleId)) || [];
+
                         const managedRoleIds = Array.from(new Set([...hierarchyIds, ...legacyIds]));
-                        roles = roles.filter(r => managedRoleIds.includes(r._id.toString()));
+                        roles = roles.filter((r) => managedRoleIds.includes(r._id.toString()));
                     } else {
-                        // In general role management, non-super-admins cannot see/edit SYSTEM_SUPER_ADMIN role
-                        roles = roles.filter(r => r.role !== "SYSTEM_SUPER_ADMIN");
+                        roles = roles.filter((r) => r.role !== "SYSTEM_SUPER_ADMIN");
                     }
                 }
             }
@@ -210,17 +208,23 @@ export class RoleController {
                 { success: true, count: roles.length, data: roles },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { message?: string };
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch roles" },
+                { success: false, message: err?.message || "Failed to fetch roles" },
                 { status: 500 }
             );
         }
     }
 
-    async getRoleById(id: string): Promise<NextResponse> {
+    async getRoleById(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            if (request) {
+                const authResult = await authorizeRequest(request, PERMISSION_KEYS.ROLE_VIEW, "Role");
+                if (!authResult.isAuthorized) return authResult.response;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -237,20 +241,19 @@ export class RoleController {
                 );
             }
 
-            // Fetch hierarchies from dedicated RoleHierarchy table
             const hierarchies = await roleHierarchyRepository.findByParentRole(new Types.ObjectId(id));
-            const roleObj: any = role;
-            
+            const roleObj = role.toObject ? role.toObject() : { ...role };
+
             if (role.role === "SYSTEM_SUPER_ADMIN") {
                 const allRoles = await this.roleService.getAllRoles();
                 roleObj.managedRoles = allRoles
-                    .filter(r => r._id.toString() !== id.toString())
-                    .map(r => ({
+                    .filter((r) => r._id.toString() !== id.toString())
+                    .map((r) => ({
                         roleId: r,
                         permissions: ["role.assign", "role.create", "role.update", "role.delete"]
                     }));
             } else if (hierarchies && hierarchies.length > 0) {
-                roleObj.managedRoles = hierarchies.map((h: any) => ({
+                roleObj.managedRoles = hierarchies.map((h) => ({
                     roleId: h.targetRole,
                     permissions: h.permissions,
                 }));
@@ -260,9 +263,10 @@ export class RoleController {
                 { success: true, data: roleObj },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { message?: string };
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch role" },
+                { success: false, message: err?.message || "Failed to fetch role" },
                 { status: 500 }
             );
         }
@@ -271,6 +275,9 @@ export class RoleController {
     async updateRole(request: NextRequest, id: string): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.ROLE_UPDATE, "Role");
+            if (!authResult.isAuthorized) return authResult.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -281,18 +288,8 @@ export class RoleController {
 
             const data: UpdateRoleDto = await request.json();
 
-            // Security: Ensure user only grants permissions they have
-            const session = await getServerSession(authOptions);
-            if (!session?.user?.role) {
-                return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-            }
-
-            const modifierRoleId = normalizeRoleId(session.user.role);
-            if (!Types.ObjectId.isValid(modifierRoleId)) {
-                return NextResponse.json({ success: false, message: "Invalid current user role" }, { status: 403 });
-            }
-
-            const modifierRole = await Role.findById(modifierRoleId);
+            const { context } = authResult;
+            const modifierRole = await Role.findById(context.roleId);
             if (!modifierRole) {
                 return NextResponse.json({ success: false, message: "Current user role not found" }, { status: 403 });
             }
@@ -306,10 +303,9 @@ export class RoleController {
                     );
                 }
 
-                // 1. Verify Module Access
                 if (data.access && Array.isArray(data.access)) {
                     for (const reqAccess of data.access) {
-                        const modifierAccess = modifierRole.access?.find((a: any) => a.moduleName === reqAccess.moduleName);
+                        const modifierAccess = modifierRole.access?.find((a: IAccess) => a.moduleName === reqAccess.moduleName);
                         if (!modifierAccess) {
                             return NextResponse.json({ success: false, message: `You do not have access to module: ${reqAccess.moduleName}` }, { status: 403 });
                         }
@@ -320,8 +316,7 @@ export class RoleController {
                         }
                     }
                 }
-                    
-                // 2. Verify Managed Roles Access
+
                 if (data.managedRoles && Array.isArray(data.managedRoles)) {
                     for (const reqManaged of data.managedRoles) {
                         const reqId = normalizeRoleId(reqManaged);
@@ -344,11 +339,10 @@ export class RoleController {
 
             const role = await this.roleService.updateRole(new Types.ObjectId(id), data);
 
-            // Sync to dedicated RoleHierarchy table
             if (data.managedRoles && Array.isArray(data.managedRoles)) {
                 await roleHierarchyRepository.setHierarchiesForParent(
                     new Types.ObjectId(id),
-                    data.managedRoles.map((m: any) => ({
+                    data.managedRoles.map((m) => ({
                         targetRole: normalizeRoleId(m),
                         permissions: m.permissions,
                     }))
@@ -359,16 +353,17 @@ export class RoleController {
                 { success: true, message: "Role updated successfully", data: role },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to update role" },
+                { success: false, message: err?.message || "Failed to update role" },
                 { status: statusCode }
             );
         }
     }
 
-    async deleteRole(id: string): Promise<NextResponse> {
+    async deleteRole(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
 
@@ -379,28 +374,24 @@ export class RoleController {
                 );
             }
 
-            const session = await getServerSession(authOptions);
-            if (!session?.user?.role) {
-                return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-            }
+            if (request) {
+                const authResult = await authorizeRequest(request, PERMISSION_KEYS.ROLE_DELETE, "Role");
+                if (!authResult.isAuthorized) return authResult.response;
 
-            const deleterRoleId = normalizeRoleId(session.user.role);
-            if (!Types.ObjectId.isValid(deleterRoleId)) {
-                return NextResponse.json({ success: false, message: "Invalid current user role" }, { status: 403 });
-            }
+                const { context } = authResult;
+                const deleterRole = await Role.findById(context.roleId);
+                if (!deleterRole) {
+                    return NextResponse.json({ success: false, message: "Current user role not found" }, { status: 403 });
+                }
 
-            const deleterRole = await Role.findById(deleterRoleId);
-            if (!deleterRole) {
-                return NextResponse.json({ success: false, message: "Current user role not found" }, { status: 403 });
-            }
-
-            if (deleterRole.role !== "SYSTEM_SUPER_ADMIN") {
-                const deleterPermissionsForRole = await getManagedRolePermissions(deleterRole, id);
-                if (!deleterPermissionsForRole.includes("role.delete")) {
-                    return NextResponse.json(
-                        { success: false, message: "You do not have permission to delete this role" },
-                        { status: 403 }
-                    );
+                if (deleterRole.role !== "SYSTEM_SUPER_ADMIN") {
+                    const deleterPermissionsForRole = await getManagedRolePermissions(deleterRole, id);
+                    if (!deleterPermissionsForRole.includes("role.delete")) {
+                        return NextResponse.json(
+                            { success: false, message: "You do not have permission to delete this role" },
+                            { status: 403 }
+                        );
+                    }
                 }
             }
 
@@ -419,15 +410,16 @@ export class RoleController {
                 { success: true, message: "Role deleted successfully" },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to delete role" },
+                { success: false, message: err?.message || "Failed to delete role" },
                 { status: statusCode }
             );
         }
     }
 }
 
-export default new RoleController();
-
+const roleController = new RoleController();
+export default roleController;

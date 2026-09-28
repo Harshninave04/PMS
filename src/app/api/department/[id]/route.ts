@@ -10,11 +10,12 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return DepartmentController.getDepartmentById(id);
-    } catch (e: any) {
+        return DepartmentController.getDepartmentById(id, request);
+    } catch (e: unknown) {
+        const err = e as { message?: string };
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to fetch department"
+            message: err?.message || "Failed to fetch department"
         }, { status: 500 });
     }
 }
@@ -27,10 +28,11 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
     try {
         const { id } = await params;
         return DepartmentController.updateDepartment(request, id);
-    } catch (e: any) {
+    } catch (e: unknown) {
+        const err = e as { message?: string };
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to update department"
+            message: err?.message || "Failed to update department"
         }, { status: 500 });
     }
 }
@@ -42,11 +44,12 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return DepartmentController.deleteDepartment(id);
-    } catch (e: any) {
+        return DepartmentController.deleteDepartment(id, request);
+    } catch (e: unknown) {
+        const err = e as { message?: string };
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to delete department"
+            message: err?.message || "Failed to delete department"
         }, { status: 500 });
     }
 }

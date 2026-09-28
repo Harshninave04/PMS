@@ -3,6 +3,8 @@ import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultBedService, { BedService } from "@/services/bed.service";
 import { CreateBedDto, UpdateBedDto } from "@/dto/bed.dto";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class BedController {
     constructor(private bedService: BedService = defaultBedService) { }
@@ -10,6 +12,9 @@ export class BedController {
     async createBed(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Bed");
+            if (!auth.isAuthorized) return auth.response;
+
             const data: CreateBedDto = await request.json();
 
             if (!data.bedNumber || !data.roomId) {
@@ -32,10 +37,11 @@ export class BedController {
                 { success: true, message: "Bed created successfully", data: bed },
                 { status: 201 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to create bed" },
+                { success: false, message: err?.message || "Failed to create bed" },
                 { status: statusCode }
             );
         }
@@ -44,13 +50,15 @@ export class BedController {
     async getBeds(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_VIEW, "Bed");
+            if (!auth.isAuthorized) return auth.response;
+
             const { searchParams } = new URL(request.url);
             const roomId = searchParams.get('roomId');
             const status = searchParams.get('status');
             const bedType = searchParams.get('bedType');
             
-            const query: any = {};
+            const query: Record<string, unknown> = {};
             if (roomId) {
                 if (!Types.ObjectId.isValid(roomId)) {
                     return NextResponse.json(
@@ -73,17 +81,22 @@ export class BedController {
                 { success: true, count: beds.length, data: beds },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch beds";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch beds" },
+                { success: false, message },
                 { status: 500 }
             );
         }
     }
 
-    async getBedById(id: string): Promise<NextResponse> {
+    async getBedById(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            if (request) {
+                const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_VIEW, "Bed");
+                if (!auth.isAuthorized) return auth.response;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -104,9 +117,10 @@ export class BedController {
                 { success: true, data: bed },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch bed";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch bed" },
+                { success: false, message },
                 { status: 500 }
             );
         }
@@ -115,6 +129,8 @@ export class BedController {
     async updateBed(request: NextRequest, id: string): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Bed");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -138,18 +154,23 @@ export class BedController {
                 { success: true, message: "Bed updated successfully", data: bed },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to update bed" },
+                { success: false, message: err?.message || "Failed to update bed" },
                 { status: statusCode }
             );
         }
     }
 
-    async deleteBed(id: string): Promise<NextResponse> {
+    async deleteBed(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            if (request) {
+                const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Bed");
+                if (!auth.isAuthorized) return auth.response;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -164,14 +185,16 @@ export class BedController {
                 { success: true, message: "Bed deleted successfully" },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to delete bed" },
+                { success: false, message: err?.message || "Failed to delete bed" },
                 { status: statusCode }
             );
         }
     }
 }
 
-export default new BedController();
+const bedController = new BedController();
+export default bedController;

@@ -10,3 +10,5 @@ export interface CreateOrganizationDto {
     address: string,
     logo?: string
 }
+
+export type UpdateOrganizationDto = Partial<CreateOrganizationDto>;

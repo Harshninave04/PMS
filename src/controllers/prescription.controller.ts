@@ -3,6 +3,17 @@ import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultPrescriptionService, { PrescriptionService } from "@/services/prescription.service";
 import { CreatePrescriptionDto, UpdatePrescriptionDto } from "@/dto/prescription.dto";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
+
+function extractEntityId(field: unknown): string | null {
+    if (!field) return null;
+    if (typeof field === "object" && field !== null && "_id" in field) {
+        const idVal = (field as { _id?: unknown })._id;
+        return idVal ? String(idVal) : null;
+    }
+    return String(field);
+}
 
 export class PrescriptionController {
     constructor(private prescriptionService: PrescriptionService = defaultPrescriptionService) { }
@@ -10,7 +21,20 @@ export class PrescriptionController {
     async createPrescription(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_PRESCRIPTION_CREATE, "Prescription");
+            if (!auth.isAuthorized) return auth.response;
+
             const data: CreatePrescriptionDto = await request.json();
+
+            // Enforce branch isolation
+            if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
+                data.branchId = auth.context.branchId.toString();
+            }
+
+            // Enforce doctor relational constraint: doctor with OWN scope can only author for their own userId
+            if (auth.grant.relScope === "OWN") {
+                data.doctorId = auth.context.userId.toString();
+            }
 
             if (!data.patientId || !data.doctorId || !data.visitDate || !data.medications) {
                 return NextResponse.json(
@@ -46,11 +70,11 @@ export class PrescriptionController {
                 { success: true, message: "Prescription created successfully", data: prescription },
                 { status: 201 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to create prescription";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to create prescription" },
-                { status: statusCode }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
@@ -59,23 +83,48 @@ export class PrescriptionController {
         try {
             await dbConnect();
 
+            // Authorization: user must have clinical prescription view OR pharmacy prescription view
+            let auth = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_PRESCRIPTION_VIEW, "Prescription");
+            if (!auth.isAuthorized) {
+                auth = await authorizeRequest(request, PERMISSION_KEYS.PHARMACY_PRESCRIPTION_VIEW, "Prescription");
+                if (!auth.isAuthorized) return auth.response;
+            }
+
             const { searchParams } = new URL(request.url);
-            const branchId = searchParams.get('branchId');
+            const requestedBranchId = searchParams.get('branchId');
             const patientId = searchParams.get('patientId');
-            const doctorId = searchParams.get('doctorId');
+            const requestedDoctorId = searchParams.get('doctorId');
             const appointmentId = searchParams.get('appointmentId');
+
+            // Enforce relational scope
+            let effectiveDoctorId = requestedDoctorId;
+            if (auth.grant.relScope === "OWN") {
+                effectiveDoctorId = auth.context.userId.toString();
+            }
+
+            // Enforce organizational scope
+            let effectiveBranchId = requestedBranchId;
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                effectiveBranchId = auth.context.branchId.toString();
+            }
 
             let prescriptions;
 
-            if (branchId) {
-                if (!Types.ObjectId.isValid(branchId)) return NextResponse.json({ success: false, message: "Invalid branch ID" }, { status: 400 });
-                prescriptions = await this.prescriptionService.getPrescriptionsByBranchId(new Types.ObjectId(branchId));
+            if (effectiveDoctorId) {
+                if (!Types.ObjectId.isValid(effectiveDoctorId)) return NextResponse.json({ success: false, message: "Invalid doctor ID" }, { status: 400 });
+                prescriptions = await this.prescriptionService.getPrescriptionsByDoctorId(new Types.ObjectId(effectiveDoctorId));
+                if (effectiveBranchId) {
+                    prescriptions = prescriptions.filter(p => {
+                        const bId = extractEntityId(p.branchId);
+                        return bId === effectiveBranchId;
+                    });
+                }
+            } else if (effectiveBranchId) {
+                if (!Types.ObjectId.isValid(effectiveBranchId)) return NextResponse.json({ success: false, message: "Invalid branch ID" }, { status: 400 });
+                prescriptions = await this.prescriptionService.getPrescriptionsByBranchId(new Types.ObjectId(effectiveBranchId));
             } else if (patientId) {
                 if (!Types.ObjectId.isValid(patientId)) return NextResponse.json({ success: false, message: "Invalid patient ID" }, { status: 400 });
                 prescriptions = await this.prescriptionService.getPrescriptionsByPatientId(new Types.ObjectId(patientId));
-            } else if (doctorId) {
-                if (!Types.ObjectId.isValid(doctorId)) return NextResponse.json({ success: false, message: "Invalid doctor ID" }, { status: 400 });
-                prescriptions = await this.prescriptionService.getPrescriptionsByDoctorId(new Types.ObjectId(doctorId));
             } else if (appointmentId) {
                 if (!Types.ObjectId.isValid(appointmentId)) return NextResponse.json({ success: false, message: "Invalid appointment ID" }, { status: 400 });
                 prescriptions = await this.prescriptionService.getPrescriptionsByAppointmentId(new Types.ObjectId(appointmentId));
@@ -87,17 +136,27 @@ export class PrescriptionController {
                 { success: true, count: prescriptions.length, data: prescriptions },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch prescriptions";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch prescriptions" },
+                { success: false, message },
                 { status: 500 }
             );
         }
     }
 
-    async getPrescriptionById(id: string): Promise<NextResponse> {
+    async getPrescriptionById(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            let authResult;
+            if (request) {
+                let auth = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_PRESCRIPTION_VIEW, "Prescription");
+                if (!auth.isAuthorized) {
+                    auth = await authorizeRequest(request, PERMISSION_KEYS.PHARMACY_PRESCRIPTION_VIEW, "Prescription");
+                    if (!auth.isAuthorized) return auth.response;
+                }
+                authResult = auth;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -114,13 +173,36 @@ export class PrescriptionController {
                 );
             }
 
+            // Relational check
+            if (authResult?.grant.relScope === "OWN") {
+                const docId = extractEntityId(prescription.doctorId);
+                if (docId !== authResult.context.userId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: You can only view your own prescriptions" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            // Organizational check
+            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
+                const pBranch = extractEntityId(prescription.branchId);
+                if (pBranch && pBranch !== authResult.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Prescription belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
             return NextResponse.json(
                 { success: true, data: prescription },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch prescription";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch prescription" },
+                { success: false, message },
                 { status: 500 }
             );
         }
@@ -130,11 +212,48 @@ export class PrescriptionController {
         try {
             await dbConnect();
 
+            // Clinician updating prescription OR pharmacist dispensing
+            let auth = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_PRESCRIPTION_CREATE, "Prescription");
+            if (!auth.isAuthorized) {
+                auth = await authorizeRequest(request, PERMISSION_KEYS.PHARMACY_DISPENSE_CREATE, "Prescription");
+                if (!auth.isAuthorized) return auth.response;
+            }
+
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
                     { success: false, message: "Invalid prescription ID" },
                     { status: 400 }
                 );
+            }
+
+            const existing = await this.prescriptionService.getPrescriptionById(new Types.ObjectId(id));
+            if (!existing) {
+                return NextResponse.json(
+                    { success: false, message: "Prescription not found" },
+                    { status: 404 }
+                );
+            }
+
+            // Relational check
+            if (auth.grant.relScope === "OWN") {
+                const docId = extractEntityId(existing.doctorId);
+                if (docId !== auth.context.userId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: You can only update your own prescriptions" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            // Organizational check
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const pBranch = extractEntityId(existing.branchId);
+                if (pBranch && pBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Prescription belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
             }
 
             const data: UpdatePrescriptionDto = await request.json();
@@ -155,18 +274,24 @@ export class PrescriptionController {
                 { success: true, message: "Prescription updated successfully", data: prescription },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to update prescription";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to update prescription" },
-                { status: statusCode }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
 
-    async deletePrescription(id: string): Promise<NextResponse> {
+    async deletePrescription(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            let authResult;
+            if (request) {
+                const auth = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_PRESCRIPTION_CANCEL, "Prescription");
+                if (!auth.isAuthorized) return auth.response;
+                authResult = auth;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -175,20 +300,49 @@ export class PrescriptionController {
                 );
             }
 
+            const existing = await this.prescriptionService.getPrescriptionById(new Types.ObjectId(id));
+            if (!existing) {
+                return NextResponse.json(
+                    { success: false, message: "Prescription not found" },
+                    { status: 404 }
+                );
+            }
+
+            if (authResult?.grant.relScope === "OWN") {
+                const docId = extractEntityId(existing.doctorId);
+                if (docId !== authResult.context.userId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: You can only cancel your own prescriptions" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
+                const pBranch = extractEntityId(existing.branchId);
+                if (pBranch && pBranch !== authResult.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Prescription belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
             await this.prescriptionService.deletePrescription(new Types.ObjectId(id));
 
             return NextResponse.json(
                 { success: true, message: "Prescription deleted successfully" },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to delete prescription";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to delete prescription" },
-                { status: statusCode }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
 }
 
-export default new PrescriptionController();
+const prescriptionController = new PrescriptionController();
+export default prescriptionController;

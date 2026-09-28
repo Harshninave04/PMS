@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import DashboardService from "@/services/dashboard.service";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
-class DashboardController {
-  async getStats(req: NextRequest) {
+export class DashboardController {
+  async getStats(req: NextRequest): Promise<NextResponse> {
     try {
+      const authResult = await authorizeRequest(req, PERMISSION_KEYS.DASHBOARD_VIEW, "Dashboard");
+      if (!authResult.isAuthorized) return authResult.response;
+
       const data = await DashboardService.getDashboardStats();
       return NextResponse.json({ success: true, data });
-    } catch (error: any) {
-      return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      return NextResponse.json({ success: false, message: err?.message || "Failed to fetch dashboard stats" }, { status: 500 });
     }
   }
 }
 
-export default new DashboardController();
+const dashboardController = new DashboardController();
+export default dashboardController;

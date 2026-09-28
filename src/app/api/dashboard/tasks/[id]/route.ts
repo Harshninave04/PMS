@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id } = await params;
-  return await TaskController.getTaskById(id);
+  return await TaskController.getTaskById(id, request);
 }
 
 export async function PUT(
@@ -22,5 +22,5 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id } = await params;
-  return await TaskController.deleteTask(id);
+  return await TaskController.deleteTask(id, request);
 }

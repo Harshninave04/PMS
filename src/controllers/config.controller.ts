@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultConfigService, { ConfigService } from "@/services/config.service";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class ConfigController {
     constructor(private configService: ConfigService = defaultConfigService) { }
@@ -9,6 +11,10 @@ export class ConfigController {
     async getSettings(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.SYSTEM_SETTINGS_VIEW, "Config");
+            if (!authResult.isAuthorized) return authResult.response;
+
             const { searchParams } = new URL(request.url);
             const category = searchParams.get("category") || undefined;
             const asMap = searchParams.get("map") === "true";
@@ -20,9 +26,10 @@ export class ConfigController {
 
             const settings = await this.configService.getSettings(category);
             return NextResponse.json({ success: true, data: settings }, { status: 200 });
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { message?: string };
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch settings" },
+                { success: false, message: err?.message || "Failed to fetch settings" },
                 { status: 500 }
             );
         }
@@ -31,6 +38,10 @@ export class ConfigController {
     async bulkUpdate(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.SYSTEM_SETTINGS_UPDATE, "Config");
+            if (!authResult.isAuthorized) return authResult.response;
+
             const body = await request.json();
             const { category, settings } = body;
 
@@ -43,10 +54,11 @@ export class ConfigController {
 
             const result = await this.configService.bulkUpdateSettings(category, settings);
             return NextResponse.json({ success: true, data: result }, { status: 200 });
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to bulk update settings" },
-                { status: error?.statusCode || 500 }
+                { success: false, message: err?.message || "Failed to bulk update settings" },
+                { status: err?.statusCode || 500 }
             );
         }
     }
@@ -54,11 +66,16 @@ export class ConfigController {
     async getConfigStats(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.SYSTEM_SETTINGS_VIEW, "Config");
+            if (!authResult.isAuthorized) return authResult.response;
+
             const stats = await this.configService.getConfigStats();
             return NextResponse.json({ success: true, data: stats }, { status: 200 });
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { message?: string };
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch configuration stats" },
+                { success: false, message: err?.message || "Failed to fetch configuration stats" },
                 { status: 500 }
             );
         }
@@ -67,12 +84,17 @@ export class ConfigController {
     async createSetting(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.SYSTEM_SETTINGS_UPDATE, "Config");
+            if (!authResult.isAuthorized) return authResult.response;
+
             const data = await request.json();
             const setting = await this.configService.createSetting(data);
             return NextResponse.json({ success: true, data: setting }, { status: 201 });
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { message?: string };
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to create setting" },
+                { success: false, message: err?.message || "Failed to create setting" },
                 { status: 500 }
             );
         }
@@ -81,16 +103,21 @@ export class ConfigController {
     async updateSetting(request: NextRequest, id: string): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.SYSTEM_SETTINGS_UPDATE, "Config");
+            if (!authResult.isAuthorized) return authResult.response;
+
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json({ success: false, message: "Invalid ID format" }, { status: 400 });
             }
             const data = await request.json();
             const setting = await this.configService.updateSetting(new Types.ObjectId(id), data);
             return NextResponse.json({ success: true, data: setting }, { status: 200 });
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to update setting" },
-                { status: error?.statusCode || 500 }
+                { success: false, message: err?.message || "Failed to update setting" },
+                { status: err?.statusCode || 500 }
             );
         }
     }
@@ -98,18 +125,24 @@ export class ConfigController {
     async deleteSetting(request: NextRequest, id: string): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.SYSTEM_SETTINGS_UPDATE, "Config");
+            if (!authResult.isAuthorized) return authResult.response;
+
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json({ success: false, message: "Invalid ID format" }, { status: 400 });
             }
             await this.configService.deleteSetting(new Types.ObjectId(id));
             return NextResponse.json({ success: true, message: "Deleted successfully" }, { status: 200 });
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to delete setting" },
-                { status: error?.statusCode || 500 }
+                { success: false, message: err?.message || "Failed to delete setting" },
+                { status: err?.statusCode || 500 }
             );
         }
     }
 }
 
-export default new ConfigController();
+const configController = new ConfigController();
+export default configController;

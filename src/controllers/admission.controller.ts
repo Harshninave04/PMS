@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultAdmissionService, { AdmissionService } from "@/services/admission.service";
-import { CreateAdmissionDto, UpdateAdmissionDto } from "@/dto/admission.dto";
+import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto } from "@/dto/admission.dto";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
+
+interface PopulatedEntity {
+    _id?: Types.ObjectId;
+    [key: string]: unknown;
+}
 
 export class AdmissionController {
     constructor(private admissionService: AdmissionService = defaultAdmissionService) { }
@@ -10,7 +17,20 @@ export class AdmissionController {
     async createAdmission(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_CREATE, "Admission");
+            if (!auth.isAuthorized) return auth.response;
+
             const data: CreateAdmissionDto = await request.json();
+
+            // Enforce branch multi-tenancy
+            if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
+                data.branchId = auth.context.branchId.toString();
+            }
+
+            // Enforce doctor relational constraint: doctor with OWN scope can only admit for themselves
+            if (auth.grant.relScope === "OWN") {
+                data.doctorId = auth.context.userId.toString();
+            }
 
             if (!data.patientId || !data.doctorId || !data.bedId || !data.admissionDate) {
                 return NextResponse.json(
@@ -41,11 +61,11 @@ export class AdmissionController {
                 { success: true, message: "Admission created successfully", data: admission },
                 { status: 201 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to create admission";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to create admission" },
-                { status: statusCode }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
@@ -53,16 +73,18 @@ export class AdmissionController {
     async getAdmissions(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_VIEW, "Admission");
+            if (!auth.isAuthorized) return auth.response;
 
             const { searchParams } = new URL(request.url);
-            const branchId = searchParams.get('branchId');
+            const requestedBranchId = searchParams.get('branchId');
             const patientId = searchParams.get('patientId');
-            const doctorId = searchParams.get('doctorId');
+            const requestedDoctorId = searchParams.get('doctorId');
             const bedId = searchParams.get('bedId');
             const status = searchParams.get('status');
             const type = searchParams.get('type');
 
-            const filter: any = {};
+            const filter: Record<string, unknown> = {};
 
             if (status) {
                 if (status === "ACTIVE") {
@@ -76,9 +98,21 @@ export class AdmissionController {
                 filter.admissionType = type;
             }
 
-            if (branchId) {
-                if (!Types.ObjectId.isValid(branchId)) return NextResponse.json({ success: false, message: "Invalid branch ID" }, { status: 400 });
-                filter.branchId = new Types.ObjectId(branchId);
+            // Enforce relational scope: doctor with OWN scope can only see their own admissions
+            let effectiveDoctorId = requestedDoctorId;
+            if (auth.grant.relScope === "OWN") {
+                effectiveDoctorId = auth.context.userId.toString();
+            }
+
+            // Enforce organizational scope: branch user can only see admissions in their branch
+            let effectiveBranchId = requestedBranchId;
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                effectiveBranchId = auth.context.branchId.toString();
+            }
+
+            if (effectiveBranchId) {
+                if (!Types.ObjectId.isValid(effectiveBranchId)) return NextResponse.json({ success: false, message: "Invalid branch ID" }, { status: 400 });
+                filter.branchId = new Types.ObjectId(effectiveBranchId);
             }
 
             if (patientId) {
@@ -86,9 +120,9 @@ export class AdmissionController {
                 filter.patientId = new Types.ObjectId(patientId);
             }
 
-            if (doctorId) {
-                if (!Types.ObjectId.isValid(doctorId)) return NextResponse.json({ success: false, message: "Invalid doctor ID" }, { status: 400 });
-                filter.doctorId = new Types.ObjectId(doctorId);
+            if (effectiveDoctorId) {
+                if (!Types.ObjectId.isValid(effectiveDoctorId)) return NextResponse.json({ success: false, message: "Invalid doctor ID" }, { status: 400 });
+                filter.doctorId = new Types.ObjectId(effectiveDoctorId);
             }
 
             if (bedId) {
@@ -102,17 +136,24 @@ export class AdmissionController {
                 { success: true, count: admissions.length, data: admissions },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch admissions";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch admissions" },
+                { success: false, message },
                 { status: 500 }
             );
         }
     }
 
-    async getAdmissionById(id: string): Promise<NextResponse> {
+    async getAdmissionById(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            let authResult;
+            if (request) {
+                const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_VIEW, "Admission");
+                if (!auth.isAuthorized) return auth.response;
+                authResult = auth;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -129,13 +170,36 @@ export class AdmissionController {
                 );
             }
 
+            // Relational check
+            if (authResult?.grant.relScope === "OWN") {
+                const docId = (admission.doctorId as PopulatedEntity)?._id?.toString() || admission.doctorId?.toString();
+                if (docId !== authResult.context.userId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: You can only view your own admissions" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            // Organizational check
+            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
+                const admBranch = (admission.branchId as PopulatedEntity)?._id?.toString() || admission.branchId?.toString();
+                if (admBranch && admBranch !== authResult.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Admission belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
             return NextResponse.json(
                 { success: true, data: admission },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch admission";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch admission" },
+                { success: false, message },
                 { status: 500 }
             );
         }
@@ -144,7 +208,10 @@ export class AdmissionController {
     async transferPatient(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            const data = await request.json();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_TRANSFER, "Admission");
+            if (!auth.isAuthorized) return auth.response;
+
+            const data: TransferAdmissionDto = await request.json();
 
             if (!data.admissionId || !data.newBedId || !data.reason) {
                 return NextResponse.json(
@@ -153,11 +220,26 @@ export class AdmissionController {
                 );
             }
 
-            if (!Types.ObjectId.isValid(data.admissionId) || !Types.ObjectId.isValid(data.newBedId)) {
+            if (!Types.ObjectId.isValid(data.admissionId.toString()) || !Types.ObjectId.isValid(data.newBedId.toString())) {
                 return NextResponse.json(
                     { success: false, message: "Invalid ID format for admission or destination bed" },
                     { status: 400 }
                 );
+            }
+
+            const existing = await this.admissionService.getAdmissionById(new Types.ObjectId(data.admissionId));
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
+                if (admBranch && admBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Admission belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
             }
 
             const admission = await this.admissionService.transferPatient(data);
@@ -166,11 +248,11 @@ export class AdmissionController {
                 { success: true, message: "Patient transferred successfully", data: admission },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to transfer patient";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to transfer patient" },
-                { status: statusCode }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
@@ -178,7 +260,10 @@ export class AdmissionController {
     async dischargePatient(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            const data = await request.json();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_DISCHARGE, "Admission");
+            if (!auth.isAuthorized) return auth.response;
+
+            const data: DischargeAdmissionDto = await request.json();
 
             if (!data.admissionId || !data.dischargeCondition || !data.finalDiagnosis) {
                 return NextResponse.json(
@@ -187,11 +272,36 @@ export class AdmissionController {
                 );
             }
 
-            if (!Types.ObjectId.isValid(data.admissionId)) {
+            if (!Types.ObjectId.isValid(data.admissionId.toString())) {
                 return NextResponse.json(
                     { success: false, message: "Invalid admission ID format" },
                     { status: 400 }
                 );
+            }
+
+            const existing = await this.admissionService.getAdmissionById(new Types.ObjectId(data.admissionId));
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
+            }
+
+            if (auth.grant.relScope === "OWN") {
+                const docId = (existing.doctorId as PopulatedEntity)?._id?.toString() || existing.doctorId?.toString();
+                if (docId !== auth.context.userId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: You can only discharge your own admitted patients" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
+                if (admBranch && admBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Admission belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
             }
 
             const admission = await this.admissionService.dischargePatient(data);
@@ -200,26 +310,31 @@ export class AdmissionController {
                 { success: true, message: "Patient discharged successfully", data: admission },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to discharge patient";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to discharge patient" },
-                { status: statusCode }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
 
-    async getAdmissionStats(): Promise<NextResponse> {
+    async getAdmissionStats(request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            if (request) {
+                const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_VIEW, "Admission");
+                if (!auth.isAuthorized) return auth.response;
+            }
             const stats = await this.admissionService.getAdmissionStats();
             return NextResponse.json(
                 { success: true, data: stats },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch admission statistics";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch admission statistics" },
+                { success: false, message },
                 { status: 500 }
             );
         }
@@ -228,12 +343,39 @@ export class AdmissionController {
     async updateAdmission(request: NextRequest, id: string): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_UPDATE, "Admission");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
                     { success: false, message: "Invalid admission ID" },
                     { status: 400 }
                 );
+            }
+
+            const existing = await this.admissionService.getAdmissionById(new Types.ObjectId(id));
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
+            }
+
+            if (auth.grant.relScope === "OWN") {
+                const docId = (existing.doctorId as PopulatedEntity)?._id?.toString() || existing.doctorId?.toString();
+                if (docId !== auth.context.userId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: You can only update your own admissions" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
+                if (admBranch && admBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Admission belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
             }
 
             const data: UpdateAdmissionDto = await request.json();
@@ -254,18 +396,24 @@ export class AdmissionController {
                 { success: true, message: "Admission updated successfully", data: admission },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to update admission";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to update admission" },
-                { status: statusCode }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
 
-    async deleteAdmission(id: string): Promise<NextResponse> {
+    async deleteAdmission(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            let authResult;
+            if (request) {
+                const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_CANCEL, "Admission");
+                if (!auth.isAuthorized) return auth.response;
+                authResult = auth;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -274,20 +422,46 @@ export class AdmissionController {
                 );
             }
 
+            const existing = await this.admissionService.getAdmissionById(new Types.ObjectId(id));
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
+            }
+
+            if (authResult?.grant.relScope === "OWN") {
+                const docId = (existing.doctorId as PopulatedEntity)?._id?.toString() || existing.doctorId?.toString();
+                if (docId !== authResult.context.userId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: You can only cancel your own admissions" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
+                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
+                if (admBranch && admBranch !== authResult.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Admission belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
             await this.admissionService.deleteAdmission(new Types.ObjectId(id));
 
             return NextResponse.json(
                 { success: true, message: "Admission deleted successfully" },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to delete admission";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to delete admission" },
-                { status: statusCode }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
 }
 
-export default new AdmissionController();
+const admissionController = new AdmissionController();
+export default admissionController;

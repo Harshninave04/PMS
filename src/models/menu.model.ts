@@ -17,6 +17,12 @@ const menuSchema = new Schema<IMenu>({
         trim: true,
         default: ""
     },
+    moduleKey: {
+        type: String,
+        trim: true,
+        default: "",
+        index: true
+    },
     children: {
         type: [Types.ObjectId],
         ref: "Menu",

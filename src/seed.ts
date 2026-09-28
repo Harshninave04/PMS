@@ -43,6 +43,68 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medist
 const DEFAULT_ADMIN_EMAIL = process.env.DEFAULT_ADMIN_EMAIL || "admin@hospital.com";
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || "password123";
 
+function getMenuModuleKey(menu: { moduleKey?: string; path?: string; name?: string }): string {
+    if (menu.moduleKey && menu.moduleKey.trim()) {
+        return menu.moduleKey.toLowerCase().trim();
+    }
+    const path = (menu.path || "").toLowerCase().trim();
+    if (path.startsWith("/dashboard")) return "dashboard";
+    if (path.startsWith("/patients")) return "patient";
+    if (path.startsWith("/appointments")) return "appointment";
+    if (path.startsWith("/admissions")) return "admission";
+    if (path.startsWith("/wards")) return "ward";
+    if (path.startsWith("/clinical")) return "clinical";
+    if (path.startsWith("/nursing")) return "nursing";
+    if (path.startsWith("/lab")) return "lab";
+    if (path.startsWith("/radiology")) return "radiology";
+    if (path.startsWith("/pharmacy")) return "pharmacy";
+    if (path.startsWith("/emergency")) return "emergency";
+    if (path.startsWith("/ot")) return "ot";
+    if (path.startsWith("/blood-bank")) return "blood-bank";
+    if (path.startsWith("/inventory")) return "inventory";
+    if (path.startsWith("/procurement")) return "procurement";
+    if (path.startsWith("/finance")) return "billing";
+    if (path.startsWith("/insurance")) return "insurance";
+    if (path.startsWith("/reports")) return "reports";
+    if (path.startsWith("/staff")) return "staff";
+    if (path.startsWith("/hr")) return "hr";
+    if (path.startsWith("/notifications")) return "notifications";
+    if (path.startsWith("/admin")) return "admin";
+    if (path.startsWith("/organization")) return "organization";
+    if (path.startsWith("/audit")) return "audit";
+    if (path.startsWith("/config")) return "system";
+
+    return (menu.name || "").toLowerCase().trim();
+}
+
+function enrichAccessWithGrants(accessList: any[], roleName: string): any[] {
+    return accessList.map(item => {
+        const isDoc = roleName.includes("DOCTOR") || roleName.includes("CONSULTANT");
+        const isOrgLevel = roleName.includes("ORGANIZATION");
+        const isGlobal = roleName.includes("SYSTEM_");
+        const defaultOrgScope = isGlobal ? "GLOBAL" : (isOrgLevel ? "ORGANIZATION" : "BRANCH");
+
+        const grants = (item.permissions || []).map((perm: string) => {
+            let relScope = "UNRESTRICTED";
+            if (isDoc && (perm.startsWith("appointment.") || perm.startsWith("clinical."))) {
+                relScope = "OWN";
+            } else if (roleName.includes("NURSE") && perm.startsWith("nursing.task.")) {
+                relScope = "ASSIGNED";
+            }
+            return {
+                permission: perm,
+                orgScope: defaultOrgScope,
+                relScope: relScope
+            };
+        });
+
+        return {
+            ...item,
+            grants
+        };
+    });
+}
+
 const menusData = [
     {
         name: "Dashboard",
@@ -637,15 +699,17 @@ async function seedDatabase() {
         console.log("Seeding menus...");
         for (const menuGroup of menusData) {
             const { children, ...parentData } = menuGroup;
+            const parentKey = getMenuModuleKey(parentData);
             const childIds = [];
             if (children && children.length > 0) {
                 for (const child of children) {
-                    const childMenu = await Menu.create(child);
+                    const childKey = getMenuModuleKey(child) || parentKey;
+                    const childMenu = await Menu.create({ ...child, moduleKey: childKey });
                     childIds.push(childMenu._id);
                 }
             }
             // @ts-ignore
-            await Menu.create({ ...parentData, children: childIds });
+            await Menu.create({ ...parentData, moduleKey: parentKey, children: childIds });
         }
         console.log(`✅ Successfully seeded ${menusData.length} parent menus with their children.`);
 
@@ -653,7 +717,10 @@ async function seedDatabase() {
         console.log("Seeding roles...");
         const roleDocs: Record<string, any> = {};
         for (const r of roleDefinitions) {
-            const role = await Role.create(r);
+            const role = await Role.create({
+                ...r,
+                access: enrichAccessWithGrants(r.access, r.role)
+            });
             roleDocs[r.role] = role;
         }
         console.log(`✅ Successfully seeded ${roleDefinitions.length} roles.`);

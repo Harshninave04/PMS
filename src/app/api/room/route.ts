@@ -7,11 +7,12 @@ import RoomController from "@/controllers/room.controller";
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
-        return RoomController.createRoom(request);
-    } catch (e: any) {
+        return await RoomController.createRoom(request);
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to create room";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to create room"
+            message
         }, { status: 500 });
     }
 }
@@ -22,11 +23,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
     try {
-        return RoomController.getRooms(request);
-    } catch (e: any) {
+        return await RoomController.getRooms(request);
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to fetch rooms";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to fetch rooms"
+            message
         }, { status: 500 });
     }
 }

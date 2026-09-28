@@ -1,9 +1,24 @@
 import mongoose, { Schema } from "mongoose";
 import { IRole } from "@/interfaces/role.interface";
 
+const grantSchema = new Schema({
+    permission: { type: String, required: true },
+    orgScope: {
+        type: String,
+        enum: ["GLOBAL", "ORGANIZATION", "BRANCH", "DEPARTMENT", "WARD"],
+        default: "BRANCH"
+    },
+    relScope: {
+        type: String,
+        enum: ["UNRESTRICTED", "ASSIGNED", "OWN"],
+        default: "UNRESTRICTED"
+    }
+}, { _id: false });
+
 const accessSchema = new Schema({
     moduleName: { type: String, required: true },
     permissions: { type: [String], default: [] },
+    grants: { type: [grantSchema], default: [] },
 }, { _id: false });
 
 const managedRoleSchema = new Schema({

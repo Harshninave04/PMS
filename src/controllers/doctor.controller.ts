@@ -6,6 +6,8 @@ import { CreateDoctorDto, UpdateDoctorDto } from "@/dto/doctor.dto";
 import User from "@/models/user.model";
 import Role from "@/models/role.model";
 import bcrypt from "bcryptjs";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class DoctorController {
     constructor(private doctorService: DoctorService = defaultDoctorService) { }
@@ -13,7 +15,11 @@ export class DoctorController {
     async createDoctor(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            const body: any = await request.json();
+
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.DOCTOR_CREATE, "Doctor");
+            if (!authResult.isAuthorized) return authResult.response;
+
+            const body = await request.json();
 
             let userId = body.userId;
 
@@ -83,10 +89,11 @@ export class DoctorController {
                 { success: true, message: "Doctor created successfully", data: doctor },
                 { status: 201 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to create doctor" },
+                { success: false, message: err?.message || "Failed to create doctor" },
                 { status: statusCode }
             );
         }
@@ -96,25 +103,38 @@ export class DoctorController {
         try {
             await dbConnect();
 
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.DOCTOR_VIEW, "Doctor");
+            if (!authResult.isAuthorized) return authResult.response;
+
             const { searchParams } = new URL(request.url);
-            const departmentId = searchParams.get('departmentId');
-            const search = searchParams.get('search')?.toLowerCase().trim();
+            const departmentId = searchParams.get("departmentId");
+            const search = searchParams.get("search")?.toLowerCase().trim();
 
             let doctors = await this.doctorService.getAllDoctors();
 
-            if (departmentId && Types.ObjectId.isValid(departmentId)) {
-                doctors = doctors.filter((d: any) => 
-                    d.departmentId && (d.departmentId._id?.toString() === departmentId || d.departmentId.toString() === departmentId)
-                );
+            // Scope filter check (e.g. department boundary)
+            if (authResult.filter.departmentId) {
+                const filterDeptId = authResult.filter.departmentId.toString();
+                doctors = doctors.filter((d) => {
+                    const deptVal = d.departmentId ? ((d.departmentId as { _id?: unknown })?._id ?? d.departmentId).toString() : "";
+                    return deptVal === filterDeptId;
+                });
+            } else if (departmentId && Types.ObjectId.isValid(departmentId)) {
+                doctors = doctors.filter((d) => {
+                    const deptVal = d.departmentId ? ((d.departmentId as { _id?: unknown })?._id ?? d.departmentId).toString() : "";
+                    return deptVal === departmentId;
+                });
             }
 
             if (search) {
-                doctors = doctors.filter((d: any) => {
-                    const name = d.userId?.name?.toLowerCase() || "";
-                    const email = d.userId?.email?.toLowerCase() || "";
+                doctors = doctors.filter((d) => {
+                    const userObj = d.userId as { name?: string; email?: string } | undefined;
+                    const deptObj = d.departmentId as { name?: string } | undefined;
+                    const name = userObj?.name?.toLowerCase() || "";
+                    const email = userObj?.email?.toLowerCase() || "";
                     const spec = d.specialization?.toLowerCase() || "";
                     const lic = d.licenseNo?.toLowerCase() || "";
-                    const dept = d.departmentId?.name?.toLowerCase() || "";
+                    const dept = deptObj?.name?.toLowerCase() || "";
                     return name.includes(search) || email.includes(search) || spec.includes(search) || lic.includes(search) || dept.includes(search);
                 });
             }
@@ -123,17 +143,23 @@ export class DoctorController {
                 { success: true, count: doctors.length, data: doctors },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { message?: string };
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch doctors" },
+                { success: false, message: err?.message || "Failed to fetch doctors" },
                 { status: 500 }
             );
         }
     }
 
-    async getDoctorById(id: string): Promise<NextResponse> {
+    async getDoctorById(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            if (request) {
+                const authResult = await authorizeRequest(request, PERMISSION_KEYS.DOCTOR_VIEW, "Doctor");
+                if (!authResult.isAuthorized) return authResult.response;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -154,9 +180,10 @@ export class DoctorController {
                 { success: true, data: doctor },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { message?: string };
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch doctor" },
+                { success: false, message: err?.message || "Failed to fetch doctor" },
                 { status: 500 }
             );
         }
@@ -166,6 +193,9 @@ export class DoctorController {
         try {
             await dbConnect();
 
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.DOCTOR_UPDATE, "Doctor");
+            if (!authResult.isAuthorized) return authResult.response;
+
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
                     { success: false, message: "Invalid doctor ID" },
@@ -173,7 +203,7 @@ export class DoctorController {
                 );
             }
 
-            const body: any = await request.json();
+            const body = await request.json();
 
             if (body.userId && !Types.ObjectId.isValid(body.userId)) {
                 return NextResponse.json(
@@ -189,16 +219,16 @@ export class DoctorController {
                 );
             }
 
-            const doctor = await this.doctorService.updateDoctor(new Types.ObjectId(id), body);
+            const doctor = await this.doctorService.updateDoctor(new Types.ObjectId(id), body as UpdateDoctorDto);
 
             // Also update linked user profile if doctor has userId
             if (doctor && doctor.userId) {
-                const userUpdate: any = {};
-                if (body.name) userUpdate.name = body.name.trim();
-                if (body.phone) userUpdate.phone = body.phone.trim();
+                const userUpdate: { name?: string; phone?: string; isActive?: boolean } = {};
+                if (body.name) userUpdate.name = (body.name as string).trim();
+                if (body.phone) userUpdate.phone = (body.phone as string).trim();
                 if (typeof body.isActive === "boolean") userUpdate.isActive = body.isActive;
                 if (Object.keys(userUpdate).length > 0) {
-                    const uId = (doctor.userId as any)._id || doctor.userId;
+                    const uId = (doctor.userId as { _id?: Types.ObjectId })._id || (doctor.userId as Types.ObjectId);
                     await User.findByIdAndUpdate(uId, userUpdate);
                 }
             }
@@ -207,18 +237,24 @@ export class DoctorController {
                 { success: true, message: "Doctor updated successfully", data: doctor },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to update doctor" },
+                { success: false, message: err?.message || "Failed to update doctor" },
                 { status: statusCode }
             );
         }
     }
 
-    async deleteDoctor(id: string): Promise<NextResponse> {
+    async deleteDoctor(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            if (request) {
+                const authResult = await authorizeRequest(request, PERMISSION_KEYS.DOCTOR_DELETE, "Doctor");
+                if (!authResult.isAuthorized) return authResult.response;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -233,14 +269,16 @@ export class DoctorController {
                 { success: true, message: "Doctor deleted successfully" },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to delete doctor" },
+                { success: false, message: err?.message || "Failed to delete doctor" },
                 { status: statusCode }
             );
         }
     }
 }
 
-export default new DoctorController();
+const doctorController = new DoctorController();
+export default doctorController;

@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultPaymentService, { PaymentService } from "@/services/payment.service";
-import { CreatePaymentDto, UpdatePaymentDto } from "@/dto/payment.dto";
+import { CreatePaymentDto } from "@/dto/payment.dto";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class PaymentController {
     constructor(private paymentService: PaymentService = defaultPaymentService) { }
@@ -10,6 +12,9 @@ export class PaymentController {
     async createPayment(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.BILLING_PAYMENT_CREATE, "Payment");
+            if (!auth.isAuthorized) return auth.response;
+
             const data: CreatePaymentDto = await request.json();
 
             if (!data.invoiceId || !data.patientId || data.amount === undefined || !data.method) {
@@ -19,8 +24,11 @@ export class PaymentController {
                 );
             }
 
-            if (data.branchId && !Types.ObjectId.isValid(data.branchId as string)) {
-                delete (data as any).branchId;
+            // Enforce branch boundary
+            if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
+                data.branchId = auth.context.branchId.toString();
+            } else if (data.branchId && !Types.ObjectId.isValid(data.branchId as string)) {
+                delete (data as { branchId?: unknown }).branchId;
             }
 
             const payment = await this.paymentService.createPayment(data);
@@ -29,10 +37,12 @@ export class PaymentController {
                 { success: true, message: "Payment created successfully", data: payment },
                 { status: 201 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to create payment" },
-                { status: 500 }
+                { success: false, message: err?.message || "Failed to create payment" },
+                { status: statusCode }
             );
         }
     }
@@ -40,10 +50,17 @@ export class PaymentController {
     async getPayments(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.BILLING_PAYMENT_VIEW, "Payment");
+            if (!auth.isAuthorized) return auth.response;
 
             const { searchParams } = new URL(request.url);
-            const branchId = searchParams.get('branchId');
+            let branchId = searchParams.get('branchId');
             const invoiceId = searchParams.get('invoiceId');
+
+            // Force branch boundary if user is branch-scoped
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                branchId = auth.context.branchId.toString();
+            }
 
             let payments;
 
@@ -53,25 +70,65 @@ export class PaymentController {
             } else if (invoiceId) {
                 if (!Types.ObjectId.isValid(invoiceId)) return NextResponse.json({ success: false, message: "Invalid invoice ID" }, { status: 400 });
                 payments = await this.paymentService.getPaymentsByInvoiceId(new Types.ObjectId(invoiceId));
+                if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                    payments = payments.filter(p => p.branchId && p.branchId.toString() === auth.context.branchId!.toString());
+                }
             } else {
                 payments = await this.paymentService.getAllPayments();
+                if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                    payments = payments.filter(p => p.branchId && p.branchId.toString() === auth.context.branchId!.toString());
+                }
             }
 
             return NextResponse.json(
                 { success: true, count: payments.length, data: payments },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch payments";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch payments" },
+                { success: false, message },
                 { status: 500 }
             );
         }
     }
 
-    async getPaymentById(id: string): Promise<NextResponse> {
+    async getPaymentById(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            if (request) {
+                const auth = await authorizeRequest(request, PERMISSION_KEYS.BILLING_PAYMENT_VIEW, "Payment");
+                if (!auth.isAuthorized) return auth.response;
+
+                if (!Types.ObjectId.isValid(id)) {
+                    return NextResponse.json(
+                        { success: false, message: "Invalid payment ID" },
+                        { status: 400 }
+                    );
+                }
+
+                const payment = await this.paymentService.getPaymentById(new Types.ObjectId(id));
+                if (!payment) {
+                    return NextResponse.json(
+                        { success: false, message: "Payment not found" },
+                        { status: 404 }
+                    );
+                }
+
+                if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                    if (payment.branchId && payment.branchId.toString() !== auth.context.branchId.toString()) {
+                        return NextResponse.json(
+                            { success: false, message: "Forbidden: Payment belongs to another branch" },
+                            { status: 403 }
+                        );
+                    }
+                }
+
+                return NextResponse.json(
+                    { success: true, data: payment },
+                    { status: 200 }
+                );
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -84,7 +141,7 @@ export class PaymentController {
             if (!payment) {
                 return NextResponse.json(
                     { success: false, message: "Payment not found" },
-                    { status: 440 }
+                    { status: 404 }
                 );
             }
 
@@ -92,13 +149,15 @@ export class PaymentController {
                 { success: true, data: payment },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch payment";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch payment" },
+                { success: false, message },
                 { status: 500 }
             );
         }
     }
 }
 
-export default new PaymentController();
+const paymentController = new PaymentController();
+export default paymentController;

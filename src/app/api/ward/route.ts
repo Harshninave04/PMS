@@ -8,10 +8,11 @@ import WardController from "@/controllers/ward.controller";
 export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
         return WardController.createWard(request);
-    } catch (e: any) {
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to create ward";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to create ward"
+            message
         }, { status: 500 });
     }
 }
@@ -23,10 +24,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 export async function GET(request: NextRequest): Promise<NextResponse> {
     try {
         return WardController.getWards(request);
-    } catch (e: any) {
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to fetch wards";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to fetch wards"
+            message
         }, { status: 500 });
     }
 }

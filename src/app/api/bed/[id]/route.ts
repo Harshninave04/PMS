@@ -10,11 +10,12 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return BedController.getBedById(id);
-    } catch (e: any) {
+        return await BedController.getBedById(id, request);
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to fetch bed";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to fetch bed"
+            message
         }, { status: 500 });
     }
 }
@@ -26,11 +27,12 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
 export async function PUT(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return BedController.updateBed(request, id);
-    } catch (e: any) {
+        return await BedController.updateBed(request, id);
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to update bed";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to update bed"
+            message
         }, { status: 500 });
     }
 }
@@ -42,11 +44,12 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return BedController.deleteBed(id);
-    } catch (e: any) {
+        return await BedController.deleteBed(id, request);
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to delete bed";
         return NextResponse.json({
             success: false,
-            message: e?.message || "Failed to delete bed"
+            message
         }, { status: 500 });
     }
 }

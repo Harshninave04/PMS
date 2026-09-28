@@ -1,33 +1,35 @@
 import RadiologyOrder from "@/models/radiology-order.model";
 import ImagingStudy from "@/models/imaging-study.model";
 import RadiologyProcedure from "@/models/radiology-procedure.model";
-import Patient from "@/models/patient.model";
-import Doctor from "@/models/doctor.model";
+import "@/models/patient.model";
+import "@/models/doctor.model";
 
 export class RadiologyService {
   // --- ORDERS ---
-  async getOrders(query: any = {}) {
-    const filter: any = {};
+  async getOrders(query: Record<string, unknown> = {}) {
+    const filter: Record<string, unknown> = {};
     if (query.status && query.status !== "ALL") filter.status = query.status;
     if (query.priority && query.priority !== "ALL") filter.priority = query.priority;
     if (query.modality && query.modality !== "ALL") filter.modality = query.modality;
     if (query.patient) filter.patient = query.patient;
-    if (query.accessionNumber) filter.accessionNumber = { $regex: query.accessionNumber, $options: "i" };
+    if (query.accessionNumber && typeof query.accessionNumber === "string") {
+      filter.accessionNumber = { $regex: query.accessionNumber, $options: "i" };
+    }
 
     return RadiologyOrder.find(filter)
-      .populate("patient", "name uhid age gender contact bloodGroup")
+      .populate("patient", "name uhid age gender contact bloodGroup branchId")
       .populate("doctor", "name specialty")
       .populate("procedure")
       .sort({ createdAt: -1 });
   }
 
-  async createOrder(data: any) {
+  async createOrder(data: Record<string, unknown>) {
     if (!data.accessionNumber) {
       const suffix = Math.floor(100000 + Math.random() * 900000);
       data.accessionNumber = `RAD-${suffix}`;
     }
 
-    if (data.procedure && !data.price) {
+    if (data.procedure && !data.price && typeof data.procedure === "string") {
       const proc = await RadiologyProcedure.findById(data.procedure);
       if (proc) {
         data.price = proc.price;
@@ -57,21 +59,21 @@ export class RadiologyService {
     });
 
     return RadiologyOrder.findById(order._id)
-      .populate("patient", "name uhid age gender contact bloodGroup")
+      .populate("patient", "name uhid age gender contact bloodGroup branchId")
       .populate("doctor", "name specialty")
       .populate("procedure");
   }
 
   async getOrderById(id: string) {
     return RadiologyOrder.findById(id)
-      .populate("patient", "name uhid age gender contact bloodGroup allergies")
+      .populate("patient", "name uhid age gender contact bloodGroup allergies branchId")
       .populate("doctor", "name specialty email")
       .populate("procedure");
   }
 
-  async updateOrder(id: string, data: any) {
+  async updateOrder(id: string, data: Record<string, unknown>) {
     return RadiologyOrder.findByIdAndUpdate(id, data, { new: true })
-      .populate("patient", "name uhid age gender contact bloodGroup")
+      .populate("patient", "name uhid age gender contact bloodGroup branchId")
       .populate("doctor", "name specialty")
       .populate("procedure");
   }
@@ -85,10 +87,10 @@ export class RadiologyService {
   }
 
   // --- PROCEDURES / CATALOG ---
-  async getProcedures(query: any = {}) {
-    const filter: any = {};
+  async getProcedures(query: Record<string, unknown> = {}) {
+    const filter: Record<string, unknown> = {};
     if (query.modality && query.modality !== "ALL") filter.modality = query.modality;
-    if (query.search) {
+    if (query.search && typeof query.search === "string") {
       filter.$or = [
         { name: { $regex: query.search, $options: "i" } },
         { code: { $regex: query.search, $options: "i" } },
@@ -98,7 +100,7 @@ export class RadiologyService {
     return RadiologyProcedure.find(filter).sort({ modality: 1, name: 1 });
   }
 
-  async createProcedure(data: any) {
+  async createProcedure(data: Record<string, unknown>) {
     return RadiologyProcedure.create(data);
   }
 
@@ -106,7 +108,7 @@ export class RadiologyService {
     return RadiologyProcedure.findById(id);
   }
 
-  async updateProcedure(id: string, data: any) {
+  async updateProcedure(id: string, data: Record<string, unknown>) {
     return RadiologyProcedure.findByIdAndUpdate(id, data, { new: true });
   }
 
@@ -115,12 +117,14 @@ export class RadiologyService {
   }
 
   // --- STUDIES & PACS ---
-  async getStudies(query: any = {}) {
-    const filter: any = {};
+  async getStudies(query: Record<string, unknown> = {}) {
+    const filter: Record<string, unknown> = {};
     if (query.status && query.status !== "ALL") filter.status = query.status;
     if (query.modality && query.modality !== "ALL") filter.modality = query.modality;
     if (query.order) filter.order = query.order;
-    if (query.accessionNumber) filter.accessionNumber = { $regex: query.accessionNumber, $options: "i" };
+    if (query.accessionNumber && typeof query.accessionNumber === "string") {
+      filter.accessionNumber = { $regex: query.accessionNumber, $options: "i" };
+    }
 
     return ImagingStudy.find(filter)
       .populate("order")
@@ -134,7 +138,7 @@ export class RadiologyService {
       .populate("patient", "name uhid age gender bloodGroup contact allergies");
   }
 
-  async updateStudy(id: string, data: any) {
+  async updateStudy(id: string, data: Record<string, unknown>) {
     return ImagingStudy.findByIdAndUpdate(id, data, { new: true })
       .populate("order")
       .populate("patient", "name uhid age gender bloodGroup contact");

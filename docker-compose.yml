@@ -39,7 +39,10 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - medistra-network
+      medistra-network:
+        aliases:
+          - mongo
+          - mongodb
 
   mongo-express:
     image: mongo-express:1.0.2
@@ -48,6 +51,7 @@ services:
     ports:
       - "8081:8081"
     environment:
+      - ME_CONFIG_MONGODB_URL=mongodb://mongodb:27017/
       - ME_CONFIG_MONGODB_SERVER=mongodb
       - ME_CONFIG_MONGODB_PORT=27017
       - ME_CONFIG_MONGODB_ENABLE_ADMIN=true

@@ -3,6 +3,8 @@ import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultPatientService, { PatientService } from "@/services/patient.service";
 import { CreatePatientDto, UpdatePatientDto, AddPatientDocumentDto, MergePatientDto } from "@/dto/patient.dto";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class PatientController {
     constructor(private patientService: PatientService = defaultPatientService) { }
@@ -10,7 +12,15 @@ export class PatientController {
     async createPatient(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_CREATE, "Patient");
+            if (!auth.isAuthorized) return auth.response;
+
             const data: CreatePatientDto = await request.json();
+
+            // Enforce branch multi-tenancy: if user has branchId and is not GLOBAL, enforce user's branch
+            if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
+                data.branchId = auth.context.branchId.toString();
+            }
 
             if (!data.name || data.age === undefined || !data.gender || !data.contact || !data.address || !data.emergencyContact || !data.branchId) {
                 return NextResponse.json(
@@ -32,11 +42,11 @@ export class PatientController {
                 { success: true, message: "Patient created successfully", data: patient },
                 { status: 201 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to create patient";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to create patient" },
-                { status: statusCode }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
@@ -44,16 +54,24 @@ export class PatientController {
     async getPatients(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_VIEW, "Patient");
+            if (!auth.isAuthorized) return auth.response;
 
             const { searchParams } = new URL(request.url);
             const query = searchParams.get("query") || undefined;
-            const branchId = searchParams.get("branchId") || undefined;
+            const requestedBranchId = searchParams.get("branchId") || undefined;
             const status = searchParams.get("status") || undefined;
             const bloodGroup = searchParams.get("bloodGroup") || undefined;
 
+            // Enforce branch isolation: user can only query their branch unless GLOBAL/ORGANIZATION
+            let effectiveBranchId = requestedBranchId;
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                effectiveBranchId = auth.context.branchId.toString();
+            }
+
             const patients = await this.patientService.searchPatients({
                 query,
-                branchId,
+                branchId: effectiveBranchId,
                 status,
                 bloodGroup
             });
@@ -62,17 +80,24 @@ export class PatientController {
                 { success: true, count: patients.length, data: patients },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch patients";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch patients" },
+                { success: false, message },
                 { status: 500 }
             );
         }
     }
 
-    async getPatientById(id: string): Promise<NextResponse> {
+    async getPatientById(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            let authResult;
+            if (request) {
+                const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_VIEW, "Patient");
+                if (!auth.isAuthorized) return auth.response;
+                authResult = auth;
+            }
 
             let patient = null;
             if (Types.ObjectId.isValid(id)) {
@@ -90,13 +115,24 @@ export class PatientController {
                 );
             }
 
+            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
+                const patientBranch = patient.branchId ? patient.branchId.toString() : null;
+                if (patientBranch && patientBranch !== authResult.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Patient belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
             return NextResponse.json(
                 { success: true, data: patient },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch patient";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch patient" },
+                { success: false, message },
                 { status: 500 }
             );
         }
@@ -105,12 +141,32 @@ export class PatientController {
     async updatePatient(request: NextRequest, id: string): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_UPDATE, "Patient");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
                     { success: false, message: "Invalid patient ID" },
                     { status: 400 }
                 );
+            }
+
+            const existingPatient = await this.patientService.getPatientById(new Types.ObjectId(id));
+            if (!existingPatient) {
+                return NextResponse.json(
+                    { success: false, message: "Patient not found" },
+                    { status: 404 }
+                );
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const patientBranch = existingPatient.branchId ? existingPatient.branchId.toString() : null;
+                if (patientBranch && patientBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Cannot update patient belonging to another branch" },
+                        { status: 403 }
+                    );
+                }
             }
 
             const data: UpdatePatientDto = await request.json();
@@ -128,18 +184,24 @@ export class PatientController {
                 { success: true, message: "Patient updated successfully", data: patient },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to update patient";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to update patient" },
-                { status: statusCode }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
 
-    async deletePatient(id: string): Promise<NextResponse> {
+    async deletePatient(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            let authResult;
+            if (request) {
+                const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_DELETE, "Patient");
+                if (!auth.isAuthorized) return auth.response;
+                authResult = auth;
+            }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -148,17 +210,35 @@ export class PatientController {
                 );
             }
 
+            const existingPatient = await this.patientService.getPatientById(new Types.ObjectId(id));
+            if (!existingPatient) {
+                return NextResponse.json(
+                    { success: false, message: "Patient not found" },
+                    { status: 404 }
+                );
+            }
+
+            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
+                const patientBranch = existingPatient.branchId ? existingPatient.branchId.toString() : null;
+                if (patientBranch && patientBranch !== authResult.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Cannot delete patient belonging to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
             await this.patientService.deletePatient(new Types.ObjectId(id));
 
             return NextResponse.json(
                 { success: true, message: "Patient deleted successfully" },
                 { status: 200 }
             );
-        } catch (error: any) {
-            const statusCode = error?.statusCode || 500;
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to delete patient";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to delete patient" },
-                { status: statusCode }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
@@ -166,6 +246,9 @@ export class PatientController {
     async addDocument(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_DOC_UPLOAD, "Patient");
+            if (!auth.isAuthorized) return auth.response;
+
             const { searchParams } = new URL(request.url);
             const patientId = searchParams.get("patientId");
 
@@ -174,6 +257,24 @@ export class PatientController {
                     { success: false, message: "Valid patient ID is required" },
                     { status: 400 }
                 );
+            }
+
+            const existingPatient = await this.patientService.getPatientById(new Types.ObjectId(patientId));
+            if (!existingPatient) {
+                return NextResponse.json(
+                    { success: false, message: "Patient not found" },
+                    { status: 404 }
+                );
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const patientBranch = existingPatient.branchId ? existingPatient.branchId.toString() : null;
+                if (patientBranch && patientBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Patient belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
             }
 
             const body: AddPatientDocumentDto = await request.json();
@@ -189,10 +290,11 @@ export class PatientController {
                 { success: true, message: "Document added successfully", data: updated },
                 { status: 201 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to add document";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to add document" },
-                { status: error?.statusCode || 500 }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
@@ -200,6 +302,9 @@ export class PatientController {
     async deleteDocument(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_DOC_DELETE, "Patient");
+            if (!auth.isAuthorized) return auth.response;
+
             const { searchParams } = new URL(request.url);
             const patientId = searchParams.get("patientId");
             const documentId = searchParams.get("documentId");
@@ -211,15 +316,34 @@ export class PatientController {
                 );
             }
 
+            const existingPatient = await this.patientService.getPatientById(new Types.ObjectId(patientId));
+            if (!existingPatient) {
+                return NextResponse.json(
+                    { success: false, message: "Patient not found" },
+                    { status: 404 }
+                );
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const patientBranch = existingPatient.branchId ? existingPatient.branchId.toString() : null;
+                if (patientBranch && patientBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Patient belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
             const updated = await this.patientService.deleteDocument(new Types.ObjectId(patientId), documentId);
             return NextResponse.json(
                 { success: true, message: "Document deleted successfully", data: updated },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to delete document";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to delete document" },
-                { status: error?.statusCode || 500 }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
@@ -227,6 +351,9 @@ export class PatientController {
     async mergePatients(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_MERGE, "Patient");
+            if (!auth.isAuthorized) return auth.response;
+
             const body: MergePatientDto = await request.json();
 
             if (!body.primaryPatientId || !body.secondaryPatientId || !body.reason) {
@@ -253,10 +380,11 @@ export class PatientController {
                 { success: true, message: "Patients merged successfully", data: result },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to merge patients";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to merge patients" },
-                { status: error?.statusCode || 500 }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
@@ -264,6 +392,9 @@ export class PatientController {
     async getPatientHistory(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_VIEW, "Patient");
+            if (!auth.isAuthorized) return auth.response;
+
             const { searchParams } = new URL(request.url);
             const patientId = searchParams.get("patientId");
 
@@ -280,10 +411,11 @@ export class PatientController {
                 { success: true, data: history },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch patient history";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch patient history" },
-                { status: error?.statusCode || 500 }
+                { success: false, message },
+                { status: 500 }
             );
         }
     }
@@ -291,23 +423,32 @@ export class PatientController {
     async getStats(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_VIEW, "Patient");
+            if (!auth.isAuthorized) return auth.response;
+
             const { searchParams } = new URL(request.url);
             const branchId = searchParams.get("branchId") || undefined;
 
-            const stats = await this.patientService.getStats(branchId);
+            let effectiveBranchId = branchId;
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                effectiveBranchId = auth.context.branchId.toString();
+            }
+
+            const stats = await this.patientService.getStats(effectiveBranchId);
 
             return NextResponse.json(
                 { success: true, data: stats },
                 { status: 200 }
             );
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch patient statistics";
             return NextResponse.json(
-                { success: false, message: error?.message || "Failed to fetch patient statistics" },
+                { success: false, message },
                 { status: 500 }
             );
         }
     }
 }
 
-export default new PatientController();
-
+const defaultPatientController = new PatientController();
+export default defaultPatientController;
