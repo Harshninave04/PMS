@@ -84,54 +84,61 @@ export class MenuController {
 
             // Filter menus based on user role access
             const session = await getServerSession(authOptions);
-            if (session && session.user) {
-                const currentUser = session.user as { role?: string };
-                if (currentUser.role) {
-                    const roleDoc = await Role.findById(currentUser.role).lean();
-                    if (roleDoc && roleDoc.role !== "SYSTEM_SUPER_ADMIN") {
-                        const accessibleModules = new Set<string>();
-                        accessibleModules.add("dashboard"); // Dashboard is universally accessible to logged in staff
+            if (!session || !session.user) {
+                return NextResponse.json(
+                    { success: true, count: 0, data: [] },
+                    { status: 200 }
+                );
+            }
 
-                        if (Array.isArray(roleDoc.access)) {
-                            for (const item of roleDoc.access) {
-                                const mod = (item.moduleName || "").toLowerCase().trim();
-                                accessibleModules.add(mod);
-                                if (mod === "user" || mod === "role") accessibleModules.add("admin");
-                                if (mod === "billing") accessibleModules.add("finance");
-                                if (mod === "system") accessibleModules.add("config");
-                            }
+            const currentUser = session.user as { role?: string };
+            if (currentUser.role) {
+                const roleDoc = await Role.findById(currentUser.role).lean();
+                if (roleDoc && roleDoc.role !== "SYSTEM_SUPER_ADMIN") {
+                    // Menu visibility is derived exclusively from the role's own
+                    // module grants. Do NOT blanket-grant any module here, otherwise
+                    // every role ends up with an identical navigation surface.
+                    const accessibleModules = new Set<string>();
+
+                    if (Array.isArray(roleDoc.access)) {
+                        for (const item of roleDoc.access) {
+                            const mod = (item.moduleName || "").toLowerCase().trim();
+                            if (!mod) continue;
+                            accessibleModules.add(mod);
+                            if (mod === "user" || mod === "role") accessibleModules.add("admin");
+                            if (mod === "billing") accessibleModules.add("finance");
+                            if (mod === "system") accessibleModules.add("config");
                         }
-
-                        interface FilterableMenuItem {
-                            moduleKey?: string;
-                            path?: string;
-                            name?: string;
-                            children?: FilterableMenuItem[];
-                            toObject?: () => Record<string, unknown>;
-                            [key: string]: unknown;
-                        }
-
-                        const menuList = menus as unknown as FilterableMenuItem[];
-                        const filtered = menuList.map((menu) => {
-                            const menuObj = (typeof menu.toObject === "function" ? menu.toObject() : { ...menu }) as FilterableMenuItem;
-                            const parentKey = getMenuModuleKey(menuObj);
-
-                            // If it has children, filter the children
-                            if (Array.isArray(menuObj.children) && menuObj.children.length > 0) {
-                                menuObj.children = (menuObj.children as FilterableMenuItem[]).filter((child) => {
-                                    const childKey = getMenuModuleKey(child);
-                                    return accessibleModules.has(childKey) || accessibleModules.has(parentKey);
-                                });
-                            }
-                            return menuObj;
-                        }).filter((menu) => {
-                            const parentKey = getMenuModuleKey(menu);
-                            const hasDirectAccess = accessibleModules.has(parentKey);
-                            const hasChildAccess = Array.isArray(menu.children) && menu.children.length > 0;
-                            return hasDirectAccess || hasChildAccess;
-                        });
-                        menus = filtered as unknown as IMenu[];
                     }
+
+                    interface FilterableMenuItem {
+                        moduleKey?: string;
+                        path?: string;
+                        name?: string;
+                        children?: FilterableMenuItem[];
+                        toObject?: () => Record<string, unknown>;
+                        [key: string]: unknown;
+                    }
+
+                    const menuList = menus as unknown as FilterableMenuItem[];
+                    const filtered = menuList.map((menu) => {
+                        const menuObj = (typeof menu.toObject === "function" ? menu.toObject() : { ...menu }) as FilterableMenuItem;
+
+                        // Filter the children on their own module grants
+                        if (Array.isArray(menuObj.children) && menuObj.children.length > 0) {
+                            menuObj.children = (menuObj.children as FilterableMenuItem[]).filter((child) => {
+                                const childKey = getMenuModuleKey(child);
+                                return accessibleModules.has(childKey);
+                            });
+                        }
+                        return menuObj;
+                    }).filter((menu) => {
+                        const parentKey = getMenuModuleKey(menu);
+                        const hasDirectAccess = accessibleModules.has(parentKey);
+                        const hasChildAccess = Array.isArray(menu.children) && menu.children.length > 0;
+                        return hasDirectAccess || hasChildAccess;
+                    });
+                    menus = filtered as unknown as IMenu[];
                 }
             }
 

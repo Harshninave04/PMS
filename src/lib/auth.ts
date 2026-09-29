@@ -3,6 +3,13 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import dbConnect from "@/lib/dbConnect";
 import userRepository from "@/repositories/user.repository";
+import Role from "@/models/role.model";
+
+/** Normalise a mongoose ObjectId / populated id into a plain string for the JWT */
+function toIdString(value: unknown): string | null {
+  if (!value) return null;
+  return typeof value === "string" ? value : String(value);
+}
 
 export const authOptions: AuthOptions = {
   providers: [
@@ -41,13 +48,20 @@ export const authOptions: AuthOptions = {
           throw new Error("Invalid email or password");
         }
 
+        // The session is serialised into a JWT cookie, so every identifier must
+        // be a plain string. Resolve the role *name* alongside the role id so the
+        // client can render role-aware UI (dashboards, widgets, badges).
+        const roleId = toIdString(user.role);
+        const roleDoc = roleId ? await Role.findById(roleId).select("role").lean() : null;
+
         return {
           id: user._id.toString(),
           name: user.name,
           email: user.email,
-          role: user.role,
-          organization: user.organization,
-          branch: user.branch,
+          role: roleId,
+          roleName: roleDoc?.role ?? null,
+          organization: toIdString(user.organization),
+          branch: toIdString(user.branch),
         };
       }
     })
@@ -57,6 +71,7 @@ export const authOptions: AuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = user.role;
+        token.roleName = user.roleName ?? null;
         token.organization = user.organization;
         token.branch = user.branch;
       }
@@ -66,6 +81,7 @@ export const authOptions: AuthOptions = {
       if (session.user && token) {
         session.user.id = token.id as string;
         session.user.role = token.role;
+        session.user.roleName = token.roleName ?? null;
         session.user.organization = token.organization;
         session.user.branch = token.branch;
       }

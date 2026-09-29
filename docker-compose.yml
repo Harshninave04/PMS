@@ -26,12 +26,15 @@ services:
     image: mongo:7.0
     container_name: medistra-mongodb
     restart: unless-stopped
-    ports:
-      - "27017:27017"
     environment:
       - MONGO_INITDB_DATABASE=medistra-hms
     volumes:
       - mongo-data:/data/db
+    # No host port mapping on purpose. The app reaches this database over the
+    # internal compose network as `mongodb:27017`. Publishing it also collides
+    # with any other Mongo bound to the host port, and a host-side script that
+    # connects to localhost:27017 can then silently write to the wrong
+    # database. Use `docker exec medistra-mongodb mongosh medistra-hms` instead.
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s

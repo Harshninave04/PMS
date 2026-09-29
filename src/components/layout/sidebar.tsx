@@ -205,7 +205,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
                 </span>
                 <span className="truncate text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                   <Shield className="h-3 w-3" />
-                  {typeof session?.user?.role === 'object' ? session.user.role?.role || 'Admin' : 'Super Admin'}
+                  {session?.user?.roleName?.replace(/_/g, " ") || "Staff"}
                 </span>
               </div>
             </div>

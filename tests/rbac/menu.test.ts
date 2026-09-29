@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  listRoleProfileAssignments,
+  resolveDashboardProfile
+} from "@/lib/rbac/dashboard-profiles";
 
 interface MockMenu {
   _id: string;
@@ -58,11 +62,13 @@ function filterMenusForRole(
     return allMenus;
   }
 
+  // Menu visibility is derived exclusively from the role's own module grants.
+  // Nothing is blanket-granted.
   const accessibleModules = new Set<string>();
-  accessibleModules.add("dashboard"); // Universal dashboard access
 
   for (const item of roleAccess) {
     const mod = (item.moduleName || "").toLowerCase().trim();
+    if (!mod) continue;
     accessibleModules.add(mod);
     if (mod === "user" || mod === "role") accessibleModules.add("admin");
     if (mod === "billing") accessibleModules.add("finance");
@@ -72,12 +78,11 @@ function filterMenusForRole(
   return allMenus
     .map((menu) => {
       const menuObj = { ...menu };
-      const parentKey = getMenuModuleKey(menuObj);
 
       if (menuObj.children && menuObj.children.length > 0) {
         menuObj.children = menuObj.children.filter((child) => {
           const childKey = getMenuModuleKey(child);
-          return accessibleModules.has(childKey) || accessibleModules.has(parentKey);
+          return accessibleModules.has(childKey);
         });
       }
       return menuObj;
@@ -88,6 +93,22 @@ function filterMenusForRole(
       const hasChildAccess = Array.isArray(menu.children) && menu.children.length > 0;
       return hasDirectAccess || hasChildAccess;
     });
+}
+
+const DASHBOARD_ACCESS: MockRoleAccess = {
+  moduleName: "dashboard",
+  permissions: ["dashboard.dashboard.view"]
+};
+
+/** Reads the demo login matrix straight out of the seeder. */
+function matrixFromSeed(): [string, string, string][] {
+  const seedContent = fs.readFileSync(path.resolve(process.cwd(), "src/seed.ts"), "utf-8");
+  const start = seedContent.indexOf("const demoUserMatrix");
+  const end = seedContent.indexOf("\n];", start);
+  const block = seedContent.slice(start, end);
+  return Array.from(
+    block.matchAll(/\[\s*"([a-zA-Z]+)"\s*,\s*"([A-Z_]+)"\s*,\s*"([^"]+)"\s*\]/g)
+  ).map((m) => [m[1], m[2], m[3]] as [string, string, string]);
 }
 
 /**
@@ -141,6 +162,7 @@ async function runMenuTests() {
   // Test 2: DOCTOR role receives clinical & OPD modules only
   test("DOCTOR role receives patient, appointment, clinical, nursing, diagnostic modules only", () => {
     const doctorAccess: MockRoleAccess[] = [
+      DASHBOARD_ACCESS,
       { moduleName: "patient", permissions: ["patient.patient.view"] },
       { moduleName: "appointment", permissions: ["appointment.appointment.view"] },
       { moduleName: "clinical", permissions: ["clinical.record.view"] },
@@ -169,6 +191,7 @@ async function runMenuTests() {
   // Test 3: RECEPTIONIST role receives front desk modules only
   test("RECEPTIONIST role receives front desk modules and cannot see clinical, diagnostic, or admin", () => {
     const receptionistAccess: MockRoleAccess[] = [
+      DASHBOARD_ACCESS,
       { moduleName: "patient", permissions: ["patient.patient.view", "patient.patient.create"] },
       { moduleName: "appointment", permissions: ["appointment.appointment.view", "appointment.appointment.create"] },
       { moduleName: "admission", permissions: ["admission.admission.view"] },
@@ -194,6 +217,7 @@ async function runMenuTests() {
   // Test 4: CASHIER role receives cash counter billing only
   test("CASHIER receives billing & finance only, completely isolated from clinical records", () => {
     const cashierAccess: MockRoleAccess[] = [
+      DASHBOARD_ACCESS,
       { moduleName: "billing", permissions: ["billing.invoice.view", "billing.payment.create"] }
     ];
 
@@ -206,7 +230,6 @@ async function runMenuTests() {
     assert.ok(!visiblePaths.includes("/appointments"));
     assert.ok(!visiblePaths.includes("/clinical"));
   });
-
   // Test 5: Verify HIDDEN_ROUTES is completely removed from sidebar.tsx
   test("Sidebar source code has zero occurrences of HIDDEN_ROUTES array", () => {
     const sidebarPath = path.resolve(process.cwd(), "src/components/layout/sidebar.tsx");
@@ -216,6 +239,7 @@ async function runMenuTests() {
       !sidebarContent.includes("HIDDEN_ROUTES"),
       "sidebar.tsx must not contain HIDDEN_ROUTES array or references"
     );
+
     assert.ok(
       !sidebarContent.includes("hiddenSet"),
       "sidebar.tsx must not contain hiddenSet filter"
@@ -228,6 +252,137 @@ async function runMenuTests() {
     assert.equal(getMenuModuleKey({ path: "/config" }), "system");
     assert.equal(getMenuModuleKey({ path: "/patients/register" }), "patient");
     assert.equal(getMenuModuleKey({ path: "/blood-bank/dashboard" }), "blood-bank");
+  });
+
+  // Test 7: Dashboard visibility is driven by the role's own dashboard grant
+  test("Dashboard is hidden from a role that has no dashboard module grant", () => {
+    const noDashboardAccess: MockRoleAccess[] = [
+      { moduleName: "patient", permissions: ["patient.patient.view"] }
+    ];
+
+    const visible = filterMenusForRole(mockCatalog, "DOCTOR", noDashboardAccess);
+    const visiblePaths = visible.map((m) => m.path);
+
+    assert.ok(!visiblePaths.includes("/dashboard"), "Dashboard must be hidden without a dashboard grant");
+    assert.ok(visiblePaths.includes("/patients"), "Patients must still be visible");
+  });
+
+  // Test 8: No blanket module grants remain in the controller
+  test("menu.controller.ts does not blanket-grant the dashboard module to every role", () => {
+    const controllerPath = path.resolve(process.cwd(), "src/controllers/menu.controller.ts");
+    const controllerContent = fs.readFileSync(controllerPath, "utf-8");
+
+    assert.ok(
+      !/accessibleModules\.add\(\s*["']dashboard["']/.test(controllerContent),
+      "menu.controller.ts must not hardcode accessibleModules.add('dashboard')"
+    );
+  });
+
+  // Test 9: Every seeded role is granted the dashboard view permission
+  test("seed.ts grants dashboard.dashboard.view to every role definition", () => {
+    const seedPath = path.resolve(process.cwd(), "src/seed.ts");
+    const seedContent = fs.readFileSync(seedPath, "utf-8");
+
+    assert.ok(
+      seedContent.includes('permissions: ["dashboard.dashboard.view"]'),
+      "seed.ts must declare the dashboard.dashboard.view grant"
+    );
+
+    assert.ok(
+      seedContent.includes("enrichAccessWithGrants(withDashboardAccess(r.access), r.role)"),
+      "seed.ts must apply withDashboardAccess() to every role before creating it"
+    );
+  });
+
+  // Test 10: Every seeded role resolves to its own dashboard profile
+  test("Every role seeded in src/seed.ts resolves to an explicit dashboard profile", () => {
+    const seedContent = fs.readFileSync(path.resolve(process.cwd(), "src/seed.ts"), "utf-8");
+    const start = seedContent.indexOf("const roleDefinitions = [");
+    const end = seedContent.indexOf("\n];", start);
+    const block = seedContent.slice(start, end);
+
+    const seededRoles = Array.from(block.matchAll(/\{\s*role:\s*"([A-Z_]+)"/g)).map((m) => m[1]);
+    assert.ok(seededRoles.length >= 39, `Expected 39+ seeded roles, found ${seededRoles.length}`);
+
+    const assignments = listRoleProfileAssignments().map((a) => a.role);
+    const unmapped = seededRoles.filter((r) => !assignments.includes(r));
+    assert.deepEqual(unmapped, [], "Seeded roles without a dashboard profile mapping");
+  });
+
+  // Test 11: Different roles get genuinely different dashboards
+  test("Different roles resolve to different profiles with role-appropriate actions", () => {
+    const doctor = resolveDashboardProfile("DOCTOR");
+    const nurse = resolveDashboardProfile("NURSE");
+    const receptionist = resolveDashboardProfile("RECEPTIONIST");
+    const cashier = resolveDashboardProfile("CASHIER");
+
+    assert.notEqual(doctor.key, nurse.key, "Doctor and Nurse must not share a dashboard");
+    assert.notEqual(receptionist.key, cashier.key, "Receptionist and Cashier must not share a dashboard");
+    assert.notEqual(doctor.key, cashier.key, "Doctor and Cashier must not share a dashboard");
+
+    const doctorLinks = doctor.quickActions.map((a) => a.href);
+    assert.ok(doctorLinks.includes("/clinical/notes"), "Doctor should get clinical quick actions");
+    assert.ok(
+      !doctorLinks.some((h) => h.startsWith("/finance")),
+      "Doctor must not get finance quick actions"
+    );
+
+    const nurseLinks = nurse.quickActions.map((a) => a.href);
+    assert.ok(nurseLinks.includes("/nursing/vitals"), "Nurse should get nursing quick actions");
+
+    const cashierLinks = cashier.quickActions.map((a) => a.href);
+    assert.ok(
+      cashierLinks.includes("/finance/invoice/create"),
+      "Cashier should get finance quick actions"
+    );
+    assert.ok(
+      !cashierLinks.some((h) => h.startsWith("/clinical")),
+      "Cashier must not get clinical quick actions"
+    );
+  });
+
+  // Test 12: Unknown / missing roles degrade gracefully to the generic profile
+  test("Unknown or missing role names fall back to the generic staff profile", () => {
+    const fallback = resolveDashboardProfile("SOME_ROLE_THAT_DOES_NOT_EXIST");
+    assert.equal(fallback.key, "default");
+    assert.ok(fallback.quickActions.length > 0, "Fallback profile must still render actions");
+    assert.equal(resolveDashboardProfile(null).key, "default");
+    assert.equal(resolveDashboardProfile(undefined).key, "default");
+  });
+
+  // Test 13: Every profile is reachable and every demo login is unique
+  test("Every dashboard profile is reachable and has a distinct demo login", () => {
+    const assignments = listRoleProfileAssignments();
+
+    const reachedProfiles = new Set(assignments.map((a) => a.profile));
+    reachedProfiles.delete("default");
+
+    const profilesSource = fs.readFileSync(
+      path.resolve(process.cwd(), "src/lib/rbac/dashboard-profiles.ts"),
+      "utf-8"
+    );
+    const profileBlock = profilesSource.slice(
+      profilesSource.indexOf("const profiles: Record<string, DashboardProfile> = {")
+    );
+    const declaredProfiles = Array.from(
+      profileBlock.slice(0, profileBlock.indexOf("\n};")).matchAll(/^  ([a-zA-Z]+):\s*\{/gm)
+    ).map((m) => m[1]);
+
+    // "default" is the intentional fallback profile for unmapped roles
+    const unreachable = declaredProfiles.filter(
+      (p) => p !== "default" && !reachedProfiles.has(p)
+    );
+    assert.deepEqual(unreachable, [], "Declared dashboard profiles that no role can reach");
+
+    const emails = new Set<string>();
+    const seen = new Set<string>();
+    for (const [, role, name] of matrixFromSeed()) {
+      const email = `demo.${role.toLowerCase()}@medistra.hospital`;
+      assert.ok(!emails.has(email), `Duplicate demo login email: ${email}`);
+      assert.ok(!seen.has(role), `Duplicate demo login role: ${role}`);
+      emails.add(email);
+      seen.add(role);
+    }
   });
 
   console.log(`\n=================================================`);

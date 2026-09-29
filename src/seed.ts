@@ -43,6 +43,35 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medist
 const DEFAULT_ADMIN_EMAIL = process.env.DEFAULT_ADMIN_EMAIL || "admin@hospital.com";
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || "password123";
 
+/**
+ * One login per dashboard profile defined in src/lib/rbac/dashboard-profiles.ts.
+ * Tuple: [profileKey, roleName, displayName]
+ *
+ * These mirror the profile keys 1:1 so every role-specific dashboard can be
+ * logged into and verified. Only created when SEED_DEMO_USERS=true.
+ */
+const demoUserMatrix: [string, string, string][] = [
+    ["administration", "SYSTEM_SUPER_ADMIN", "Demo Super Admin"],
+    ["administration", "HOSPITAL_ADMIN", "Demo Hospital Admin"],
+    ["itAdministration", "SYSTEM_IT_ADMIN", "Demo IT Administrator"],
+    ["audit", "SYSTEM_AUDITOR", "Demo Compliance Auditor"],
+    ["clinical", "DOCTOR", "Demo Doctor"],
+    ["nursing", "NURSE", "Demo Nurse"],
+    ["laboratory", "LAB_TECHNICIAN", "Demo Lab Technician"],
+    ["radiology", "RADIOLOGIST", "Demo Radiologist"],
+    ["pharmacy", "PHARMACIST", "Demo Pharmacist"],
+    ["inventory", "STOREKEEPER", "Demo Storekeeper"],
+    ["procurement", "PROCUREMENT_OFFICER", "Demo Procurement Officer"],
+    ["frontDesk", "RECEPTIONIST", "Demo Receptionist"],
+    ["finance", "CASHIER", "Demo Cashier"],
+    ["humanResources", "HR_OFFICER", "Demo HR Officer"],
+    ["bloodBank", "BLOOD_BANK_TECHNICIAN", "Demo Blood Bank Technician"],
+    ["insurance", "INSURANCE_OFFICER", "Demo Insurance Officer"],
+    ["emergency", "EMERGENCY_DOCTOR", "Demo Emergency Doctor"],
+    ["operationTheatre", "OT_NURSE", "Demo OT Nurse"],
+    ["wards", "BRANCH_MANAGER", "Demo Ward Administrator"]
+];
+
 function getMenuModuleKey(menu: { moduleKey?: string; path?: string; name?: string }): string {
     if (menu.moduleKey && menu.moduleKey.trim()) {
         return menu.moduleKey.toLowerCase().trim();
@@ -515,6 +544,23 @@ const menusData = [
     }
 ];
 
+const DASHBOARD_ACCESS = {
+    moduleName: "dashboard",
+    permissions: ["dashboard.dashboard.view"]
+};
+
+/**
+ * Every authenticated role must be able to load its own dashboard.
+ * Without this grant the /api/dashboard/stats guard rejects the request and
+ * every non-super-admin falls back to the same empty placeholder view.
+ */
+function withDashboardAccess(accessList: any[]): any[] {
+    const alreadyGranted = Array.isArray(accessList) && accessList.some(
+        item => (item.moduleName || "").toLowerCase() === DASHBOARD_ACCESS.moduleName
+    );
+    return alreadyGranted ? accessList : [DASHBOARD_ACCESS, ...(accessList ?? [])];
+}
+
 const FULL_ACCESS = [
     { moduleName: "patient", permissions: ["patient.patient.view", "patient.patient.create", "patient.patient.update", "patient.patient.delete", "patient.patient.export"] },
     { moduleName: "appointment", permissions: ["appointment.appointment.view", "appointment.appointment.create", "appointment.appointment.update", "appointment.appointment.cancel"] },
@@ -719,7 +765,7 @@ async function seedDatabase() {
         for (const r of roleDefinitions) {
             const role = await Role.create({
                 ...r,
-                access: enrichAccessWithGrants(r.access, r.role)
+                access: enrichAccessWithGrants(withDashboardAccess(r.access), r.role)
             });
             roleDocs[r.role] = role;
         }
@@ -1221,6 +1267,46 @@ async function seedDatabase() {
             });
         }
         console.log(`✅ Successfully seeded ${sampleStaffData.length} Staff & HR employee dossiers with biometric attendance & compliance documents.`);
+
+        // 11.5. Seed Role-Aware Demo Logins (opt-in, never runs by default)
+        //
+        // One login per dashboard profile so every role-specific dashboard can be
+        // verified end to end. Disabled unless SEED_DEMO_USERS=true so production
+        // seeds never create shared-credential accounts.
+        if (process.env.SEED_DEMO_USERS === "true") {
+            console.log("SEED_DEMO_USERS=true — seeding role-aware demo logins...");
+            const demoPassword = await bcrypt.hash(process.env.SEED_DEMO_PASSWORD || "Demo@2026", 10);
+
+            for (const [profileKey, roleName, displayName] of demoUserMatrix) {
+                const email = `demo.${roleName.toLowerCase()}@medistra.hospital`;
+
+                if (!roleDocs[roleName]) {
+                    console.warn(`⚠️  Skipping demo login for ${roleName}: role not seeded.`);
+                    continue;
+                }
+
+                const existing = await User.findOne({ email });
+                if (existing) {
+                    existing.password = demoPassword;
+                    existing.role = roleDocs[roleName]._id;
+                    existing.name = displayName;
+                    existing.isActive = true;
+                    await existing.save();
+                } else {
+                    await User.create({
+                        name: displayName,
+                        email,
+                        password: demoPassword,
+                        gender: "UNSPECIFIED",
+                        role: roleDocs[roleName]._id,
+                        isActive: true
+                    });
+                }
+
+                console.log(`   • ${profileKey.padEnd(20)} ${email.padEnd(42)} ${displayName} [${roleName}]`);
+            }
+            console.log(`✅ Seeded ${demoUserMatrix.length} role-aware demo logins.`);
+        }
 
         // 12. Seed Standard Hospital Notification Templates, Rules, Settings & Delivery Logs
         console.log("Seeding Hospital Notification Templates, Rules & Gateway Settings...");

@@ -7,7 +7,7 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose_9.9-green?style=flat-square&logo=mongodb)](https://www.mongodb.com/)
 [![Compliance](https://img.shields.io/badge/Compliance-NABH%20|%20NABL%20|%20ABDM%20|%20GST-emerald?style=flat-square)](https://abdm.gov.in/)
 
-**Medistra HMS** is an enterprise-grade, full-stack Hospital Management & Electronic Medical Record (EMR) platform engineered for tertiary and quaternary care healthcare institutions. 
+**Medistra HMS** is an enterprise-grade, full-stack Hospital Management & Electronic Medical Record (EMR) platform engineered for tertiary and quaternary care healthcare institutions.
 
 Built on a modern micro-monolith architecture utilizing Next.js 16 (App Router), React 19, TypeScript, and MongoDB, Medistra HMS unifies outpatient, inpatient, critical care, diagnostics, supply chain, financial billing, regulatory compliance, and multi-channel communications into a single, high-performance operational cockpit.
 
@@ -69,12 +69,14 @@ Built on a modern micro-monolith architecture utilizing Next.js 16 (App Router),
 Medistra HMS encompasses **22 primary modules** and over **180 specialized clinical and administrative workstations**:
 
 ### 1. 📊 Executive Dashboard (`/dashboard`)
+
 - `/dashboard/main`: Executive hospital command dashboard with live footfall, admissions, and revenue KPIs.
 - `/dashboard/tasks`: Clinician and nurse task scheduler and clinical handovers.
 - `/dashboard/notifications`: Real-time system announcements, critical alerts, and broadcasts.
 - `/dashboard/alerts`: Emergency red-flag alarms and urgent escalations.
 
 ### 2. 👥 Patient Management (`/patients`)
+
 - `/patients/register`: Patient intake with biometric capture, demographic profiling, and ABHA ID generation.
 - `/patients/list`: Searchable master patient directory with UHID index.
 - `/patients/profile`: Comprehensive 360-degree patient dossier (vitals, diagnoses, encounters).
@@ -85,6 +87,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/patients/reports`: Patient demographic, age bracket, and geographical distribution analytics.
 
 ### 3. 👨‍⚕️ Doctor & Staff Management (`/staff`)
+
 - `/staff/doctors`: Specialist and consultant physician registry with NMC registration credentials.
 - `/staff/list`: Allied healthcare staff, clinical technicians, and support personnel.
 - `/staff/departments`: Clinical and non-clinical department hierarchy.
@@ -94,6 +97,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/staff/directory`: Internal hospital communication telephone directory.
 
 ### 4. 📅 Appointments Engine (`/appointments`)
+
 - `/appointments/book`: Outpatient consultation booking with clinician availability calendar.
 - `/appointments/calendar`: Multi-physician department calendar matrix.
 - `/appointments/list`: Active, completed, and rescheduled appointment index.
@@ -104,6 +108,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/appointments/no-show`: Missed appointment logging and follow-up recall tracking.
 
 ### 5. 🛏️ Admissions & Discharge (`/admissions`)
+
 - `/admissions/new`: IPD admission intake with admitting doctor and diagnosis allocation.
 - `/admissions/current`: Real-time census of currently hospitalized inpatients.
 - `/admissions/history`: Historical hospitalization archives.
@@ -113,6 +118,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/admissions/discharge-history`: Archive of discharged encounters.
 
 ### 6. 🏥 Ward & Bed Management (`/wards`)
+
 - `/wards/list`: Ward configuration (General, Semi-Private, Deluxe, ICU, CCU, NICU).
 - `/wards/rooms`: Room categorization with daily bed tariffs in Indian Rupees (`₹`).
 - `/wards/beds`: Individual bed statuses (Available, Occupied, Cleaning, Maintenance).
@@ -123,6 +129,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/wards/dashboard`: Ward nursing station command center.
 
 ### 7. 🩺 Clinical / EMR (`/clinical`)
+
 - `/clinical/dashboard`: Doctor outpatient and inpatient clinical console.
 - `/clinical/consultations`: Active patient encounter charting.
 - `/clinical/records`: Electronic Health Records (EHR) timeline.
@@ -139,6 +146,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/clinical/problems`: Active and resolved chronic patient problem lists.
 
 ### 8. 👩‍⚕️ Nursing Care (`/nursing`)
+
 - `/nursing/dashboard`: Shift handover and ward nursing overview.
 - `/nursing/patients`: Nurse-to-patient assigned census.
 - `/nursing/vitals`: Rapid bedside vital signs logging.
@@ -151,6 +159,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/nursing/shifts`: Nursing duty roster and ward assignment.
 
 ### 9. 🧪 Laboratory / Pathology (`/lab`)
+
 - `/lab/dashboard`: Lab specimen throughput and pending test queues.
 - `/lab/catalog`: NABL diagnostic test catalog with normal reference ranges by age/gender.
 - `/lab/orders`: Requisitions ordered by outpatient clinics and inpatient wards.
@@ -164,6 +173,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/lab/history`: Historical specimen and test archives.
 
 ### 10. 🦴 Radiology / Imaging (`/radiology`)
+
 - `/radiology/dashboard`: Modality workload (X-Ray, CT, MRI, Ultrasound).
 - `/radiology/catalog`: Imaging procedure master with radiation safety guidelines.
 - `/radiology/orders`: Inpatient and outpatient radiologic requisitions.
@@ -176,6 +186,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/radiology/history`: Historical imaging comparison archives.
 
 ### 11. 💊 Pharmacy Management (`/pharmacy`)
+
 - `/pharmacy/dashboard`: Dispensing throughput, daily revenue in ₹, and low stock alarms.
 - `/pharmacy/medicines`: Master formulary with generic molecule, brand name, and HSN codes.
 - `/pharmacy/categories`: Therapeutic classes (Antibiotics, Analgesics, Cardiac, Schedule H, Schedule X).
@@ -188,6 +199,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/pharmacy/reports`: Drug consumption, fast-moving items, and narcotic ledger reports.
 
 ### 12. 🚑 Emergency / Casualty (`/emergency`)
+
 - `/emergency/dashboard`: Casualty bed capacity, red/yellow/green triage counter.
 - `/emergency/registration`: Fast-track trauma registration.
 - `/emergency/triage`: Manchester Triage System (MTS) color categorization.
@@ -200,6 +212,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/emergency/reports`: Medico-Legal Case (MLC) register and casualty statistics.
 
 ### 13. ✂️ Operation Theatre (`/ot`)
+
 - `/ot/dashboard`: OT suite occupancy and ongoing surgical procedures.
 - `/ot/schedule`: Master operating theatre daily schedule.
 - `/ot/requests`: Surgeon operative requests and pacu reservations.
@@ -212,6 +225,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/ot/reports`: OT utilization efficiency and surgical morbidity audits.
 
 ### 14. 🩸 Blood Bank (`/blood-bank`)
+
 - `/blood-bank/dashboard`: Blood unit reserves by type (A+, B+, AB+, O+, etc.).
 - `/blood-bank/donors`: Voluntary donor registry and donation history.
 - `/blood-bank/collection`: Phlebotomy collection and bag numbering.
@@ -224,6 +238,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/blood-bank/reports`: State Drug Controller blood bank statutory registers.
 
 ### 15. 📦 Inventory Management (`/inventory`)
+
 - `/inventory/dashboard`: Total hospital inventory valuation in ₹ and stock health.
 - `/inventory/items`: Master non-pharmaceutical item catalog (Surgical consumables, PPE, Linens).
 - `/inventory/categories`: Asset and consumable categorization.
@@ -237,6 +252,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/inventory/reports`: ABC/VED inventory analysis and consumption trends.
 
 ### 16. 🛒 Procurement & Supply Chain (`/procurement`)
+
 - `/procurement/dashboard`: Active Purchase Orders, pending vendor receipts, and spends in ₹.
 - `/procurement/suppliers`: Empaneled vendor directory with GSTIN and bank details.
 - `/procurement/requests`: Internal departmental material purchase requisitions.
@@ -246,6 +262,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/procurement/reports`: Spend analytics, vendor delivery SLA compliance, and purchase registers.
 
 ### 17. 💵 Billing & Finance (`/finance`)
+
 - `/finance/dashboard`: Daily hospital collections, cash vs digital breakdown, and receivables in ₹.
 - `/finance/invoice/create`: Comprehensive bill creation bundling OPD, IPD, Labs, and Drugs.
 - `/finance/invoices`: Master invoice register with statutory CGST/SGST breakdowns.
@@ -258,6 +275,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/finance/reports`: Financial audit registers, revenue by department, and GST return sheets.
 
 ### 18. 🛡️ Insurance & TPA Desk (`/insurance`)
+
 - `/insurance`: TPA operational hub with live claims pipeline, realized remittances, and recovery yields.
 - `/insurance/providers`: Empaneled insurance companies and TPAs (Star Health, HDFC ERGO, ICICI Lombard, Medi Assist, etc.).
 - `/insurance/policies`: Patient policy repository with sum insured, available balance, and room rent caps.
@@ -271,6 +289,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/insurance/reports`: TPA performance scorecards, recovery ratios, and root-cause deduction analytics.
 
 ### 19. 📈 Reports & Analytics (`/reports`)
+
 - `/reports`: Central analytical hub providing unified cross-department telemetry.
 - `/reports/management`: Executive dashboard with financial turnover, active doctors, and patient footfall.
 - `/reports/patients`: Demographic analytics, gender ratios, blood groups, and pediatric/geriatric distributions.
@@ -290,6 +309,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/reports/departments`: Revenue and clinical contribution matrix across hospital departments.
 
 ### 20. 🧑‍💼 Staff & Human Resources (`/hr`)
+
 - `/hr/employees`: Comprehensive employee directory with emergency contacts and clinical credentials.
 - `/hr/profiles`: Individual staff dossiers (qualifications, council registrations, compensation).
 - `/hr/departments`: Hospital human resource allocation across departments.
@@ -301,6 +321,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/hr/reports`: Staff turnover, absenteeism, and department staffing adequacy reports.
 
 ### 21. 🔔 Communications & Notifications (`/notifications`)
+
 - `/notifications`: Communications hub with delivery rates across SMS, WhatsApp, and Email.
 - `/notifications/list`: Real-time notification feed for logged-in users.
 - `/notifications/sms`: National Health SMS dispatch console with TRAI DLT headers.
@@ -310,6 +331,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/notifications/history`: Forensic communication delivery ledger with timestamped delivery receipts.
 
 ### 22. 🔒 Administration & Security (`/admin`)
+
 - `/admin/users`: User account management with status toggling (Active/Suspended/Locked).
 - `/admin/users/add`: New staff onboarding with role assignments.
 - `/admin/sessions`: Active user session monitor with remote token revocation.
@@ -320,6 +342,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/admin/policies`: Contextual access policies (IP whitelisting, time-of-day access, biometric mandates).
 
 ### 23. 🏢 Organization Management (`/organization`)
+
 - `/organization/details`: Multi-hospital trust details, tax IDs, and institutional governance.
 - `/organization/hospitals`: Multi-facility network configuration.
 - `/organization/branches`: Geographical branch network management.
@@ -329,6 +352,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/organization/branch-settings`: Branch-level contact numbers, reception desks, and operating hours.
 
 ### 24. 🛡️ Audit & Regulatory Compliance (`/audit`)
+
 - `/audit`: Security and compliance telemetry hub with threat level banner and compliance posture score (94%).
 - `/audit/logs`: Filterable master audit log with Category, Severity, and forensic event inspector.
 - `/audit/activity`: Staff workflow monitoring with action attribution across clinical and financial modules.
@@ -340,6 +364,7 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 - `/audit/reports`: Formal compliance evaluations for NABH 5th Edition, HIPAA, DISHA/ABDM, and ISO 27001.
 
 ### 25. ⚙️ System Configuration (`/config`)
+
 - `/config`: Master Configuration Hub with health diagnostics and telemetry across all 13 modules.
 - `/config/general`: Hospital legal identity, branding, 24x7 emergency helpline, and campus address.
 - `/config/localization`: Indian English (`en-IN`), Hindi, Indian date format (`DD/MM/YYYY`), and numeral systems.
@@ -359,18 +384,18 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 
 ## 💻 Tech Stack & Dependencies
 
-| Category | Technology | Version / Specification |
-|---|---|---|
-| **Framework** | Next.js | `16.3.1` (App Router) |
-| **Frontend UI** | React | `19.2.8` |
-| **Language** | TypeScript | `^5.0` (Strict Mode) |
-| **Styling** | Tailwind CSS | `@tailwindcss/postcss` `v4.0` |
-| **Component Icons** | Lucide React | `^1.34.0` |
-| **Charts & Telemetry** | Recharts | `^3.10.1` |
-| **State Management** | Zustand | `^5.0.15` |
-| **Database & ORM** | MongoDB & Mongoose | `^9.9.3` |
-| **Authentication** | NextAuth.js & BCrypt | `next-auth ^4.24.15`, `bcryptjs ^3.0.3` |
-| **Class Utilities** | clsx & tailwind-merge | `clsx ^2.1.1`, `tailwind-merge ^3.6.0` |
+| Category               | Technology            | Version / Specification                 |
+| ---------------------- | --------------------- | --------------------------------------- |
+| **Framework**          | Next.js               | `16.3.1` (App Router)                   |
+| **Frontend UI**        | React                 | `19.2.8`                                |
+| **Language**           | TypeScript            | `^5.0` (Strict Mode)                    |
+| **Styling**            | Tailwind CSS          | `@tailwindcss/postcss` `v4.0`           |
+| **Component Icons**    | Lucide React          | `^1.34.0`                               |
+| **Charts & Telemetry** | Recharts              | `^3.10.1`                               |
+| **State Management**   | Zustand               | `^5.0.15`                               |
+| **Database & ORM**     | MongoDB & Mongoose    | `^9.9.3`                                |
+| **Authentication**     | NextAuth.js & BCrypt  | `next-auth ^4.24.15`, `bcryptjs ^3.0.3` |
+| **Class Utilities**    | clsx & tailwind-merge | `clsx ^2.1.1`, `tailwind-merge ^3.6.0`  |
 
 ---
 
@@ -379,22 +404,29 @@ Medistra HMS encompasses **22 primary modules** and over **180 specialized clini
 Medistra HMS includes fully pre-configured **Docker** and **Docker Compose** manifests with multi-stage Alpine builds, Next.js standalone optimization, healthchecks, and persistent volume storage.
 
 ### 1. One-Command Full Stack Launch
+
 Start the Next.js Web App, MongoDB 7 database, and Mongo Express web administration GUI:
+
 ```bash
 docker compose up -d
 ```
+
 This builds the optimized standalone Next.js image (~180MB) and launches:
+
 - **Medistra HMS Web Portal**: [http://localhost:3000](http://localhost:3000)
 - **MongoDB Database**: `mongodb://localhost:27017`
-- **Mongo Express DB Admin GUI**: [http://localhost:8081](http://localhost:8081) *(User: `admin`, Pass: `medistra`)*
+- **Mongo Express DB Admin GUI**: [http://localhost:8081](http://localhost:8081) _(User: `admin`, Pass: `medistra`)_
 
 ### 2. Initialize & Seed Database Inside Container
+
 To populate the database with all 39 roles, navigation menus, and baseline settings:
+
 ```bash
 docker compose exec app npm run seed
 ```
 
 ### 3. Management & Monitoring Commands
+
 ```bash
 # View real-time container logs
 docker compose logs -f app
@@ -414,23 +446,28 @@ docker compose down -v
 ## ⚡ Bare-Metal Local Setup (Without Docker)
 
 ### Prerequisites
+
 - **Node.js**: `v20.x` or higher (LTS recommended)
 - **MongoDB**: `v6.x` or higher (Local instance or MongoDB Atlas cluster)
 - **Package Manager**: `npm` (v9+) or `pnpm`
 
 ### 1. Clone the Repository
+
 ```bash
 git clone https://github.com/your-organization/medistra-hms.git
 cd medistra-hms
 ```
 
 ### 2. Install Project Dependencies
+
 ```bash
 npm install
 ```
 
 ### 3. Configure Environment Variables
-Create a `.env.local` file in the project root:
+
+Create a `.env.loca WeChat.l` file in the project root:
+
 ```env
 # Database Configuration
 MONGODB_URI=mongodb://localhost:27017/medistra-hms
@@ -448,20 +485,27 @@ NODE_ENV=development
 ```
 
 ### 4. Seed Baseline Hospital Data
+
 Initialize the database with the complete hospital directory, 39 roles, navigation menus, sample patients, clinical staff, bed allocations, pharmacy inventory, lab tests, and baseline system settings (Sections 1 through 16):
+
 ```bash
 npm run seed
 ```
-*Note: This command runs `npx tsx src/seed.ts` and prepares a ready-to-use hospital database.*
+
+_Note: This command runs `npx tsx src/seed.ts` and prepares a ready-to-use hospital database._
 
 ### 5. Start Development Server
+
 ```bash
 npm run dev
 ```
+
 Access the application at [http://localhost:3000](http://localhost:3000).
 
 ### 6. Production Verification & Build
+
 To verify type safety and build optimized static/dynamic route bundles:
+
 ```bash
 # Verify TypeScript Type Safety (0 errors)
 npx tsc --noEmit
@@ -479,15 +523,58 @@ npm run start
 
 Once the database has been initialized with `npm run seed`, you can authenticate using the default super administrator account:
 
-| Attribute | Default Value | Notes |
-|---|---|---|
-| **URL** | `http://localhost:3000/login` | Secure NextAuth login portal |
-| **Email** | `admin@hospital.com` | Configurable via `DEFAULT_ADMIN_EMAIL` |
-| **Password** | `password123` | Configurable via `DEFAULT_ADMIN_PASSWORD` |
-| **Assigned Role** | `Super Admin` | Full root access across all 22 modules |
+| Attribute         | Default Value                 | Notes                                     |
+| ----------------- | ----------------------------- | ----------------------------------------- |
+| **URL**           | `http://localhost:3000/login` | Secure NextAuth login portal              |
+| **Email**         | `admin@hospital.com`          | Configurable via `DEFAULT_ADMIN_EMAIL`    |
+| **Password**      | `password123`                 | Configurable via `DEFAULT_ADMIN_PASSWORD` |
+| **Assigned Role** | `Super Admin`                 | Full root access across all 22 modules    |
 
 ### Additional Pre-Seeded Personnel Profiles
+
 The database seed script initializes realistic doctor, nurse, pharmacist, lab technician, and TPA officer profiles that can be inspected under `/admin/users`.
+
+| Email                          | Password        | Role            | Dashboard           |
+| ------------------------------ | --------------- | --------------- | ------------------- |
+| `admin@hospital.com`           | `password123`   | SYSTEM_SUPER_ADMIN | Administration    |
+| `priya.das@medistra.hospital`  | `Hospital@2026` | NURSE           | Nursing Station     |
+| `sourav.roy@medistra.hospital` | `Hospital@2026` | NURSE           | Nursing Station     |
+| `subhashis.m@medistra.hospital` | `Hospital@2026` | PHARMACIST      | Pharmacy            |
+| `tanushree.m@medistra.hospital` | `Hospital@2026` | LAB_TECHNICIAN  | Laboratory          |
+| `rohan.c@medistra.hospital`     | `Hospital@2026` | BILLING_OFFICER | Finance & Billing   |
+
+### Role-Aware Demo Logins (opt-in)
+
+`/dashboard/main` renders a different dashboard per role, driven by
+`src/lib/rbac/dashboard-profiles.ts`. Every dashboard profile has its own demo
+login so each one can be reviewed independently.
+
+**See [DEMO_CREDENTIALS.md](./DEMO_CREDENTIALS.md) for the full credential
+table** — all 19 logins, the dashboard each one opens, and how to provision
+them.
+
+To provision them against an existing database (this deletes nothing):
+
+```bash
+SEED_DEMO_USERS=true npm run seed:demo
+```
+
+`npm run seed:demo` runs `scripts/provision-demo-users.ts`, which only adds the
+`dashboard.dashboard.view` grant to roles missing it and creates or refreshes
+the `demo.*@medistra.hospital` accounts. It never deletes existing records, so
+it is safe against a database that holds real users.
+
+`MONGODB_URI` must point at the database the running app actually uses. Under
+`docker compose` the app uses the internal `mongodb` hostname, not
+`localhost:27017` — provisioning the wrong database is the usual cause of demo
+logins failing with *Invalid email or password*. DEMO_CREDENTIALS.md shows how to
+check and how to run the provisioner inside the compose network.
+
+> **Warning:** these are shared-credential accounts (default password
+> `Demo@2026`, override with `SEED_DEMO_PASSWORD`). Never enable them in
+> production. Note that `npm run seed` clears the `users` collection before
+> re-seeding, so re-running it without `SEED_DEMO_USERS=true` removes the demo
+> logins.
 
 ---
 
@@ -547,5 +634,3 @@ medistra-hms/
 ├── tsconfig.json                   # TypeScript compiler configuration
 └── README.md                       # Comprehensive platform documentation
 ```
-
-
