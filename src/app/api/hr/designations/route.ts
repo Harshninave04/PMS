@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import hrService from "@/services/hr.service";
 import Designation from "@/models/designation.model";
 import dbConnect from "@/lib/dbConnect";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DIRECTORY_VIEW);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     const designations = await hrService.getHRDesignations();
     return NextResponse.json({ success: true, count: designations.length, data: designations });
@@ -17,6 +22,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_DEPT_MANAGE);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     await dbConnect();
     const body = await request.json();

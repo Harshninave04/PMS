@@ -6,8 +6,13 @@ import Doctor from "@/models/doctor.model";
 import User from "@/models/user.model";
 import Department from "@/models/department.model";
 import { AppointmentService } from "@/services/appointment.service";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export async function GET(req: NextRequest) {
+  const authResult = await authorizeRequest(req, PERMISSION_KEYS.APPOINTMENT_VIEW);
+  if (!authResult.isAuthorized) return authResult.response;
+
     try {
         await dbConnect();
         if (!Patient) {}
@@ -66,6 +71,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const authResult = await authorizeRequest(req, PERMISSION_KEYS.APPOINTMENT_UPDATE);
+  if (!authResult.isAuthorized) return authResult.response;
+
     try {
         await dbConnect();
         const body = await req.json();

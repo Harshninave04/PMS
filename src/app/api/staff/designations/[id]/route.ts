@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import Designation from "@/models/designation.model";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DIRECTORY_VIEW);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     await dbConnect();
     const { id } = await params;
@@ -25,6 +30,9 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
 }
 
 export async function PUT(request: NextRequest, { params }: Params): Promise<NextResponse> {
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_DEPT_MANAGE);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     await dbConnect();
     const { id } = await params;
@@ -60,6 +68,9 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
 }
 
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_DEPT_MANAGE);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     await dbConnect();
     const { id } = await params;

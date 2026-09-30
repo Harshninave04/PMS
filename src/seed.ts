@@ -33,7 +33,7 @@ import OrganizationSetting from "./models/organization-setting.model";
 import HospitalSetting from "./models/hospital-setting.model";
 import BranchSetting from "./models/branch-setting.model";
 import AuditLog from "./models/audit-log.model";
-import { buildFullAccess, buildGrant, withBaselineAccess } from "./lib/rbac/role-access";
+import { HR_MANAGER_ACCESS, HR_OFFICER_ACCESS, buildFullAccess, buildGrant, withBaselineAccess } from "./lib/rbac/role-access";
 import SecurityEvent from "./models/security-event.model";
 import ComplianceReport from "./models/compliance-report.model";
 import SystemSetting from "./models/system-setting.model";
@@ -646,8 +646,8 @@ const roleDefinitions = [
     { role: "PROCUREMENT_MANAGER", access: [{ moduleName: "procurement", permissions: ["procurement.request.create", "procurement.request.approve", "procurement.order.create", "procurement.order.approve"] }] },
     
     // HR
-    { role: "HR_OFFICER", access: [] },
-    { role: "HR_MANAGER", access: [] },
+    { role: "HR_OFFICER", access: [...HR_OFFICER_ACCESS] },
+    { role: "HR_MANAGER", access: [...HR_MANAGER_ACCESS] },
     
     // EMERGENCY
     { role: "EMERGENCY_DOCTOR", access: DOCTOR_ACCESS },

@@ -4,10 +4,15 @@ import Ward from "@/models/ward.model";
 import Room from "@/models/room.model";
 import Bed from "@/models/bed.model";
 import Admission from "@/models/admission.model";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 import "@/models/patient.model";
 import "@/models/user.model";
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.WARD_VIEW);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     await dbConnect();
 

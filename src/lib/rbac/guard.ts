@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { Model, Types } from "mongoose";
 import authOptions from "@/lib/auth";
@@ -23,7 +23,7 @@ import { ScopeResolver } from "@/lib/rbac/scope-resolver";
  * The engine resolves identity, verifies permissions, and computes the exact immutable scope filter.
  */
 export async function authorizeRequest<T = Record<string, unknown>>(
-  request: NextRequest,
+  _request: Request,
   requiredPermission: string,
   targetModelOrName?: Model<T> | string
 ): Promise<AuthorizationResult<T>> {

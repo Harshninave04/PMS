@@ -5,8 +5,13 @@ import Staff from "@/models/staff.model";
 import User from "@/models/user.model";
 import Department from "@/models/department.model";
 import Designation from "@/models/designation.model";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_VIEW);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     await dbConnect();
     if (!User) {}

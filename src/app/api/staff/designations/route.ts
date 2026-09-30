@@ -3,8 +3,13 @@ import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import Designation from "@/models/designation.model";
 import Staff from "@/models/staff.model";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DIRECTORY_VIEW);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     await dbConnect();
     const { searchParams } = new URL(request.url);
@@ -49,6 +54,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_DEPT_MANAGE);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     await dbConnect();
     const body = await request.json();
