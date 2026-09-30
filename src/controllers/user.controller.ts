@@ -3,13 +3,9 @@ import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultUserService, { UserService } from "@/services/user.service";
 import { CreateUserDto, UpdateUserDto } from "@/dto/user.dto";
-import Role from "@/models/role.model";
 import User from "@/models/user.model";
-import Organization from "@/models/organization.model";
-import roleHierarchyRepository from "@/repositories/role-hierarchy.repository";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
-import { IRole, IManagedRole } from "@/interfaces/role.interface";
 
 function normalizeId(value: unknown): string {
     if (!value) return "";
@@ -19,56 +15,9 @@ function normalizeId(value: unknown): string {
     return (obj._id ?? value).toString();
 }
 
-function normalizeRoleId(value: unknown): string {
-    if (!value) return "";
-    if (typeof value === "string") return value;
-    if (value instanceof Types.ObjectId) return value.toString();
-    const obj = value as {
-        roleId?: { _id?: unknown } | unknown;
-        targetRole?: { _id?: unknown } | unknown;
-        role?: { _id?: unknown } | unknown;
-        _id?: unknown;
-    };
-    const inner =
-        (obj.roleId as { _id?: unknown })?._id ??
-        obj.roleId ??
-        (obj.targetRole as { _id?: unknown })?._id ??
-        obj.targetRole ??
-        (obj.role as { _id?: unknown })?._id ??
-        obj.role ??
-        obj._id ??
-        value;
-    return (inner ?? "").toString();
-}
-
-async function branchBelongsToOrganization(branchId: string, organizationId: string): Promise<boolean> {
-    if (!branchId || !organizationId) return false;
-
-    const branch = await Organization.findById(branchId).lean();
-    if (!branch) return false;
-
-    const headQuarterId = normalizeId(branch.headQuarter);
-    return branch._id.toString() === organizationId || headQuarterId === organizationId;
-}
-
-async function hasRoleHierarchyPermission(
-    parentRole: IRole,
-    targetRoleId: string,
-    permission: "CREATE" | "READ" | "UPDATE" | "DELETE"
-): Promise<boolean> {
-    const parentId = typeof parentRole._id === "string" ? new Types.ObjectId(parentRole._id) : (parentRole._id as Types.ObjectId);
-    const hierarchy = await roleHierarchyRepository.findByParentAndTarget(
-        parentId,
-        new Types.ObjectId(targetRoleId)
-    );
-
-    if (hierarchy?.permissions?.includes(permission)) return true;
-
-    return Boolean(currentUserRoleLegacyPermissions(parentRole, targetRoleId)?.includes(permission));
-}
-
-function currentUserRoleLegacyPermissions(parentRole: IRole, targetRoleId: string): string[] | undefined {
-    return parentRole.managedRoles?.find((item: IManagedRole) => normalizeRoleId(item) === targetRoleId)?.permissions;
+/** Users may only be managed inside the admin's own hospital. */
+function isOutsideOrganization(context: { organizationId?: Types.ObjectId }, organization: unknown): boolean {
+    return !context.organizationId || normalizeId(organization) !== context.organizationId.toString();
 }
 
 export class UserController {
@@ -112,47 +61,9 @@ export class UserController {
             }
 
             const { context } = authResult;
-            const isGlobalAdmin = context.roleName === "SYSTEM_SUPER_ADMIN";
-
-            if (!isGlobalAdmin) {
-                if (!context.organizationId) {
-                    return NextResponse.json({ success: false, message: "Current user has no organization scope" }, { status: 403 });
-                }
-
-                const currentOrganizationId = context.organizationId.toString();
-                data.organization = data.organization || currentOrganizationId;
-
-                if (context.branchId) {
-                    data.branch = data.branch || context.branchId.toString();
-                }
-
-                // 1. Organization Check
-                if (data.organization?.toString() !== currentOrganizationId) {
-                    return NextResponse.json({ success: false, message: "Cannot create user outside your organization" }, { status: 403 });
-                }
-
-                // 2. Branch Check
-                if (context.branchId) {
-                    if (data.branch?.toString() !== context.branchId.toString()) {
-                        return NextResponse.json({ success: false, message: "Cannot create user outside your branch" }, { status: 403 });
-                    }
-                } else if (data.branch) {
-                    const branchAllowed = await branchBelongsToOrganization(data.branch.toString(), currentOrganizationId);
-                    if (!branchAllowed) {
-                        return NextResponse.json({ success: false, message: "Cannot create user in a branch outside your organization" }, { status: 403 });
-                    }
-                }
-
-                // 3. Role Check
-                const currentUserRole = await Role.findById(context.roleId);
-                if (!currentUserRole) {
-                    return NextResponse.json({ success: false, message: "Current user role not found" }, { status: 403 });
-                }
-
-                const hasCreatePermission = await hasRoleHierarchyPermission(currentUserRole, data.role.toString(), "CREATE");
-                if (!hasCreatePermission) {
-                    return NextResponse.json({ success: false, message: "You do not have permission to create a user with this role" }, { status: 403 });
-                }
+            data.organization = data.organization || context.organizationId?.toString();
+            if (isOutsideOrganization(context, data.organization)) {
+                return NextResponse.json({ success: false, message: "Cannot create user outside your hospital" }, { status: 403 });
             }
 
             const user = await this.userService.createUser(data);
@@ -173,8 +84,7 @@ export class UserController {
 
     /**
      * Minimal staff directory for pickers (doctor, nurse, assignee dropdowns).
-     * Unlike getUsers, this is not bound to the role hierarchy: any staff role
-     * with the directory grant sees active colleagues within its own scope,
+     * Any staff role with the directory grant sees active colleagues within its own scope,
      * and only non-sensitive fields are returned.
      */
     async getUserDirectory(request: NextRequest): Promise<NextResponse> {
@@ -211,59 +121,8 @@ export class UserController {
             if (!authResult.isAuthorized) return authResult.response;
 
             const { context } = authResult;
-            const isGlobalAdmin = context.roleName === "SYSTEM_SUPER_ADMIN";
-
-            const { searchParams } = new URL(request.url);
-            const organizationId = searchParams.get("organizationId");
-
-            let users = organizationId && Types.ObjectId.isValid(organizationId)
-                ? await this.userService.getUsersByOrganizationId(new Types.ObjectId(organizationId))
-                : await this.userService.getAllUsers();
-
-            if (!isGlobalAdmin) {
-                // 1. Organization boundary
-                if (context.organizationId) {
-                    const orgIdStr = context.organizationId.toString();
-                    users = users.filter((u) => {
-                        const userOrg = normalizeId(u.organization);
-                        return userOrg === orgIdStr;
-                    });
-                }
-
-                // 2. Branch boundary
-                if (context.branchId) {
-                    const branchIdStr = context.branchId.toString();
-                    users = users.filter((u) => {
-                        const userBranch = normalizeId(u.branch);
-                        return userBranch === branchIdStr;
-                    });
-                }
-
-                // 3. Role Hierarchy (roles with READ access in RoleHierarchy / managedRoles, plus the user's own account)
-                const currentUserRole = await Role.findById(context.roleId);
-                if (!currentUserRole) {
-                    return NextResponse.json({ success: false, message: "Current user role not found" }, { status: 403 });
-                }
-
-                const hierarchies = await roleHierarchyRepository.findByParentRole(currentUserRole._id as Types.ObjectId);
-                const readableRoleIdsFromHierarchy = hierarchies
-                    .filter((h) => h.permissions?.includes("READ"))
-                    .map((h) => normalizeRoleId(h.targetRole));
-
-                const readableRoleIdsFromLegacy = currentUserRole?.managedRoles
-                    ?.filter((mr: IManagedRole) => mr.permissions?.includes("READ"))
-                    ?.map((mr: IManagedRole) => normalizeRoleId(mr.roleId)) || [];
-
-                const readableRoleIds = Array.from(new Set([...readableRoleIdsFromHierarchy, ...readableRoleIdsFromLegacy]));
-
-                users = users.filter((u) => {
-                    const uId = normalizeId(u._id);
-                    const isSelf = uId === context.userId.toString();
-                    const uRoleId = normalizeRoleId(u.role);
-                    const isManagedRole = Boolean(uRoleId && readableRoleIds.includes(uRoleId));
-                    return isSelf || isManagedRole;
-                });
-            }
+            const users = (await this.userService.getAllUsers())
+                .filter((u) => !isOutsideOrganization(context, u.organization));
 
             return NextResponse.json(
                 { success: true, count: users.length, data: users },
@@ -348,57 +207,12 @@ export class UserController {
             }
 
             const { context } = authResult;
-            const isGlobalAdmin = context.roleName === "SYSTEM_SUPER_ADMIN";
-
-            if (!isGlobalAdmin) {
-                const targetUser = await this.userService.getUserById(new Types.ObjectId(id));
-                if (!targetUser) {
-                    return NextResponse.json({ success: false, message: "Target user not found" }, { status: 404 });
-                }
-
-                if (!context.organizationId) {
-                    return NextResponse.json({ success: false, message: "Current user has no organization scope" }, { status: 403 });
-                }
-
-                const currentOrganizationId = context.organizationId.toString();
-                const targetOrganizationId = normalizeId(targetUser.organization);
-                const targetBranchId = normalizeId(targetUser.branch);
-
-                // 1. Organization Check
-                if (targetOrganizationId !== currentOrganizationId) {
-                    return NextResponse.json({ success: false, message: "Cannot update user outside your organization" }, { status: 403 });
-                }
-                if (data.organization && data.organization.toString() !== currentOrganizationId) {
-                    return NextResponse.json({ success: false, message: "Cannot move user outside your organization" }, { status: 403 });
-                }
-
-                // 2. Branch Check
-                if (context.branchId) {
-                    if (targetBranchId !== context.branchId.toString()) {
-                        return NextResponse.json({ success: false, message: "Cannot update user outside your branch" }, { status: 403 });
-                    }
-                    if (data.branch && data.branch.toString() !== context.branchId.toString()) {
-                        return NextResponse.json({ success: false, message: "Cannot move user outside your branch" }, { status: 403 });
-                    }
-                } else if (data.branch) {
-                    const branchAllowed = await branchBelongsToOrganization(data.branch.toString(), currentOrganizationId);
-                    if (!branchAllowed) {
-                        return NextResponse.json({ success: false, message: "Cannot move user to a branch outside your organization" }, { status: 403 });
-                    }
-                }
-
-                // 3. Role Check
-                const currentUserRole = await Role.findById(context.roleId);
-                if (!currentUserRole) {
-                    return NextResponse.json({ success: false, message: "Current user role not found" }, { status: 403 });
-                }
-
-                const roleToCheck = data.role ? data.role.toString() : normalizeId(targetUser.role);
-                const hasUpdatePermission = await hasRoleHierarchyPermission(currentUserRole, roleToCheck, "UPDATE");
-
-                if (!hasUpdatePermission) {
-                    return NextResponse.json({ success: false, message: "You do not have permission to update this user's role" }, { status: 403 });
-                }
+            const targetUser = await this.userService.getUserById(new Types.ObjectId(id));
+            if (!targetUser) {
+                return NextResponse.json({ success: false, message: "Target user not found" }, { status: 404 });
+            }
+            if (isOutsideOrganization(context, targetUser.organization) || (data.organization && isOutsideOrganization(context, data.organization))) {
+                return NextResponse.json({ success: false, message: "Cannot update user outside your hospital" }, { status: 403 });
             }
 
             const user = await this.userService.updateUser(new Types.ObjectId(id), data);
@@ -432,40 +246,12 @@ export class UserController {
                 const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DISABLE, "User");
                 if (!authResult.isAuthorized) return authResult.response;
 
-                const { context } = authResult;
-                const isGlobalAdmin = context.roleName === "SYSTEM_SUPER_ADMIN";
-
-                if (!isGlobalAdmin) {
-                    const targetUser = await this.userService.getUserById(new Types.ObjectId(id));
-                    if (!targetUser) {
-                        return NextResponse.json({ success: false, message: "Target user not found" }, { status: 404 });
-                    }
-
-                    if (!context.organizationId) {
-                        return NextResponse.json({ success: false, message: "Current user has no organization scope" }, { status: 403 });
-                    }
-
-                    const currentOrganizationId = context.organizationId.toString();
-                    const targetOrganizationId = normalizeId(targetUser.organization);
-                    const targetBranchId = normalizeId(targetUser.branch);
-
-                    if (targetOrganizationId !== currentOrganizationId) {
-                        return NextResponse.json({ success: false, message: "Cannot delete user outside your organization" }, { status: 403 });
-                    }
-
-                    if (context.branchId && targetBranchId !== context.branchId.toString()) {
-                        return NextResponse.json({ success: false, message: "Cannot delete user outside your branch" }, { status: 403 });
-                    }
-
-                    const currentUserRole = await Role.findById(context.roleId);
-                    if (!currentUserRole) {
-                        return NextResponse.json({ success: false, message: "Current user role not found" }, { status: 403 });
-                    }
-
-                    const hasDeletePermission = await hasRoleHierarchyPermission(currentUserRole, normalizeId(targetUser.role), "DELETE");
-                    if (!hasDeletePermission) {
-                        return NextResponse.json({ success: false, message: "You do not have permission to delete a user with this role" }, { status: 403 });
-                    }
+                const targetUser = await this.userService.getUserById(new Types.ObjectId(id));
+                if (!targetUser) {
+                    return NextResponse.json({ success: false, message: "Target user not found" }, { status: 404 });
+                }
+                if (isOutsideOrganization(authResult.context, targetUser.organization)) {
+                    return NextResponse.json({ success: false, message: "Cannot delete user outside your hospital" }, { status: 403 });
                 }
             }
 

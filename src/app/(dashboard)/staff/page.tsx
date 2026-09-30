@@ -9,11 +9,7 @@ import {
   Users,
   Stethoscope,
   Building2,
-  Award,
-  Sparkles,
   CalendarDays,
-  Contact2,
-  ArrowRight,
   ShieldCheck,
   Briefcase,
   UserCheck,
@@ -28,8 +24,6 @@ interface StaffStats {
   activeStaff: number;
   activeDoctors: number;
   departmentsCount: number;
-  activeShiftsCount: number;
-  onDutyCount: number;
 }
 
 export default function StaffHubPage() {
@@ -37,32 +31,28 @@ export default function StaffHubPage() {
     totalEmployees: 0,
     activeStaff: 0,
     activeDoctors: 0,
-    departmentsCount: 0,
-    activeShiftsCount: 0,
-    onDutyCount: 0
+    departmentsCount: 0
   });
   const [loading, setLoading] = useState(true);
 
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const [hrRes, doctorsRes, staffRes] = await Promise.all([
-        fetch("/api/hr/summary").then((r) => r.json()).catch(() => ({})),
+      const [doctorsRes, staffRes, deptRes] = await Promise.all([
         fetch("/api/doctor").then((r) => r.json()).catch(() => ({})),
-        fetch("/api/staff").then((r) => r.json()).catch(() => ({}))
+        fetch("/api/staff").then((r) => r.json()).catch(() => ({})),
+        fetch("/api/department").then((r) => r.json()).catch(() => ({}))
       ]);
 
-      const hrData = hrRes?.data || {};
-      const docCount = doctorsRes?.count || (Array.isArray(doctorsRes?.data) ? doctorsRes.data.length : 0);
-      const stfCount = staffRes?.count || (Array.isArray(staffRes?.data) ? staffRes.data.length : 0);
+      const count = (res: { count?: number; data?: unknown }) => res?.count || (Array.isArray(res?.data) ? res.data.length : 0);
+      const activeDoctors = count(doctorsRes);
+      const activeStaff = count(staffRes);
 
       setStats({
-        totalEmployees: (docCount || hrData.activeDoctors || 0) + (stfCount || hrData.activeStaff || 0),
-        activeStaff: stfCount || hrData.activeStaff || 0,
-        activeDoctors: docCount || hrData.activeDoctors || 0,
-        departmentsCount: hrData.departmentsCount || 12,
-        activeShiftsCount: hrData.activeShiftsCount || 0,
-        onDutyCount: hrData.presentToday || Math.max(1, Math.round((docCount + stfCount) * 0.75))
+        totalEmployees: activeDoctors + activeStaff,
+        activeStaff,
+        activeDoctors,
+        departmentsCount: count(deptRes)
       });
     } catch (err) {
       console.error("Failed to load staff hub stats:", err);
@@ -87,7 +77,7 @@ export default function StaffHubPage() {
     },
     {
       title: "Medical & Support Staff",
-      desc: "Nursing staff, pharmacists, laboratory technologists, and ward caregivers.",
+      desc: "Nurses, pharmacists, receptionists and accountants.",
       path: "/staff/list",
       icon: Users,
       accent: "text-emerald-500 bg-emerald-500/10 border-emerald-500/20",
@@ -104,24 +94,6 @@ export default function StaffHubPage() {
       badgeColor: "bg-violet-500/10 text-violet-600 border-violet-500/20"
     },
     {
-      title: "Designations & Ranks",
-      desc: "Senior Consultants, RMOs, Nursing Superintendents, and Administrative ranks.",
-      path: "/staff/designations",
-      icon: Award,
-      accent: "text-amber-500 bg-amber-500/10 border-amber-500/20",
-      badge: "Clinical & Admin Ranks",
-      badgeColor: "bg-amber-500/10 text-amber-600 border-amber-500/20"
-    },
-    {
-      title: "Medical Specializations",
-      desc: "Interventional Cardiology, Neurology, Orthopedics, Pediatrics, and Surgery.",
-      path: "/staff/specializations",
-      icon: Sparkles,
-      accent: "text-rose-500 bg-rose-500/10 border-rose-500/20",
-      badge: "Specialty Disciplines",
-      badgeColor: "bg-rose-500/10 text-rose-600 border-rose-500/20"
-    },
-    {
       title: "Doctor OPD Schedules",
       desc: "Weekly consultation time slots, patient intake capacity, and slot intervals.",
       path: "/staff/schedule",
@@ -129,15 +101,6 @@ export default function StaffHubPage() {
       accent: "text-cyan-500 bg-cyan-500/10 border-cyan-500/20",
       badge: "Weekly Roster",
       badgeColor: "bg-cyan-500/10 text-cyan-600 border-cyan-500/20"
-    },
-    {
-      title: "Staff Directory",
-      desc: "Searchable hospital intercom, department locations, emails, and emergency contacts.",
-      path: "/staff/directory",
-      icon: Contact2,
-      accent: "text-indigo-500 bg-indigo-500/10 border-indigo-500/20",
-      badge: "Hospital Intercom",
-      badgeColor: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
     }
   ];
 
@@ -152,10 +115,10 @@ export default function StaffHubPage() {
             </span>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                Staff & Medical Personnel Management
+                Doctors & Staff
               </h1>
               <p className="text-sm text-muted-foreground">
-                Centralized registry for physicians, nursing corps, allied healthcare professionals, and department assignments.
+                Doctors, staff, departments and OPD schedules.
               </p>
             </div>
           </div>
@@ -217,7 +180,7 @@ export default function StaffHubPage() {
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
               <Briefcase className="h-3.5 w-3.5 text-blue-500" />
-              Across OPD, IPD, and OT Wings
+              OPD and IPD consultants
             </div>
           </CardContent>
         </Card>
@@ -237,7 +200,7 @@ export default function StaffHubPage() {
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
               <Clock className="h-3.5 w-3.5 text-violet-500" />
-              Clinical Wards, Pharmacy & Labs
+              Nursing, pharmacy, reception & accounts
             </div>
           </CardContent>
         </Card>
@@ -269,12 +232,9 @@ export default function StaffHubPage() {
           <div>
             <h2 className="text-lg font-semibold text-foreground">Staff Workstations & Registries</h2>
             <p className="text-xs text-muted-foreground">
-              Select a specialized module to manage medical rosters, employee profiles, department mapping, and schedules.
+              Manage doctors, staff, departments and OPD timings.
             </p>
           </div>
-          <Link href="/hr" className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1">
-            Switch to HR & Payroll Hub <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

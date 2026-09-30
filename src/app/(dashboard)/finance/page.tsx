@@ -7,21 +7,11 @@ import {
   FileText,
   FilePlus2,
   CreditCard,
-  Receipt,
-  RotateCcw,
-  Percent,
-  FileCheck2,
   ClockAlert,
-  BarChart3,
   TrendingUp,
-  AlertCircle,
   RefreshCw,
   ArrowRight,
-  ShieldCheck,
-  CheckCircle2,
-  IndianRupee,
-  Building2,
-  Users
+  IndianRupee
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -56,16 +46,8 @@ export default function FinanceHubPage() {
 
   const workstations = [
     {
-      title: "Billing Dashboard",
-      description: "Executive revenue metrics, collection breakdowns & KPI trends",
-      path: "/finance/dashboard",
-      icon: BarChart3,
-      badge: "Analytics",
-      color: "border-blue-200 hover:border-blue-500 bg-blue-50/20 dark:bg-blue-950/10"
-    },
-    {
       title: "Create Invoice",
-      description: "Fast multi-department patient billing terminal with auto GST & concessions",
+      description: "Bill a patient for consultation, bed, pharmacy or procedures",
       path: "/finance/invoice/create",
       icon: FilePlus2,
       badge: "Billing Counter",
@@ -81,59 +63,19 @@ export default function FinanceHubPage() {
     },
     {
       title: "Payments Ledger",
-      description: "Real-time audit ledger across Cash, UPI, Card, NetBanking & TPA",
+      description: "All payments received by Cash, UPI, Card or Bank",
       path: "/finance/payments",
       icon: CreditCard,
       badge: `₹${(stats?.totalCollected || 0).toLocaleString("en-IN")}`,
       color: "border-teal-200 hover:border-teal-500 bg-teal-50/20 dark:bg-teal-950/10"
     },
     {
-      title: "Official Receipts",
-      description: "Official hospital money receipts (REC-XXXX) with verification stamps",
-      path: "/finance/receipts",
-      icon: Receipt,
-      badge: "Print & Export",
-      color: "border-indigo-200 hover:border-indigo-500"
-    },
-    {
-      title: "Patient Refunds",
-      description: "Manage cancellation credits, overpayment returns & refund approvals",
-      path: "/finance/refunds",
-      icon: RotateCcw,
-      badge: stats?.counts?.pendingRefunds ? `${stats.counts.pendingRefunds} Pending` : "Settled",
-      color: "border-amber-200 hover:border-amber-500 bg-amber-50/20 dark:bg-amber-950/10"
-    },
-    {
-      title: "Discounts & Waivers",
-      description: "Staff, BPL, Senior Citizen & management concession voucher approvals",
-      path: "/finance/discounts",
-      icon: Percent,
-      badge: stats?.counts?.pendingConcessions ? `${stats.counts.pendingConcessions} Pending` : "Verified",
-      color: "border-rose-200 hover:border-rose-500 bg-rose-50/20 dark:bg-rose-950/10"
-    },
-    {
-      title: "Credit Notes",
-      description: "Issue official credit notes (CN-XXXX) for post-billing corrections & returns",
-      path: "/finance/credit-notes",
-      icon: FileCheck2,
-      badge: `${stats?.counts?.creditNotesCount || 0} Issued`,
-      color: "border-violet-200 hover:border-violet-500"
-    },
-    {
       title: "Outstanding Payments",
-      description: "Accounts receivable aging analysis (0-30, 31-60, 61-90, >90 days) & dues collection",
+      description: "Patients with unpaid or partly paid bills",
       path: "/finance/outstanding",
       icon: ClockAlert,
       badge: `₹${(stats?.totalOutstanding || 0).toLocaleString("en-IN")} Due`,
       color: "border-orange-200 hover:border-orange-500 bg-orange-50/20 dark:bg-orange-950/10"
-    },
-    {
-      title: "Financial Reports",
-      description: "Daily collection register, departmental revenue statements & GST audit reports",
-      path: "/finance/reports",
-      icon: Banknote,
-      badge: "Audited Statements",
-      color: "border-cyan-200 hover:border-cyan-500 bg-cyan-50/20 dark:bg-cyan-950/10"
     }
   ];
 
@@ -149,7 +91,7 @@ export default function FinanceHubPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Billing & Finance Hub</h1>
               <p className="text-sm text-muted-foreground">
-                Centralized hospital revenue cycle management, multi-department invoicing, digital collections & fiscal audits
+                Create bills, collect payments and track patient dues
               </p>
             </div>
           </div>
@@ -231,12 +173,12 @@ export default function FinanceHubPage() {
           <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Net Realized Revenue</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Paid Bills</p>
                 <h3 className="text-2xl font-bold mt-1 text-purple-600 dark:text-purple-400">
-                  ₹{(stats?.netRevenue || 0).toLocaleString("en-IN")}
+                  {stats?.counts?.paid || 0}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Less ₹{(stats?.totalRefunds || 0).toLocaleString("en-IN")} refunds
+                  Fully settled invoices
                 </p>
               </div>
               <div className="p-3 bg-purple-50 dark:bg-purple-950/50 text-purple-600 rounded-lg">

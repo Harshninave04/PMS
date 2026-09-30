@@ -1,9 +1,4 @@
-import NursingCarePlan from "@/models/nursing-care-plan.model";
-import Shift from "@/models/shift.model";
-import NursingTask from "@/models/nursing-task.model";
-import NursingIntakeOutput from "@/models/nursing-intake-output.model";
 import NursingMedication from "@/models/nursing-medication.model";
-import NursingHandover from "@/models/nursing-handover.model";
 import Admission from "@/models/admission.model";
 import "@/models/bed.model";
 import "@/models/patient.model";
@@ -64,101 +59,15 @@ export class NursingService {
 
   // 2. Aggregate Nursing KPIs & Stats
   async getNursingStats() {
-    const [
-      totalInpatients,
-      pendingMedications,
-      pendingTasks,
-      activeCarePlans,
-      activeShifts,
-      recentHandovers
-    ] = await Promise.all([
+    const [totalInpatients, pendingMedications] = await Promise.all([
       Admission.countDocuments({ status: { $in: ["ADMITTED", "ACTIVE"] } }),
-      NursingMedication.countDocuments({ status: "PENDING" }),
-      NursingTask.countDocuments({ status: { $in: ["PENDING", "IN_PROGRESS"] } }),
-      NursingCarePlan.countDocuments({ status: "ACTIVE" }),
-      Shift.countDocuments({ status: { $in: ["SCHEDULED", "ONGOING"] } }),
-      NursingHandover.countDocuments()
+      NursingMedication.countDocuments({ status: "PENDING" })
     ]);
 
-    return {
-      totalInpatients,
-      pendingMedications,
-      pendingTasks,
-      activeCarePlans,
-      activeShifts,
-      recentHandovers
-    };
+    return { totalInpatients, pendingMedications };
   }
 
-  // 3. Care Plans
-  async getCarePlans(patientId?: string) {
-    const filter: Record<string, unknown> = {};
-    if (patientId) filter.patient = patientId;
-    return NursingCarePlan.find(filter)
-      .populate("patient", "name uhid age gender")
-      .populate("nurse", "name email")
-      .sort({ createdAt: -1 });
-  }
-
-  async createCarePlan(data: Record<string, unknown>) {
-    return NursingCarePlan.create(data);
-  }
-
-  async updateCarePlan(id: string, data: Record<string, unknown>) {
-    return NursingCarePlan.findByIdAndUpdate(id, data, { new: true });
-  }
-
-  async deleteCarePlan(id: string) {
-    return NursingCarePlan.findByIdAndDelete(id);
-  }
-
-  // 4. Nursing Tasks
-  async getTasks(patientId?: string, scopeFilter: Record<string, unknown> = {}) {
-    const filter: Record<string, unknown> = { ...scopeFilter };
-    if (patientId) filter.patient = patientId;
-    return NursingTask.find(filter)
-      .populate("patient", "name uhid")
-      .populate("ward", "wardName wardCode")
-      .populate("assignedNurse", "name")
-      .populate("completedBy", "name")
-      .sort({ dueDate: 1, createdAt: -1 });
-  }
-
-  async getTaskById(id: string) {
-    return NursingTask.findById(id);
-  }
-
-  async createTask(data: Record<string, unknown>) {
-    return NursingTask.create(data);
-  }
-
-  async updateTask(id: string, data: Record<string, unknown>) {
-    return NursingTask.findByIdAndUpdate(id, data, { new: true });
-  }
-
-  async deleteTask(id: string) {
-    return NursingTask.findByIdAndDelete(id);
-  }
-
-  // 5. Fluid Intake & Output
-  async getIntakeOutputs(patientId?: string) {
-    const filter: Record<string, unknown> = {};
-    if (patientId) filter.patient = patientId;
-    return NursingIntakeOutput.find(filter)
-      .populate("patient", "name uhid")
-      .populate("recordedBy", "name")
-      .sort({ recordDate: -1, createdAt: -1 });
-  }
-
-  async createIntakeOutput(data: Record<string, unknown>) {
-    return NursingIntakeOutput.create(data);
-  }
-
-  async deleteIntakeOutput(id: string) {
-    return NursingIntakeOutput.findByIdAndDelete(id);
-  }
-
-  // 6. Medication Administration Record (eMAR)
+  // 3. Medication Administration Record (eMAR)
   async getMedications(patientId?: string) {
     const filter: Record<string, unknown> = {};
     if (patientId) filter.patient = patientId;
@@ -180,51 +89,6 @@ export class NursingService {
     return NursingMedication.findByIdAndDelete(id);
   }
 
-  // 7. Shift Handover (SBAR)
-  async getHandovers(wardId?: string) {
-    const filter: Record<string, unknown> = {};
-    if (wardId) filter.ward = wardId;
-    return NursingHandover.find(filter)
-      .populate("ward", "wardName wardCode floor")
-      .populate("outgoingNurse", "name email")
-      .populate("incomingNurse", "name email")
-      .populate("patientHandovers.patient", "name uhid")
-      .sort({ handoverDate: -1, createdAt: -1 });
-  }
-
-  async createHandover(data: Record<string, unknown>) {
-    return NursingHandover.create(data);
-  }
-
-  async updateHandover(id: string, data: Record<string, unknown>) {
-    return NursingHandover.findByIdAndUpdate(id, data, { new: true });
-  }
-
-  async deleteHandover(id: string) {
-    return NursingHandover.findByIdAndDelete(id);
-  }
-
-  // 8. Shift Duty Roster
-  async getShifts(wardId?: string) {
-    const filter: Record<string, unknown> = {};
-    if (wardId) filter.ward = wardId;
-    return Shift.find(filter)
-      .populate("user", "name email contact")
-      .populate("ward", "wardName wardCode floor")
-      .sort({ startTime: -1 });
-  }
-
-  async createShift(data: Record<string, unknown>) {
-    return Shift.create(data);
-  }
-
-  async updateShift(id: string, data: Record<string, unknown>) {
-    return Shift.findByIdAndUpdate(id, data, { new: true });
-  }
-
-  async deleteShift(id: string) {
-    return Shift.findByIdAndDelete(id);
-  }
 }
 
 const nursingService = new NursingService();

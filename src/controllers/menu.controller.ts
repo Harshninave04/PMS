@@ -5,40 +5,7 @@ import { getServerSession } from "next-auth";
 import authOptions from "@/lib/auth";
 import Role from "@/models/role.model";
 import { IMenu } from "@/interfaces/menu.interface";
-
-function getMenuModuleKey(menu: { moduleKey?: string; path?: string; name?: string }): string {
-    if (menu.moduleKey && menu.moduleKey.trim()) {
-        return menu.moduleKey.toLowerCase().trim();
-    }
-    const path = (menu.path || "").toLowerCase().trim();
-    if (path.startsWith("/dashboard")) return "dashboard";
-    if (path.startsWith("/patients")) return "patient";
-    if (path.startsWith("/appointments")) return "appointment";
-    if (path.startsWith("/admissions")) return "admission";
-    if (path.startsWith("/wards")) return "ward";
-    if (path.startsWith("/clinical")) return "clinical";
-    if (path.startsWith("/nursing")) return "nursing";
-    if (path.startsWith("/lab")) return "lab";
-    if (path.startsWith("/radiology")) return "radiology";
-    if (path.startsWith("/pharmacy")) return "pharmacy";
-    if (path.startsWith("/emergency")) return "emergency";
-    if (path.startsWith("/ot")) return "ot";
-    if (path.startsWith("/blood-bank")) return "blood-bank";
-    if (path.startsWith("/inventory")) return "inventory";
-    if (path.startsWith("/procurement")) return "procurement";
-    if (path.startsWith("/finance")) return "billing";
-    if (path.startsWith("/insurance")) return "insurance";
-    if (path.startsWith("/reports")) return "reports";
-    if (path.startsWith("/staff")) return "staff";
-    if (path.startsWith("/hr")) return "hr";
-    if (path.startsWith("/notifications")) return "notifications";
-    if (path.startsWith("/admin")) return "admin";
-    if (path.startsWith("/organization")) return "organization";
-    if (path.startsWith("/audit")) return "audit";
-    if (path.startsWith("/config")) return "system";
-
-    return (menu.name || "").toLowerCase().trim();
-}
+import { filterMenusForAccess, type MenuNode } from "@/lib/menu-data";
 
 export class MenuController {
     constructor(private service: MenuService = defaultMenuService) { }
@@ -94,54 +61,15 @@ export class MenuController {
             const currentUser = session.user as { role?: string };
             if (currentUser.role) {
                 const roleDoc = await Role.findById(currentUser.role).lean();
-                if (roleDoc && roleDoc.role !== "SYSTEM_SUPER_ADMIN") {
-                    // Menu visibility is derived exclusively from the role's own
-                    // module grants. Do NOT blanket-grant any module here, otherwise
-                    // every role ends up with an identical navigation surface.
-                    const accessibleModules = new Set<string>();
-
-                    if (Array.isArray(roleDoc.access)) {
-                        for (const item of roleDoc.access) {
-                            const mod = (item.moduleName || "").toLowerCase().trim();
-                            if (!mod) continue;
-                            accessibleModules.add(mod);
-                            if (mod === "user" || mod === "role") accessibleModules.add("admin");
-                            if (mod === "billing") accessibleModules.add("finance");
-                            if (mod === "system") accessibleModules.add("config");
-                        }
-                    }
-
-                    interface FilterableMenuItem {
-                        moduleKey?: string;
-                        path?: string;
-                        name?: string;
-                        children?: FilterableMenuItem[];
-                        toObject?: () => Record<string, unknown>;
-                        [key: string]: unknown;
-                    }
-
-                    const menuList = menus as unknown as FilterableMenuItem[];
-                    const filtered = menuList.map((menu) => {
-                        const menuObj = (typeof menu.toObject === "function" ? menu.toObject() : { ...menu }) as FilterableMenuItem;
-
-                        // Filter the children on their own module grants
-                        if (Array.isArray(menuObj.children) && menuObj.children.length > 0) {
-                            menuObj.children = (menuObj.children as FilterableMenuItem[]).filter((child) => {
-                                const childKey = getMenuModuleKey(child);
-                                return accessibleModules.has(childKey);
-                            });
-                        }
-                        return menuObj;
-                    }).filter((menu) => {
-                        const parentKey = getMenuModuleKey(menu);
-                        const hasDirectAccess = accessibleModules.has(parentKey);
-                        const hasChildAccess = Array.isArray(menu.children) && menu.children.length > 0;
-                        return hasDirectAccess || hasChildAccess;
-                    });
-                    menus = filtered as unknown as IMenu[];
+                if (roleDoc) {
+                    const plainMenus = (menus as unknown as MenuNode[]).map((menu) =>
+                        typeof (menu as { toObject?: () => MenuNode }).toObject === "function"
+                            ? (menu as unknown as { toObject: () => MenuNode }).toObject()
+                            : menu
+                    );
+                    menus = filterMenusForAccess(plainMenus, roleDoc.access ?? []) as unknown as IMenu[];
                 }
             }
-
 
             return NextResponse.json(
                 {

@@ -73,35 +73,6 @@ export class PharmacyController {
         }
     }
 
-    static async getReturns(req: Request | NextRequest): Promise<NextResponse> {
-        try {
-            const nextReq = req instanceof NextRequest ? req : new NextRequest(req.url, { headers: req.headers });
-            const auth = await authorizeRequest(nextReq, PERMISSION_KEYS.PHARMACY_DISPENSE_CREATE, "Dispense");
-            if (!auth.isAuthorized) return auth.response;
-
-            const returns = await PharmacyService.getAllReturns();
-            return NextResponse.json({ success: true, data: returns }, { status: 200 });
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch returns";
-            return NextResponse.json({ success: false, message }, { status: 500 });
-        }
-    }
-
-    static async createReturn(req: Request | NextRequest): Promise<NextResponse> {
-        try {
-            const nextReq = req instanceof NextRequest ? req : new NextRequest(req.url, { headers: req.headers });
-            const auth = await authorizeRequest(nextReq, PERMISSION_KEYS.PHARMACY_DISPENSE_CREATE, "Dispense");
-            if (!auth.isAuthorized) return auth.response;
-
-            const body = await req.json();
-            const ret = await PharmacyService.createReturn(body);
-            return NextResponse.json({ success: true, data: ret }, { status: 201 });
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to create return";
-            return NextResponse.json({ success: false, message }, { status: 500 });
-        }
-    }
-
     static async adjustStock(req: Request | NextRequest): Promise<NextResponse> {
         try {
             const nextReq = req instanceof NextRequest ? req : new NextRequest(req.url, { headers: req.headers });
@@ -183,72 +154,6 @@ export class PharmacyController {
             return NextResponse.json({ success: true, message: "Category deleted" }, { status: 200 });
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : "Failed to delete category";
-            return NextResponse.json({ success: false, message }, { status: 500 });
-        }
-    }
-
-    static async getSuppliers(req: Request | NextRequest): Promise<NextResponse> {
-        try {
-            const nextReq = req instanceof NextRequest ? req : new NextRequest(req.url, { headers: req.headers });
-            const auth = await authorizeRequest(nextReq, PERMISSION_KEYS.PHARMACY_STOCK_VIEW, "Medicine");
-            if (!auth.isAuthorized) return auth.response;
-
-            const suppliers = await PharmacyService.getAllSuppliers();
-            return NextResponse.json({ success: true, data: suppliers }, { status: 200 });
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to fetch suppliers";
-            return NextResponse.json({ success: false, message }, { status: 500 });
-        }
-    }
-
-    static async createSupplier(req: Request | NextRequest): Promise<NextResponse> {
-        try {
-            const nextReq = req instanceof NextRequest ? req : new NextRequest(req.url, { headers: req.headers });
-            const auth = await authorizeRequest(nextReq, PERMISSION_KEYS.PHARMACY_STOCK_MANAGE, "Medicine");
-            if (!auth.isAuthorized) return auth.response;
-
-            const body = await req.json();
-            const supplier = await PharmacyService.createSupplier(body);
-            return NextResponse.json({ success: true, data: supplier }, { status: 201 });
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to create supplier";
-            return NextResponse.json({ success: false, message }, { status: 500 });
-        }
-    }
-
-    static async updateSupplier(
-        req: Request | NextRequest,
-        { params }: { params: { id: string } | Promise<{ id: string }> }
-    ): Promise<NextResponse> {
-        try {
-            const nextReq = req instanceof NextRequest ? req : new NextRequest(req.url, { headers: req.headers });
-            const auth = await authorizeRequest(nextReq, PERMISSION_KEYS.PHARMACY_STOCK_MANAGE, "Medicine");
-            if (!auth.isAuthorized) return auth.response;
-
-            const resolvedParams = await params;
-            const body = await req.json();
-            const supplier = await PharmacyService.updateSupplier(resolvedParams.id, body);
-            return NextResponse.json({ success: true, data: supplier }, { status: 200 });
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to update supplier";
-            return NextResponse.json({ success: false, message }, { status: 500 });
-        }
-    }
-
-    static async deleteSupplier(
-        req: Request | NextRequest,
-        { params }: { params: { id: string } | Promise<{ id: string }> }
-    ): Promise<NextResponse> {
-        try {
-            const nextReq = req instanceof NextRequest ? req : new NextRequest(req.url, { headers: req.headers });
-            const auth = await authorizeRequest(nextReq, PERMISSION_KEYS.PHARMACY_STOCK_MANAGE, "Medicine");
-            if (!auth.isAuthorized) return auth.response;
-
-            const resolvedParams = await params;
-            await PharmacyService.deleteSupplier(resolvedParams.id);
-            return NextResponse.json({ success: true, message: "Supplier deleted" }, { status: 200 });
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to delete supplier";
             return NextResponse.json({ success: false, message }, { status: 500 });
         }
     }

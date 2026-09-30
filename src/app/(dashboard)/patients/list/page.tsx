@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -12,13 +12,9 @@ import {
   Users,
   Plus,
   Search,
-  Filter,
   Download,
   Eye,
   FileText,
-  Clock,
-  QrCode,
-  Edit,
   Trash2,
   RefreshCw,
   AlertCircle
@@ -293,19 +289,9 @@ export default function PatientsListPage() {
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
                         </Link>
-                        <Link href={`/patients/history?id=${patient._id}`}>
-                          <Button variant="outline" size="sm" className="h-8 px-2" title="Medical History">
-                            <Clock className="h-3.5 w-3.5" />
-                          </Button>
-                        </Link>
                         <Link href={`/patients/documents?id=${patient._id}`}>
                           <Button variant="outline" size="sm" className="h-8 px-2" title="Medical Documents">
                             <FileText className="h-3.5 w-3.5" />
-                          </Button>
-                        </Link>
-                        <Link href={`/patients/identification?id=${patient._id}`}>
-                          <Button variant="outline" size="sm" className="h-8 px-2" title="Print ID Card">
-                            <QrCode className="h-3.5 w-3.5" />
                           </Button>
                         </Link>
                         <Button

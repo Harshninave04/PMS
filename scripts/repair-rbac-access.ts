@@ -1,20 +1,18 @@
 /**
- * Additive RBAC repair for an existing database.
+ * Moves an existing database onto the simplified setup without `npm run seed`
+ * (which wipes users, roles and menus).
  *
- * Roles seeded before this fix were missing the read permissions that every
- * form dropdown depends on (departments, doctors, wards/beds, branches, staff),
- * admin roles were missing whole modules, nurses could not open their own task
- * list, and seeded staff had no organization, so every branch-scoped query
- * returned nothing. This script repairs that in place, like `seed:demo`, without
- * the destructive `npm run seed`.
+ * It:
+ *   1. creates or refreshes the 6 fixed roles (Admin, Doctor, Nurse,
+ *      Receptionist, Pharmacist, Accountant) with their canonical access,
+ *   2. replaces the sidebar menus with the simplified menu,
+ *   3. moves users from the old role names onto the matching new role, and
+ *      deletes old roles that no user holds any more,
+ *   4. attaches users that have neither organization nor branch to the
+ *      hospital, when exactly one main organization exists.
  *
- * It NEVER deletes or narrows anything. It only:
- *   1. adds the baseline reference permissions to every role,
- *   2. completes the access of full-access admin roles,
- *   3. adds nursing task permissions to nurse roles and staff permissions
- *      to HR roles, and
- *   4. attaches users that have neither organization nor branch to the main
- *      organization, when exactly one main organization exists.
+ * Users on roles with no equivalent (e.g. lab or HR roles) are listed and left
+ * untouched; reassign them from Settings > Users.
  *
  * Usage:
  *   npm run repair:rbac            (dry run, prints what would change)
@@ -22,81 +20,107 @@
  */
 import "dotenv/config";
 import mongoose from "mongoose";
-import type { Collection } from "mongodb";
-import {
-    BASELINE_ACCESS,
-    FULL_ACCESS_ROLES,
-    HR_MANAGER_ACCESS,
-    HR_OFFICER_ACCESS,
-    ModuleAccess,
-    NURSING_TASK_ACCESS,
-    buildFullAccess,
-    buildGrant,
-    mergeAccess
-} from "../src/lib/rbac/role-access";
+import type { Collection, ObjectId } from "mongodb";
+import { ALL_ROLES, buildRoleAccess } from "../src/lib/rbac/role-access";
+import { MENUS, getMenuModuleKey } from "../src/lib/menu-data";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
 const APPLY = process.argv.includes("--apply");
 
-const FULL_ACCESS = buildFullAccess(["clinical.diagnosis.update", "clinical.prescription.update"]);
+/** Old role name -> new role name. */
+const LEGACY_ROLE_MAP: Record<string, string> = {
+    SYSTEM_SUPER_ADMIN: "ADMIN",
+    ORGANIZATION_ADMIN: "ADMIN",
+    HOSPITAL_ADMIN: "ADMIN",
+    BRANCH_MANAGER: "ADMIN",
+    DOCTOR: "DOCTOR",
+    CONSULTANT: "DOCTOR",
+    EMERGENCY_DOCTOR: "DOCTOR",
+    NURSE: "NURSE",
+    NURSE_MANAGER: "NURSE",
+    EMERGENCY_NURSE: "NURSE",
+    OT_NURSE: "NURSE",
+    RECEPTIONIST: "RECEPTIONIST",
+    FRONT_DESK_MANAGER: "RECEPTIONIST",
+    PHARMACIST: "PHARMACIST",
+    PHARMACY_MANAGER: "PHARMACIST",
+    CASHIER: "ACCOUNTANT",
+    BILLING_OFFICER: "ACCOUNTANT",
+    BILLING_MANAGER: "ACCOUNTANT",
+    FINANCE_MANAGER: "ACCOUNTANT",
+};
 
-function additionsFor(roleName: string): ModuleAccess[] {
-    const additions: ModuleAccess[] = [...BASELINE_ACCESS];
-    if (FULL_ACCESS_ROLES.includes(roleName)) additions.push(...FULL_ACCESS);
-    if (roleName.includes("NURSE")) additions.push(NURSING_TASK_ACCESS);
-    if (roleName === "HR_OFFICER") additions.push(...HR_OFFICER_ACCESS);
-    if (roleName === "HR_MANAGER") additions.push(...HR_MANAGER_ACCESS);
-    return additions;
-}
-
-async function repairRoles(roles: Collection): Promise<number> {
-    let changed = 0;
-    for (const role of await roles.find({}).toArray()) {
-        const { access, added } = mergeAccess(role.access, additionsFor(role.role));
-        if (added.length === 0) continue;
-
-        // Give each newly added permission an explicit grant with the same scope
-        // rules the seed uses; existing grants are left untouched.
-        const addedSet = new Set(added);
-        for (const item of access) {
-            const grants = Array.isArray(item.grants) ? [...item.grants] : [];
-            for (const perm of item.permissions) {
-                if (addedSet.has(perm)) grants.push(buildGrant(perm, role.role));
-            }
-            item.grants = grants;
+async function syncRoles(roles: Collection): Promise<Map<string, ObjectId>> {
+    const ids = new Map<string, ObjectId>();
+    for (const roleName of ALL_ROLES) {
+        const existing = await roles.findOne({ role: roleName }, { projection: { _id: 1 } });
+        console.log(`   ${roleName.padEnd(14)} ${existing ? "refresh access" : "create"}`);
+        if (!APPLY) {
+            if (existing) ids.set(roleName, existing._id);
+            continue;
         }
-
-        changed++;
-        console.log(`   ${role.role.padEnd(24)} +${added.length}: ${added.join(", ")}`);
-        if (APPLY) await roles.updateOne({ _id: role._id }, { $set: { access } });
+        const access = buildRoleAccess(roleName);
+        if (existing) {
+            await roles.updateOne({ _id: existing._id }, { $set: { access } });
+            ids.set(roleName, existing._id);
+        } else {
+            const now = new Date();
+            const res = await roles.insertOne({ role: roleName, access, createdAt: now, updatedAt: now });
+            ids.set(roleName, res.insertedId);
+        }
     }
-    return changed;
+    return ids;
 }
 
-async function repairUsers(users: Collection, organizations: Collection, roles: Collection): Promise<number> {
+async function syncMenus(menus: Collection): Promise<void> {
+    console.log(`   replace ${await menus.countDocuments()} menu item(s) with ${MENUS.length} menus`);
+    if (!APPLY) return;
+    await menus.deleteMany({});
+    const now = new Date();
+    for (const { children, ...parent } of MENUS) {
+        const parentKey = getMenuModuleKey(parent);
+        const childIds: ObjectId[] = [];
+        for (const child of children ?? []) {
+            const res = await menus.insertOne({ ...child, icon: "", children: [], moduleKey: getMenuModuleKey(child) || parentKey, createdAt: now, updatedAt: now });
+            childIds.push(res.insertedId);
+        }
+        await menus.insertOne({ ...parent, moduleKey: parentKey, children: childIds, createdAt: now, updatedAt: now });
+    }
+}
+
+async function migrateUsers(users: Collection, roles: Collection, newRoleIds: Map<string, ObjectId>): Promise<void> {
+    const legacyRoles = await roles.find({ role: { $nin: [...ALL_ROLES] } }).toArray();
+
+    for (const legacy of legacyRoles) {
+        const holders = await users.countDocuments({ role: legacy._id });
+        const target = LEGACY_ROLE_MAP[legacy.role];
+
+        if (holders > 0 && !target) {
+            console.log(`   ${legacy.role.padEnd(24)} ${holders} user(s) kept — no equivalent role, reassign manually`);
+            continue;
+        }
+        if (holders > 0) {
+            console.log(`   ${legacy.role.padEnd(24)} ${holders} user(s) -> ${target}`);
+            const targetId = newRoleIds.get(target);
+            if (APPLY && targetId) await users.updateMany({ role: legacy._id }, { $set: { role: targetId } });
+        }
+        console.log(`   ${legacy.role.padEnd(24)} delete role`);
+        if (APPLY) await roles.deleteOne({ _id: legacy._id });
+    }
+}
+
+async function attachUnassignedUsers(users: Collection, organizations: Collection): Promise<void> {
     const mainOrgs = await organizations.find({ branchType: "MAIN" }).toArray();
     if (mainOrgs.length !== 1) {
         console.log(`   skipped: found ${mainOrgs.length} main organizations, cannot pick one automatically.`);
-        console.log("   Assign an organization/branch to these users from Admin > Users instead.");
-        return 0;
+        return;
     }
-    const mainOrg = mainOrgs[0];
-
-    const superAdmin = await roles.findOne({ role: "SYSTEM_SUPER_ADMIN" }, { projection: { _id: 1 } });
-    const unassigned = await users.find({
-        organization: null,
-        branch: null,
-        ...(superAdmin ? { role: { $ne: superAdmin._id } } : {})
-    }, { projection: { email: 1 } }).toArray();
-
-    for (const user of unassigned) console.log(`   ${user.email} -> ${mainOrg.organizationName}`);
+    const hospital = mainOrgs[0];
+    const unassigned = await users.find({ organization: null, branch: null }, { projection: { email: 1 } }).toArray();
+    for (const user of unassigned) console.log(`   ${user.email} -> ${hospital.organizationName}`);
     if (APPLY && unassigned.length) {
-        await users.updateMany(
-            { _id: { $in: unassigned.map(u => u._id) } },
-            { $set: { organization: mainOrg._id } }
-        );
+        await users.updateMany({ _id: { $in: unassigned.map(u => u._id) } }, { $set: { organization: hospital._id } });
     }
-    return unassigned.length;
 }
 
 async function repair() {
@@ -106,15 +130,19 @@ async function repair() {
     const db = mongoose.connection.db;
     if (!db) throw new Error("No database selected after connecting.");
 
-    console.log("1. Adding missing role permissions...");
-    const roleCount = await repairRoles(db.collection("roles"));
-    console.log(`   ${roleCount} role(s) ${APPLY ? "updated" : "would be updated"}\n`);
+    console.log("1. Roles");
+    const roleIds = await syncRoles(db.collection("roles"));
 
-    console.log("2. Attaching users without organization or branch...");
-    const userCount = await repairUsers(db.collection("users"), db.collection("organizations"), db.collection("roles"));
-    console.log(`   ${userCount} user(s) ${APPLY ? "updated" : "would be updated"}`);
+    console.log("\n2. Menus");
+    await syncMenus(db.collection("menus"));
 
-    if (APPLY) console.log("\nDone. API access applies on the next request; re-login refreshes the session badge.");
+    console.log("\n3. Users on old roles");
+    await migrateUsers(db.collection("users"), db.collection("roles"), roleIds);
+
+    console.log("\n4. Users without a hospital");
+    await attachUnassignedUsers(db.collection("users"), db.collection("organizations"));
+
+    if (APPLY) console.log("\nDone. Users must log out and back in to pick up their new role.");
     await mongoose.disconnect();
 }
 

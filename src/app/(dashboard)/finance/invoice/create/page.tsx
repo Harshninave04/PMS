@@ -9,16 +9,12 @@ import {
   User,
   Plus,
   Trash2,
-  IndianRupee,
   Receipt,
   CheckCircle2,
   CreditCard,
-  Building2,
-  Calendar,
   Sparkles,
   ArrowLeft,
-  RefreshCw,
-  Printer
+  RefreshCw
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -299,9 +295,9 @@ export default function CreateInvoicePage() {
               View Invoices
             </Button>
           </Link>
-          <Link href="/finance/receipts">
+          <Link href="/finance/payments">
             <Button variant="outline" size="sm">
-              Receipts
+              Payments
             </Button>
           </Link>
         </div>
@@ -333,9 +329,9 @@ export default function CreateInvoicePage() {
                   </Button>
                 </Link>
                 {createdInvoice.receipt?.receiptNumber && (
-                  <Link href="/finance/receipts">
+                  <Link href="/finance/payments">
                     <Button size="sm" variant="outline" className="border-emerald-500 text-emerald-700">
-                      Print Receipt
+                      View Payments
                     </Button>
                   </Link>
                 )}

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultPatientService, { PatientService } from "@/services/patient.service";
-import { CreatePatientDto, UpdatePatientDto, AddPatientDocumentDto, MergePatientDto } from "@/dto/patient.dto";
+import { CreatePatientDto, UpdatePatientDto, AddPatientDocumentDto } from "@/dto/patient.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
@@ -341,47 +341,6 @@ export class PatientController {
             );
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : "Failed to delete document";
-            return NextResponse.json(
-                { success: false, message },
-                { status: 500 }
-            );
-        }
-    }
-
-    async mergePatients(request: NextRequest): Promise<NextResponse> {
-        try {
-            await dbConnect();
-            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_MERGE, "Patient");
-            if (!auth.isAuthorized) return auth.response;
-
-            const body: MergePatientDto = await request.json();
-
-            if (!body.primaryPatientId || !body.secondaryPatientId || !body.reason) {
-                return NextResponse.json(
-                    { success: false, message: "Primary Patient ID, Secondary Patient ID, and Reason are required" },
-                    { status: 400 }
-                );
-            }
-
-            if (!Types.ObjectId.isValid(body.primaryPatientId) || !Types.ObjectId.isValid(body.secondaryPatientId)) {
-                return NextResponse.json(
-                    { success: false, message: "Invalid Patient ID format" },
-                    { status: 400 }
-                );
-            }
-
-            const result = await this.patientService.mergePatients(
-                new Types.ObjectId(body.primaryPatientId),
-                new Types.ObjectId(body.secondaryPatientId),
-                body.reason
-            );
-
-            return NextResponse.json(
-                { success: true, message: "Patients merged successfully", data: result },
-                { status: 200 }
-            );
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to merge patients";
             return NextResponse.json(
                 { success: false, message },
                 { status: 500 }

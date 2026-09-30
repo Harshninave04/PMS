@@ -8,7 +8,6 @@ import { ClinicalRecord } from "@/models/clinical-record.model";
 import { Diagnosis } from "@/models/diagnosis.model";
 import Prescription from "@/models/prescription.model";
 import { Vitals } from "@/models/vitals.model";
-import LabOrder from "@/models/lab-order.model";
 import Invoice from "@/models/invoice.model";
 
 
@@ -76,28 +75,6 @@ export class PatientService {
         return await this.repository.deleteDocument(patientId, documentId);
     }
 
-    async mergePatients(primaryId: Types.ObjectId, secondaryId: Types.ObjectId, reason: string) {
-        if (primaryId.toString() === secondaryId.toString()) {
-            throw { statusCode: 400, message: "Cannot merge a patient into themselves" };
-        }
-
-        // Reassign associated documents/models if any
-        try {
-            await Appointment.updateMany({ patientId: secondaryId }, { patientId: primaryId });
-            await Admission.updateMany({ patientId: secondaryId }, { patientId: primaryId });
-            await ClinicalRecord.updateMany({ patientId: secondaryId }, { patientId: primaryId });
-            await Diagnosis.updateMany({ patientId: secondaryId }, { patientId: primaryId });
-            await Prescription.updateMany({ patientId: secondaryId }, { patientId: primaryId });
-            await Vitals.updateMany({ patientId: secondaryId }, { patientId: primaryId });
-            await LabOrder.updateMany({ patientId: secondaryId }, { patientId: primaryId });
-            await Invoice.updateMany({ patientId: secondaryId }, { patientId: primaryId });
-        } catch (err) {
-            console.error("Error reassigning related patient records:", err);
-        }
-
-        return await this.repository.mergePatients(primaryId, secondaryId, reason);
-    }
-
     async getPatientHistory(patientId: Types.ObjectId) {
         const patient = await this.repository.findById(patientId);
         if (!patient) {
@@ -111,7 +88,6 @@ export class PatientService {
             diagnoses,
             prescriptions,
             vitalsList,
-            labOrders,
             invoices
         ] = await Promise.all([
             Appointment.find({ patientId }).populate("doctorId", "name specialization").sort({ appointmentDate: -1 }).lean().catch(() => []),
@@ -120,7 +96,6 @@ export class PatientService {
             Diagnosis.find({ patientId }).populate("doctorId", "name").sort({ createdAt: -1 }).lean().catch(() => []),
             Prescription.find({ patientId }).populate("doctorId", "name").sort({ createdAt: -1 }).lean().catch(() => []),
             Vitals.find({ patientId }).sort({ recordedAt: -1, createdAt: -1 }).lean().catch(() => []),
-            LabOrder.find({ patientId }).populate("testId", "name code").sort({ createdAt: -1 }).lean().catch(() => []),
             Invoice.find({ patientId }).sort({ createdAt: -1 }).lean().catch(() => [])
         ]);
 
@@ -132,7 +107,6 @@ export class PatientService {
             diagnoses,
             prescriptions,
             vitalsList,
-            labOrders,
             invoices
         };
     }

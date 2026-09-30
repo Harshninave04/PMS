@@ -36,20 +36,3 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
         }, { status: 500 });
     }
 }
-
-/**
- * @route DELETE /api/role/:id
- * @desc Delete a role by ID
- */
-export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
-    try {
-        const { id } = await params;
-        return RoleController.deleteRole(id, request);
-    } catch (e: unknown) {
-        const err = e as { message?: string };
-        return NextResponse.json({
-            success: false,
-            message: err?.message || "Failed to delete role"
-        }, { status: 500 });
-    }
-}

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, Suspense } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,22 +10,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/components/ui/toast";
 import {
   HeartPulse,
-  LayoutDashboard,
   Users,
-  Activity,
-  FileText,
-  Crosshair,
   Pill,
-  Droplets,
-  ClipboardCheck,
-  ArrowLeftRight,
-  Calendar,
   RefreshCw,
-  ArrowUpRight,
-  AlertTriangle,
-  Clock,
   Loader2,
-  CheckCircle2,
   ShieldAlert
 } from "lucide-react";
 import { ModuleNavCards } from "@/components/layout/module-nav-cards";
@@ -130,7 +118,7 @@ function NursingHubContent() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm">
           <span className="text-xs text-slate-500 block">Total Inpatients</span>
           <span className="text-2xl font-bold text-slate-900 dark:text-white mt-1 block">
@@ -146,45 +134,13 @@ function NursingHubContent() {
           </span>
           <span className="text-[10px] text-purple-600 font-medium">Pending eMAR Doses</span>
         </div>
-
-        <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm">
-          <span className="text-xs text-slate-500 block">Nursing Tasks</span>
-          <span className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1 block">
-            {stats?.pendingTasks || 0}
-          </span>
-          <span className="text-[10px] text-amber-600 font-medium">Bedside Procedures</span>
-        </div>
-
-        <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm">
-          <span className="text-xs text-slate-500 block">Care Plans</span>
-          <span className="text-2xl font-bold text-teal-600 dark:text-teal-400 mt-1 block">
-            {stats?.activeCarePlans || 0}
-          </span>
-          <span className="text-[10px] text-teal-600 font-medium">Active Pathways</span>
-        </div>
-
-        <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm">
-          <span className="text-xs text-slate-500 block">Active Shifts</span>
-          <span className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1 block">
-            {stats?.activeShifts || 0}
-          </span>
-          <span className="text-[10px] text-blue-600 font-medium">Nurses on Duty</span>
-        </div>
-
-        <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm">
-          <span className="text-xs text-slate-500 block">Shift Handovers</span>
-          <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 mt-1 block">
-            {stats?.recentHandovers || 0}
-          </span>
-          <span className="text-[10px] text-indigo-600 font-medium">SBAR Logs</span>
-        </div>
       </div>
 
       {/* Submodule Navigation */}
       <ModuleNavCards
         modulePath="/nursing"
         title="Nursing Workstations & Clinical Submodules"
-        subtitle="Inpatient ward care, bedside vitals monitoring, eMAR medication tracking, and shift coordination"
+        subtitle="Admitted patients, vitals, nursing notes and medication rounds"
       />
 
       {/* Currently Admitted Ward Inpatients Preview */}

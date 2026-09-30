@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, Suspense } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -13,15 +13,6 @@ import {
   FileText,
   Printer,
   ArrowLeft,
-  Share2,
-  Calendar,
-  Bed,
-  User,
-  Activity,
-  CheckCircle2,
-  Shield,
-  Phone,
-  Building,
   Loader2
 } from "lucide-react";
 
@@ -128,10 +119,10 @@ function DischargeSummaryContent() {
               variant="ghost"
               size="sm"
               className="h-8 px-2 text-slate-500"
-              onClick={() => router.push("/admissions/discharge-history")}
+              onClick={() => router.push("/admissions/history")}
             >
               <ArrowLeft className="h-4 w-4 mr-1" />
-              Discharge History
+              Admission History
             </Button>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2 mt-1">

@@ -65,17 +65,13 @@ interface StaffItem {
   status: "ACTIVE" | "INACTIVE" | "ON_LEAVE";
 }
 
+/** Doctors are added under Settings → Doctors; every other staff login uses one of these roles. */
 const HOSPITAL_ROLES = [
   { value: "NURSE", label: "Nurse" },
-  { value: "NURSE_MANAGER", label: "Nursing Supervisor" },
+  { value: "RECEPTIONIST", label: "Receptionist" },
   { value: "PHARMACIST", label: "Pharmacist" },
-  { value: "LAB_TECHNICIAN", label: "Lab Technician" },
-  { value: "RADIOLOGY_TECHNICIAN", label: "Radiology Technician" },
-  { value: "RECEPTIONIST", label: "Receptionist / Front Desk" },
-  { value: "BILLING_OFFICER", label: "Billing Officer" },
-  { value: "STOREKEEPER", label: "Inventory / Storekeeper" },
-  { value: "HR_OFFICER", label: "HR Officer" },
-  { value: "HOSPITAL_ADMIN", label: "Hospital Admin" },
+  { value: "ACCOUNTANT", label: "Accountant" },
+  { value: "ADMIN", label: "Administrator" },
 ];
 
 export default function StaffListPage() {

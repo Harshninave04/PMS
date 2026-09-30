@@ -10,8 +10,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
-import { Users, UserPlus, Search, Pencil, Trash2, Loader2, Shield, Mail, Phone, ToggleLeft, ToggleRight } from "lucide-react";
+import { Users, UserPlus, Search, Pencil, Trash2, Loader2, ToggleLeft, ToggleRight } from "lucide-react";
 import Link from "next/link";
+import { ROLE_LABELS } from "@/lib/rbac/roles";
 
 interface UserItem {
   _id: string;
@@ -20,40 +21,21 @@ interface UserItem {
   phone?: string;
   gender: string;
   role: { _id: string; role: string } | string;
-  organization?: { _id: string; organizationName: string } | string;
-  branch?: { _id: string; organizationName: string } | string;
   isActive: boolean;
   createdAt?: string;
 }
 interface RoleOption { _id: string; role: string; }
-interface OrganizationOption {
-  _id: string;
-  organizationName: string;
-  branchType: "MAIN" | "BRANCH";
-  headQuarter?: string;
-}
-interface SessionUser {
-  organization?: string | { _id?: string };
-  branch?: string | { _id?: string };
-}
-
-function idOf(value?: string | { _id?: string } | null): string {
-  return typeof value === "object" ? value?._id || "" : value || "";
-}
-
 export default function ManageUsersPage() {
   const { toast } = useToast();
   const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [roles, setRoles] = useState<RoleOption[]>([]);
-  const [organizations, setOrganizations] = useState<OrganizationOption[]>([]);
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
 
   // Edit dialog state
   const [editOpen, setEditOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserItem | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", gender: "", role: "", organization: "", branch: "", isActive: true });
+  const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", gender: "", role: "", isActive: true });
   const [editLoading, setEditLoading] = useState(false);
 
   // Delete dialog state
@@ -71,15 +53,9 @@ export default function ManageUsersPage() {
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
   useEffect(() => {
-    Promise.all([
-      fetch("/api/role?permission=UPDATE").then(r => r.json()),
-      fetch("/api/org").then(r => r.json()),
-      fetch("/api/auth/session").then(r => r.json()),
-    ]).then(([roleJson, orgJson, sessionJson]) => {
-      if (roleJson.success) setRoles(roleJson.data || []);
-      if (orgJson.success) setOrganizations(orgJson.data || []);
-      setSessionUser(sessionJson?.user || null);
-    }).catch(() => {});
+    fetch("/api/role").then(r => r.json())
+      .then((roleJson) => { if (roleJson.success) setRoles(roleJson.data || []); })
+      .catch(() => {});
   }, []);
 
   const filtered = users.filter((u) => {
@@ -92,8 +68,6 @@ export default function ManageUsersPage() {
     setEditForm({
       name: user.name, email: user.email, phone: user.phone || "",
       gender: user.gender, role: typeof user.role === "object" ? user.role._id : String(user.role), isActive: user.isActive,
-      organization: typeof user.organization === "object" ? user.organization._id : String(user.organization || ""),
-      branch: typeof user.branch === "object" ? user.branch._id : String(user.branch || ""),
     });
     setEditOpen(true);
   }
@@ -131,21 +105,7 @@ export default function ManageUsersPage() {
     } catch { toast("Error deleting user", "error"); } finally { setDeleteLoading(false); }
   }
 
-  const getRoleName = (role: UserItem["role"]) => typeof role === "object" ? role.role : "N/A";
-  const getBranchName = (branch: UserItem["branch"]) => typeof branch === "object" ? branch.organizationName : "No branch";
-  const sessionOrganizationId = idOf(sessionUser?.organization);
-  const sessionBranchId = idOf(sessionUser?.branch);
-  const editOrganizationOptions = sessionOrganizationId
-    ? organizations.filter(org => org._id === sessionOrganizationId)
-    : organizations.filter(org => org.branchType === "MAIN");
-  const editBranchOptions = organizations.filter(org => {
-    if (org.branchType !== "BRANCH") return false;
-    if (sessionBranchId) return org._id === sessionBranchId;
-    if (editForm.organization) return org.headQuarter === editForm.organization;
-    return true;
-  });
-  const organizationLocked = Boolean(sessionOrganizationId);
-  const branchLocked = Boolean(sessionBranchId);
+  const getRoleName = (role: UserItem["role"]) => typeof role === "object" ? (ROLE_LABELS[role.role] ?? role.role) : "N/A";
 
   return (
     <div className="space-y-6">
@@ -153,7 +113,7 @@ export default function ManageUsersPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Manage Users</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">View and manage all system users</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Staff logins for this hospital</p>
         </div>
         <Link href="/admin/users/create">
           <Button className="gap-2"><UserPlus className="h-4 w-4" />Add New User</Button>
@@ -183,7 +143,7 @@ export default function ManageUsersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead className="hidden md:table-cell">Branch</TableHead><TableHead>Role</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
+                  <TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Role</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -191,7 +151,6 @@ export default function ManageUsersPage() {
                   <TableRow key={user._id}>
                     <TableCell className="font-semibold text-slate-900 dark:text-white">{user.name}</TableCell>
                     <TableCell className="text-slate-500 text-xs">{user.email}</TableCell>
-                    <TableCell className="hidden md:table-cell text-slate-500 text-xs">{getBranchName(user.branch)}</TableCell>
                     <TableCell><Badge variant="info">{getRoleName(user.role)}</Badge></TableCell>
                     <TableCell>
                       <button onClick={() => toggleActive(user)} title="Toggle Status">
@@ -228,18 +187,8 @@ export default function ManageUsersPage() {
               </Select>
             </div>
             <Select label="Role" value={editForm.role} onChange={(e) => setEditForm(p => ({ ...p, role: e.target.value }))}>
-              {roles.map(r => <option key={r._id} value={r._id}>{r.role}</option>)}
+              {roles.map(r => <option key={r._id} value={r._id}>{ROLE_LABELS[r.role] ?? r.role}</option>)}
             </Select>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Select label="Organization" value={editForm.organization} onChange={(e) => setEditForm(p => ({ ...p, organization: e.target.value, branch: "" }))} disabled={organizationLocked}>
-                <option value="">Select Organization</option>
-                {editOrganizationOptions.map(org => <option key={org._id} value={org._id}>{org.organizationName}</option>)}
-              </Select>
-              <Select label="Branch" value={editForm.branch} onChange={(e) => setEditForm(p => ({ ...p, branch: e.target.value }))} disabled={branchLocked || !editForm.organization}>
-                <option value="">No branch</option>
-                {editBranchOptions.map(branch => <option key={branch._id} value={branch._id}>{branch.organizationName}</option>)}
-              </Select>
-            </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={editLoading} className="gap-2">{editLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Save Changes</Button>

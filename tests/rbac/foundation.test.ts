@@ -154,11 +154,11 @@ async function runFoundationTests() {
   });
 
   test("Missing permission contract: unauthorized role action must yield 403 code", () => {
-    // Receptionist trying to refund invoice
-    const requiredPermission = PERMISSION_KEYS.BILLING_REFUND_CREATE;
+    // Receptionist trying to cancel an invoice
+    const requiredPermission = PERMISSION_KEYS.BILLING_INVOICE_CANCEL;
     const hasPermission = baseReceptionistContext.permissions.has(requiredPermission);
 
-    assert.equal(hasPermission, false, "Receptionist must not have billing refund permission");
+    assert.equal(hasPermission, false, "Receptionist must not have invoice cancel permission");
 
     const forbiddenResult = {
       isAuthorized: false as const,
@@ -187,7 +187,7 @@ async function runFoundationTests() {
 
   test("GLOBAL organizational boundary produces empty filter for platform admins", () => {
     const globalGrant: IPermissionGrant = {
-      permission: PERMISSION_KEYS.AUDIT_VIEW,
+      permission: PERMISSION_KEYS.REPORTS_OPERATIONAL_VIEW,
       orgScope: "GLOBAL",
       relScope: "UNRESTRICTED"
     };

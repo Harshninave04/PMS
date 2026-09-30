@@ -12,23 +12,13 @@ import {
   Activity,
   Stethoscope,
   FileText,
-  History,
   AlertOctagon,
   ClipboardList,
-  FileEdit,
-  Crosshair,
-  Pill,
   ShoppingBag,
-  Share2,
-  CalendarCheck,
   HeartPulse,
-  AlertTriangle,
-  ArrowUpRight,
   RefreshCw,
   Plus,
-  Loader2,
-  Search,
-  User
+  Loader2
 } from "lucide-react";
 import { ModuleNavCards } from "@/components/layout/module-nav-cards";
 
@@ -200,7 +190,7 @@ export default function ClinicalEMRHubPage() {
             variant="outline"
             size="sm"
             className="text-xs text-emerald-600"
-            onClick={() => router.push("/clinical/records")}
+            onClick={() => router.push("/clinical/history")}
           >
             View Complete Dossier →
           </Button>

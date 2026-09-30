@@ -90,9 +90,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       let existingUser = await User.findOne({ email });
       if (!existingUser) {
         const roleName = body.role || "NURSE";
-        let userRole = await Role.findOne({ role: roleName });
+        const userRole = await Role.findOne({ role: roleName });
         if (!userRole) {
-          userRole = await Role.create({ role: roleName, access: [] });
+          return NextResponse.json({ success: false, message: `Unknown role: ${roleName}` }, { status: 400 });
         }
         const hashedPassword = await bcrypt.hash(body.password || "staff123", 10);
         existingUser = await User.create({
@@ -102,6 +102,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           gender: body.gender || "OTHER",
           phone: body.phone,
           role: userRole._id,
+          organization: authResult.context.organizationId,
           isActive: true,
         });
       }

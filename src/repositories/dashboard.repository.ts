@@ -13,7 +13,7 @@ class DashboardRepository {
   }
 
   async getTotalDoctors(): Promise<number> {
-    const doctorRoles = await Role.find({ role: { $in: ["DOCTOR", "CONSULTANT"] } }).select('_id');
+    const doctorRoles = await Role.find({ role: "DOCTOR" }).select('_id');
     const doctorRoleIds = doctorRoles.map(r => r._id);
     return User.countDocuments({ role: { $in: doctorRoleIds }, isActive: true });
   }

@@ -14,13 +14,10 @@ import {
   Bed,
   FileText,
   Pill,
-  FlaskConical,
   Receipt,
   Phone,
   MapPin,
   Shield,
-  Clock,
-  QrCode,
   Plus,
   RefreshCw,
   ArrowLeft,
@@ -38,7 +35,7 @@ function PatientProfileContent() {
   const [selectedPatientId, setSelectedPatientId] = useState<string>(patientIdParam || "");
   const [dossier, setDossier] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "appointments" | "admissions" | "clinical" | "prescriptions" | "lab" | "billing" | "documents">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "appointments" | "admissions" | "clinical" | "prescriptions" | "billing" | "documents">("overview");
 
   useEffect(() => {
     async function loadPatients() {
@@ -199,16 +196,6 @@ function PatientProfileContent() {
                       <Bed className="h-3.5 w-3.5" /> Admit
                     </Button>
                   </Link>
-                  <Link href={`/patients/identification?id=${patient._id}`}>
-                    <Button size="sm" variant="outline" className="gap-1.5">
-                      <QrCode className="h-3.5 w-3.5" /> ID Card
-                    </Button>
-                  </Link>
-                  <Link href={`/patients/history?id=${patient._id}`}>
-                    <Button size="sm" variant="outline" className="gap-1.5">
-                      <Clock className="h-3.5 w-3.5" /> Timeline
-                    </Button>
-                  </Link>
                 </div>
               </div>
             </CardContent>
@@ -222,7 +209,6 @@ function PatientProfileContent() {
               { id: "admissions", label: `Admissions (${dossier?.admissions?.length || 0})`, icon: Bed },
               { id: "clinical", label: `Clinical & Diagnoses (${(dossier?.clinicalRecords?.length || 0) + (dossier?.diagnoses?.length || 0)})`, icon: FileText },
               { id: "prescriptions", label: `Prescriptions (${dossier?.prescriptions?.length || 0})`, icon: Pill },
-              { id: "lab", label: `Lab Orders (${dossier?.labOrders?.length || 0})`, icon: FlaskConical },
               { id: "billing", label: `Invoices (${dossier?.invoices?.length || 0})`, icon: Receipt },
               { id: "documents", label: `Documents Vault (${patient.documents?.length || 0})`, icon: FileText },
             ].map((tab) => {
@@ -511,37 +497,6 @@ function PatientProfileContent() {
                             ))}
                           </div>
                         )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {activeTab === "lab" && (
-            <Card className="border-slate-200 dark:border-slate-800">
-              <CardHeader>
-                <CardTitle className="text-base">Diagnostic & Laboratory Investigations</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {(!dossier?.labOrders || dossier.labOrders.length === 0) ? (
-                  <div className="p-8 text-center text-slate-400 text-sm">No diagnostic lab orders found.</div>
-                ) : (
-                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {dossier.labOrders.map((lab: any) => (
-                      <div key={lab._id} className="py-3 flex justify-between items-center">
-                        <div>
-                          <div className="font-semibold text-sm text-slate-900 dark:text-white">
-                            {lab.testId?.name || lab.testName || "Complete Blood Count (CBC)"}
-                          </div>
-                          <div className="text-xs text-slate-400 mt-0.5">
-                            Ordered: {new Date(lab.createdAt).toLocaleDateString()}
-                          </div>
-                        </div>
-                        <span className="px-2.5 py-1 rounded text-xs font-semibold bg-cyan-500/10 text-cyan-500 border border-cyan-500/20">
-                          {lab.status || "COMPLETED"}
-                        </span>
                       </div>
                     ))}
                   </div>

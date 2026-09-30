@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,20 +10,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/components/ui/toast";
 import {
   Building,
-  DoorOpen,
   BedDouble,
   Activity,
-  ArrowRightLeft,
   CheckCircle2,
   AlertTriangle,
   Wrench,
-  Layers,
-  ArrowUpRight,
   RefreshCw,
   Plus,
-  Loader2,
-  BarChart3,
-  Calendar
+  Loader2
 } from "lucide-react";
 import { ModuleNavCards } from "@/components/layout/module-nav-cards";
 
@@ -207,9 +201,9 @@ export default function WardsOperationsHubPage() {
             variant="outline"
             size="sm"
             className="text-xs text-emerald-600 hover:text-emerald-700"
-            onClick={() => router.push("/wards/occupancy")}
+            onClick={() => router.push("/wards/availability")}
           >
-            Detailed Occupancy Analysis →
+            Bed Availability →
           </Button>
         </CardHeader>
         <CardContent>
