@@ -6,6 +6,7 @@ import {
   RelationalConstraint,
   ScopeFilter
 } from "@/types/rbac";
+import { DENY_ALL_OBJECT_ID } from "@/lib/rbac/scope-filter";
 
 /**
  * Pure scope resolution engine.
@@ -55,7 +56,7 @@ export class ScopeResolver {
       case "ORGANIZATION": {
         if (!context.organizationId) {
           // If user lacks organization context, deny by returning impossible match
-          return { _id: new Types.ObjectId("000000000000000000000000") };
+          return { _id: new Types.ObjectId(DENY_ALL_OBJECT_ID) };
         }
 
         if (normalizedModel === "user") {
@@ -82,7 +83,7 @@ export class ScopeResolver {
       case "BRANCH": {
         if (!context.branchId) {
           // Deny if user has no branch assigned
-          return { _id: new Types.ObjectId("000000000000000000000000") };
+          return { _id: new Types.ObjectId(DENY_ALL_OBJECT_ID) };
         }
 
         if (normalizedModel === "user") {
@@ -104,7 +105,7 @@ export class ScopeResolver {
 
       case "DEPARTMENT": {
         if (!context.departmentId) {
-          return { _id: new Types.ObjectId("000000000000000000000000") };
+          return { _id: new Types.ObjectId(DENY_ALL_OBJECT_ID) };
         }
 
         const deptFilter: Record<string, unknown> = { departmentId: context.departmentId };
@@ -116,7 +117,7 @@ export class ScopeResolver {
 
       case "WARD": {
         if (!context.assignedWardIds || context.assignedWardIds.length === 0) {
-          return { _id: new Types.ObjectId("000000000000000000000000") };
+          return { _id: new Types.ObjectId(DENY_ALL_OBJECT_ID) };
         }
 
         if (normalizedModel === "nursingtask") {
@@ -127,7 +128,7 @@ export class ScopeResolver {
       }
 
       default:
-        return { _id: new Types.ObjectId("000000000000000000000000") };
+        return { _id: new Types.ObjectId(DENY_ALL_OBJECT_ID) };
     }
   }
 
@@ -151,7 +152,7 @@ export class ScopeResolver {
         if (normalizedModel === "appointment") {
           if (!context.doctorProfileId) {
             // Actor is not a registered doctor -> impossible match
-            return { _id: new Types.ObjectId("000000000000000000000000") };
+            return { _id: new Types.ObjectId(DENY_ALL_OBJECT_ID) };
           }
           return { doctorId: context.doctorProfileId };
         }

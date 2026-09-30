@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "npx tsx src/seed.ts",
-    "seed:demo": "npx tsx scripts/provision-demo-users.ts"
+    "seed:demo": "npx tsx scripts/provision-demo-users.ts",
+    "rbac:repair": "npx tsx scripts/repair-rbac-grants.ts",
+    "rbac:verify": "npx tsx scripts/verify-doctor-scope.ts",
+    "test": "npx tsx scripts/run-rbac-tests.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1122.0",

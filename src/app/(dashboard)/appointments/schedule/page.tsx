@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorEmptyState, ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Calendar,
   Clock,
@@ -59,6 +61,8 @@ export default function AppointmentDoctorSchedulePage() {
   const [schedules, setSchedules] = useState<ScheduleSlot[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [scheduleError, setScheduleError] = useState<unknown>(null);
+  const [departmentError, setDepartmentError] = useState<unknown>(null);
   const [search, setSearch] = useState("");
   const [selectedDay, setSelectedDay] = useState("ALL");
   const [selectedDept, setSelectedDept] = useState("ALL");
@@ -68,15 +72,27 @@ export default function AppointmentDoctorSchedulePage() {
   async function fetchSchedules() {
     try {
       setLoading(true);
-      const [schedRes, deptRes] = await Promise.all([
-        fetch("/api/staff/schedule"),
-        fetch("/api/department"),
-      ]);
-      const schedJson = await schedRes.json();
-      const deptJson = await deptRes.json();
+      setScheduleError(null);
+      setDepartmentError(null);
 
-      if (schedJson.success) setSchedules(schedJson.data || []);
-      if (deptJson.success) setDepartments(deptJson.data || []);
+      const [schedResult, deptResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/staff/schedule"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/department"),
+      ]);
+
+      if (schedResult.status === "fulfilled") {
+        setSchedules(schedResult.value.data || []);
+      } else {
+        setSchedules([]);
+        setScheduleError(schedResult.reason);
+      }
+
+      if (deptResult.status === "fulfilled") {
+        setDepartments(deptResult.value.data || []);
+      } else {
+        setDepartments([]);
+        setDepartmentError(deptResult.reason);
+      }
     } catch (err: any) {
       toast({ title: "Error", description: "Failed to load doctor schedules.", variant: "destructive" });
     } finally {
@@ -226,7 +242,11 @@ export default function AppointmentDoctorSchedulePage() {
       </div>
 
       {/* Schedule Grid */}
-      {loading ? (
+      {scheduleError ? (
+        <ApiErrorEmptyState error={scheduleError} context="the doctor schedule" />
+      ) : departmentError ? (
+        <ApiErrorNotice error={departmentError} context="the department list" />
+      ) : loading ? (
         <div className="flex justify-center p-20">
           <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
         </div>

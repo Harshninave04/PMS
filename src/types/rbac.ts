@@ -146,8 +146,10 @@ export const PERMISSION_KEYS = {
   CLINICAL_RECORD_SIGN: "clinical.record.sign",
   CLINICAL_DIAGNOSIS_VIEW: "clinical.diagnosis.view",
   CLINICAL_DIAGNOSIS_CREATE: "clinical.diagnosis.create",
+  CLINICAL_DIAGNOSIS_UPDATE: "clinical.diagnosis.update",
   CLINICAL_PRESCRIPTION_VIEW: "clinical.prescription.view",
   CLINICAL_PRESCRIPTION_CREATE: "clinical.prescription.create",
+  CLINICAL_PRESCRIPTION_UPDATE: "clinical.prescription.update",
   CLINICAL_PRESCRIPTION_CANCEL: "clinical.prescription.cancel",
 
   // Nursing

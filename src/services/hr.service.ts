@@ -11,6 +11,7 @@ import Leave from "@/models/leave.model";
 import StaffDocument from "@/models/staff-document.model";
 import Role from "@/models/role.model";
 import bcrypt from "bcryptjs";
+import { buildScopedQuery } from "@/lib/rbac/scope-filter";
 
 export class HRService {
   private async ensureConnection() {
@@ -100,21 +101,36 @@ export class HRService {
   }
 
   // 2. Employee Management
-  async getEmployees(filter: { departmentId?: string; role?: string; search?: string; status?: string } = {}) {
+  /**
+   * Lists employee dossiers.
+   *
+   * `scopeFilter` is the immutable authorization filter produced by
+   * authorizeRequest. It is merged into the Mongo query so a branch-scoped HR
+   * officer cannot enumerate staff at another campus. An unsatisfiable
+   * (deny-all) scope short-circuits to an empty list rather than dropping the
+   * restriction.
+   */
+  async getEmployees(
+    filter: { departmentId?: string; role?: string; search?: string; status?: string } = {},
+    scopeFilter?: Record<string, unknown>
+  ) {
     await this.ensureConnection();
 
-    const query: any = {};
+    const extraQuery: Record<string, unknown> = {};
     if (filter.departmentId && Types.ObjectId.isValid(filter.departmentId)) {
-      query.departmentId = filter.departmentId;
+      extraQuery.departmentId = filter.departmentId;
     }
     if (filter.role && filter.role !== "ALL") {
-      query.role = filter.role;
+      extraQuery.role = filter.role;
     }
     if (filter.status && filter.status !== "ALL") {
-      query.status = filter.status;
+      extraQuery.status = filter.status;
     }
 
-    let staffMembers = await Staff.find(query)
+    const scoped = buildScopedQuery(scopeFilter, extraQuery);
+    if (scoped.denied) return [];
+
+    let staffMembers = await Staff.find(scoped.query)
       .populate("userId", "-password")
       .populate("departmentId")
       .populate("designationId")
@@ -144,11 +160,14 @@ export class HRService {
     return staffMembers;
   }
 
-  async getEmployeeById(id: string) {
+  async getEmployeeById(id: string, scopeFilter?: Record<string, unknown>) {
     await this.ensureConnection();
     if (!Types.ObjectId.isValid(id)) return null;
 
-    return await Staff.findById(id)
+    const scoped = buildScopedQuery(scopeFilter, { _id: id });
+    if (scoped.denied) return null;
+
+    return await Staff.findOne(scoped.query)
       .populate("userId", "-password")
       .populate("departmentId")
       .populate("designationId")
@@ -177,6 +196,10 @@ export class HRService {
           gender: data.gender || "OTHER",
           phone: data.phone,
           role: userRole._id,
+          // Without a branch the account resolves to deny-all under BRANCH
+          // scope and can never read its own records.
+          organization: data.organizationId,
+          branch: data.branchId,
           isActive: true
         });
       }
@@ -196,11 +219,19 @@ export class HRService {
       data.employeeId?.trim().toUpperCase() ||
       `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
 
+    // Inherit tenant scope from the linked user when the caller did not state
+    // it explicitly, so the dossier is visible to scoped readers immediately.
+    const linkedUser = await User.findById(userId).select("_id organization branch").lean();
+    const branchId = data.branchId ?? linkedUser?.branch;
+    const organizationId = data.organizationId ?? linkedUser?.organization ?? branchId;
+
     const newStaff = await Staff.create({
       userId,
       employeeId,
       departmentId: data.departmentId && Types.ObjectId.isValid(data.departmentId) ? data.departmentId : undefined,
       designationId: data.designationId && Types.ObjectId.isValid(data.designationId) ? data.designationId : undefined,
+      organizationId,
+      branchId,
       role: data.role || "NURSE",
       qualification: data.qualification?.trim() || "",
       joiningDate: data.joiningDate ? new Date(data.joiningDate) : new Date(),

@@ -2,34 +2,50 @@ import { NextRequest, NextResponse } from "next/server";
 import dbConnect from "@/lib/dbConnect";
 import Doctor from "@/models/doctor.model";
 import Staff from "@/models/staff.model";
-import User from "@/models/user.model";
 import Department from "@/models/department.model";
-import Designation from "@/models/designation.model";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { buildScopedQuery } from "@/lib/rbac/scope-filter";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
+/**
+ * Unified staff + doctor directory.
+ *
+ * Requires staff.staff.view. Both the Doctor and the Staff collection are
+ * queried through the caller's authorization scope, so a branch-scoped reader
+ * only ever sees their own campus. Previously this endpoint had no
+ * authentication at all and exposed the full roster to anonymous callers.
+ */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     await dbConnect();
-    if (!User) {}
-    if (!Department) {}
-    if (!Designation) {}
+
+    const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_VIEW, "Staff");
+    if (!authResult.isAuthorized) return authResult.response;
 
     const { searchParams } = new URL(request.url);
-    const category = searchParams.get("category"); // ALL, DOCTORS, NURSES, LAB, PHARMACY, ADMIN
+    const category = searchParams.get("category"); // ALL, Doctors, Nurses, Diagnostics, Pharmacy, Administration
     const departmentId = searchParams.get("departmentId");
     const search = searchParams.get("search")?.toLowerCase().trim();
 
-    // Fetch doctors
-    const doctors = await Doctor.find()
-      .populate("userId", "name email phone gender avatar isActive")
-      .populate("departmentId", "name code location phoneExtension")
-      .lean();
+    const doctorScope = buildScopedQuery(authResult.filter);
+    const staffScope = buildScopedQuery(authResult.filter);
 
-    // Fetch staff
-    const staffMembers = await Staff.find()
-      .populate("userId", "name email phone gender avatar isActive")
-      .populate("departmentId", "name code location phoneExtension")
-      .populate("designationId", "name code level")
-      .lean();
+    // An unsatisfiable scope yields an empty directory rather than the whole
+    // hospital. The deny-all sentinel is never dropped.
+    const doctors = doctorScope.denied
+      ? []
+      : await Doctor.find(doctorScope.query)
+        .populate("userId", "name email phone gender avatar isActive")
+        .populate("departmentId", "name code location phoneExtension")
+        .lean();
+
+    const staffMembers = staffScope.denied
+      ? []
+      : await Staff.find(staffScope.query)
+        .populate("userId", "name email phone gender avatar isActive")
+        .populate("departmentId", "name code location phoneExtension")
+        .populate("designationId", "name code level")
+        .lean();
 
     const directoryItems: any[] = [];
 

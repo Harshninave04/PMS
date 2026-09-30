@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -64,6 +66,13 @@ export default function AppointmentReschedulePage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
+  // Load failures. A 403 on /api/doctor must be visible, otherwise the transfer
+  // doctor dropdown is silently empty; the same applies to the rescheduling
+  // audit log, which otherwise reads as "nothing has ever been rescheduled".
+  const [appointmentError, setAppointmentError] = useState<unknown>(null);
+  const [historyError, setHistoryError] = useState<unknown>(null);
+  const [doctorError, setDoctorError] = useState<unknown>(null);
+
   // Reschedule Modal
   const [selectedAppt, setSelectedAppt] = useState<AppointmentItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -80,24 +89,50 @@ export default function AppointmentReschedulePage() {
   async function loadData() {
     try {
       setLoading(true);
-      const [apptRes, historyRes, docRes] = await Promise.all([
-        fetch("/api/appointments"),
-        fetch("/api/appointments/reschedule"),
-        fetch("/api/doctor"),
-      ]);
-      const apptJson = await apptRes.json();
-      const histJson = await historyRes.json();
-      const docJson = await docRes.json();
+      setAppointmentError(null);
+      setHistoryError(null);
+      setDoctorError(null);
 
-      if (apptJson.success) {
-        // Filter eligible appointments (SCHEDULED or CONFIRMED)
-        const active = (apptJson.data || []).filter(
-          (a: any) => a.status === "SCHEDULED" || a.status === "CONFIRMED"
-        );
-        setAppointments(active);
+      // Settled, not all: one rejected reference-data request must not hide
+      // the state of the other lists.
+      const [apptResult, historyResult, docResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/appointments"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/appointments/reschedule"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/doctor"),
+      ]);
+
+      if (apptResult.status === "fulfilled") {
+        const apptJson = apptResult.value;
+        const apptRows = apptJson.data ?? [];
+        if (apptJson.success) {
+          // Filter eligible appointments (SCHEDULED or CONFIRMED)
+          const active = apptRows.filter(
+            (a: any) => a.status === "SCHEDULED" || a.status === "CONFIRMED"
+          );
+          setAppointments(active);
+        }
+      } else {
+        setAppointments([]);
+        setAppointmentError(apptResult.reason);
       }
-      if (histJson.success) setRescheduleHistory(histJson.data || []);
-      if (docJson.success) setDoctors(docJson.data || []);
+
+      if (historyResult.status === "fulfilled") {
+        const histJson = historyResult.value;
+        const histRows = histJson.data ?? [];
+        if (histJson.success) setRescheduleHistory(histRows);
+      } else {
+        setRescheduleHistory([]);
+        setHistoryError(historyResult.reason);
+      }
+
+      if (docResult.status === "fulfilled") {
+        const docJson = docResult.value;
+        const docRows = docJson.data ?? [];
+        if (docJson.success) setDoctors(docRows);
+      } else {
+        setDoctors([]);
+        setDoctorError(docResult.reason);
+      }
     } catch (err: any) {
       toast({ title: "Error", description: "Failed to load rescheduling data.", variant: "destructive" });
     } finally {
@@ -226,6 +261,12 @@ export default function AppointmentReschedulePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Surface load rejections above both tables so a 401/403 reads as
+          "access denied" rather than an empty roster and an empty audit log. */}
+      {appointmentError ? <ApiErrorNotice error={appointmentError} context="the appointment list" /> : null}
+      {historyError ? <ApiErrorNotice error={historyError} context="the reschedule history list" /> : null}
+      {doctorError ? <ApiErrorNotice error={doctorError} context="the doctor list" /> : null}
 
       {/* Section 1: Eligible Appointments */}
       <Card className="border-slate-200/80 dark:border-slate-800 shadow-sm">

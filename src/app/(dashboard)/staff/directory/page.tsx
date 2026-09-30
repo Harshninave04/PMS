@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorEmptyState, ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -74,6 +76,12 @@ export default function StaffDirectoryPage() {
   const [selectedDept, setSelectedDept] = useState("ALL");
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
 
+  // Directory load failures. A 403 on /api/staff/directory must be visible,
+  // otherwise the directory reads as "no hospital personnel found" and the
+  // department dropdown is silently empty.
+  const [directoryError, setDirectoryError] = useState<unknown>(null);
+  const [departmentError, setDepartmentError] = useState<unknown>(null);
+
   // Profile Modal
   const [selectedPerson, setSelectedPerson] = useState<DirectoryEntry | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -83,15 +91,32 @@ export default function StaffDirectoryPage() {
   async function fetchDirectoryData() {
     try {
       setLoading(true);
-      const [dirRes, deptRes] = await Promise.all([
-        fetch("/api/staff/directory"),
-        fetch("/api/department"),
-      ]);
-      const dirJson = await dirRes.json();
-      const deptJson = await deptRes.json();
+      setDirectoryError(null);
+      setDepartmentError(null);
 
-      if (dirJson.success) setDirectory(dirJson.data || []);
-      if (deptJson.success) setDepartments(deptJson.data || []);
+      // Settled, not all: one rejected request must not blank out the other.
+      const [dirResult, deptResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/staff/directory"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/department"),
+      ]);
+
+      if (dirResult.status === "fulfilled") {
+        const dirJson = dirResult.value;
+        const dirRows = dirJson.data ?? [];
+        if (dirJson.success) setDirectory(dirRows);
+      } else {
+        setDirectory([]);
+        setDirectoryError(dirResult.reason);
+      }
+
+      if (deptResult.status === "fulfilled") {
+        const deptJson = deptResult.value;
+        const deptRows = deptJson.data ?? [];
+        if (deptJson.success) setDepartments(deptRows);
+      } else {
+        setDepartments([]);
+        setDepartmentError(deptResult.reason);
+      }
     } catch (err) {
       toast({ title: "Error", description: "Failed to load staff directory.", variant: "destructive" });
     } finally {
@@ -245,6 +270,9 @@ export default function StaffDirectoryPage() {
 
       {/* Category Pills & Search */}
       <div className="space-y-3">
+        {/* A rejected department roster must be visible above the filter, otherwise
+            the "All Departments" dropdown looks like no department exists. */}
+        {departmentError ? <ApiErrorNotice error={departmentError} context="the department list" /> : null}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-slim">
           {CATEGORY_TABS.map((tab) => {
             const Icon = tab.icon;
@@ -297,6 +325,10 @@ export default function StaffDirectoryPage() {
         <div className="flex justify-center p-16">
           <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
         </div>
+      ) : directoryError ? (
+        /* A rejected /api/staff/directory must be visible here: the "No hospital
+           personnel found" card below would otherwise read as an empty directory. */
+        <ApiErrorEmptyState error={directoryError} context="the directory list" />
       ) : filtered.length === 0 ? (
         <Card className="border-dashed p-12 text-center text-slate-500">
           <BookUser className="h-10 w-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />

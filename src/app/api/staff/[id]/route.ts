@@ -3,24 +3,34 @@ import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import Staff from "@/models/staff.model";
 import User from "@/models/user.model";
-import Department from "@/models/department.model";
-import Designation from "@/models/designation.model";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { buildScopedQuery, documentMatchesScope } from "@/lib/rbac/scope-filter";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 type Params = { params: Promise<{ id: string }> };
 
+/**
+ * Single staff profile. Read requires staff.staff.view, mutation requires
+ * staff.staff.update, and every lookup is constrained to the caller's scope.
+ */
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
   try {
     await dbConnect();
-    if (!Department) {}
-    if (!Designation) {}
-    if (!User) {}
+
+    const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_VIEW, "Staff");
+    if (!authResult.isAuthorized) return authResult.response;
 
     const { id } = await params;
     if (!Types.ObjectId.isValid(id)) {
       return NextResponse.json({ success: false, message: "Invalid staff ID" }, { status: 400 });
     }
 
-    const staff = await Staff.findById(id)
+    const scoped = buildScopedQuery(authResult.filter, { _id: id });
+    if (scoped.denied) {
+      return NextResponse.json({ success: false, message: "Staff not found" }, { status: 404 });
+    }
+
+    const staff = await Staff.findOne(scoped.query)
       .populate("userId", "-password")
       .populate("departmentId")
       .populate("designationId")
@@ -39,9 +49,18 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
 export async function PUT(request: NextRequest, { params }: Params): Promise<NextResponse> {
   try {
     await dbConnect();
+
+    const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_UPDATE, "Staff");
+    if (!authResult.isAuthorized) return authResult.response;
+
     const { id } = await params;
     if (!Types.ObjectId.isValid(id)) {
       return NextResponse.json({ success: false, message: "Invalid staff ID" }, { status: 400 });
+    }
+
+    const existing = await Staff.findById(id).select("_id branchId organizationId").lean();
+    if (!(await documentMatchesScope(existing as Record<string, unknown> | null, authResult.filter))) {
+      return NextResponse.json({ success: false, message: "Staff not found" }, { status: 404 });
     }
 
     const body = await request.json();
@@ -88,9 +107,18 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
   try {
     await dbConnect();
+
+    const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_UPDATE, "Staff");
+    if (!authResult.isAuthorized) return authResult.response;
+
     const { id } = await params;
     if (!Types.ObjectId.isValid(id)) {
       return NextResponse.json({ success: false, message: "Invalid staff ID" }, { status: 400 });
+    }
+
+    const existing = await Staff.findById(id).select("_id branchId organizationId").lean();
+    if (!(await documentMatchesScope(existing as Record<string, unknown> | null, authResult.filter))) {
+      return NextResponse.json({ success: false, message: "Staff not found" }, { status: 404 });
     }
 
     const staff = await Staff.findByIdAndDelete(id).lean();

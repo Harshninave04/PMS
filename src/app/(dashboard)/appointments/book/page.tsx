@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -54,6 +56,13 @@ export default function BookAppointmentPage() {
   const [doctors, setDoctors] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
 
+  // Reference-data load failures. A 403 on /api/doctor or /api/department must
+  // be visible, otherwise the doctor dropdown is silently empty and the
+  // receptionist concludes the hospital has no doctors.
+  const [doctorError, setDoctorError] = useState<unknown>(null);
+  const [departmentError, setDepartmentError] = useState<unknown>(null);
+  const [patientError, setPatientError] = useState<unknown>(null);
+
   // Registration mode: 'existing' or 'new'
   const [patientMode, setPatientMode] = useState<"existing" | "new">("existing");
   const [patientSearch, setPatientSearch] = useState("");
@@ -86,34 +95,55 @@ export default function BookAppointmentPage() {
     async function loadDependencies() {
       try {
         setFetchingDeps(true);
-        const [pRes, dRes, deptRes] = await Promise.all([
-          fetch("/api/patient"),
-          fetch("/api/doctor"),
-          fetch("/api/department"),
-        ]);
-        const pJson = await pRes.json();
-        const dJson = await dRes.json();
-        const deptJson = await deptRes.json();
+        setDoctorError(null);
+        setDepartmentError(null);
+        setPatientError(null);
 
-        if (pJson.success && pJson.data) {
-          setPatients(pJson.data);
-          if (pJson.data.length > 0) {
-            setFormData((prev) => ({ ...prev, patientId: pJson.data[0]._id }));
+        // Settled, not all: one rejected reference-data request must not hide
+        // the state of the others.
+        const [patientResult, doctorResult, departmentResult] = await Promise.allSettled([
+          apiFetch<{ success: boolean; data?: any[] }>("/api/patient"),
+          apiFetch<{ success: boolean; data?: any[] }>("/api/doctor"),
+          apiFetch<{ success: boolean; data?: any[] }>("/api/department"),
+        ]);
+
+        if (patientResult.status === "fulfilled") {
+          const pJson = patientResult.value;
+          const patientRows = pJson.data ?? [];
+          if (pJson.success && patientRows.length > 0) {
+            setPatients(patientRows);
+            setFormData((prev) => ({ ...prev, patientId: patientRows[0]._id }));
           }
+        } else {
+          setPatientError(patientResult.reason);
         }
-        if (dJson.success && dJson.data) {
-          setDoctors(dJson.data);
-          if (dJson.data.length > 0) {
-            const firstDoc = dJson.data[0];
+
+        if (doctorResult.status === "fulfilled") {
+          const dJson = doctorResult.value;
+          const doctorRows = dJson.data ?? [];
+          if (dJson.success && doctorRows.length > 0) {
+            setDoctors(doctorRows);
+            const firstDoc = doctorRows[0];
             setFormData((prev) => ({
               ...prev,
               doctorId: firstDoc._id,
               consultationFee: firstDoc.consultationFee || 500,
             }));
           }
+        } else {
+          setDoctors([]);
+          setDoctorError(doctorResult.reason);
         }
-        if (deptJson.success && deptJson.data) {
-          setDepartments(deptJson.data);
+
+        if (departmentResult.status === "fulfilled") {
+          const deptJson = departmentResult.value;
+          const deptRows = deptJson.data ?? [];
+          if (deptJson.success) {
+            setDepartments(deptRows);
+          }
+        } else {
+          setDepartments([]);
+          setDepartmentError(departmentResult.reason);
         }
       } catch (err) {
         console.error("Failed to load appointment dependencies", err);
@@ -246,7 +276,14 @@ export default function BookAppointmentPage() {
           <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="space-y-4">
+          {/* Surface reference-data rejections before the form so a receptionist
+              sees "access denied" rather than an empty doctor dropdown. */}
+          {doctorError ? <ApiErrorNotice error={doctorError} context="the doctor list" /> : null}
+          {departmentError ? <ApiErrorNotice error={departmentError} context="the department list" /> : null}
+          {patientError ? <ApiErrorNotice error={patientError} context="the patient list" /> : null}
+
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Booking Form (2 Columns) */}
           <div className="lg:col-span-2 space-y-6">
             {/* Step 1: Patient Selection */}
@@ -679,6 +716,7 @@ export default function BookAppointmentPage() {
             </Card>
           </div>
         </form>
+        </div>
       )}
     </div>
   );

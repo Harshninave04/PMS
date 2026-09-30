@@ -7,29 +7,44 @@ import Role from "@/models/role.model";
 import Department from "@/models/department.model";
 import Designation from "@/models/designation.model";
 import bcrypt from "bcryptjs";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { buildScopedQuery } from "@/lib/rbac/scope-filter";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
+/**
+ * Staff roster.
+ *
+ * GET  requires staff.staff.view and is restricted to the caller's
+ *      authorization scope (branch / organization).
+ * POST requires staff.staff.create and stamps the new profile into the
+ *      caller's tenant so the record is immediately visible to scoped readers.
+ */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     await dbConnect();
-    // Ensure dependent models are registered
-    if (!Department) {}
-    if (!Designation) {}
-    if (!User) {}
+
+    const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_VIEW, "Staff");
+    if (!authResult.isAuthorized) return authResult.response;
 
     const { searchParams } = new URL(request.url);
     const departmentId = searchParams.get("departmentId");
     const role = searchParams.get("role");
     const search = searchParams.get("search")?.toLowerCase().trim();
 
-    const query: any = {};
+    const extraQuery: Record<string, unknown> = {};
     if (departmentId && Types.ObjectId.isValid(departmentId)) {
-      query.departmentId = departmentId;
+      extraQuery.departmentId = new Types.ObjectId(departmentId);
     }
     if (role && role !== "ALL") {
-      query.role = role;
+      extraQuery.role = role;
     }
 
-    let staffMembers = await Staff.find(query)
+    const scoped = buildScopedQuery(authResult.filter, extraQuery);
+    if (scoped.denied) {
+      return NextResponse.json({ success: true, count: 0, data: [], scope: "denied" });
+    }
+
+    let staffMembers = await Staff.find(scoped.query)
       .populate("userId", "-password")
       .populate("departmentId")
       .populate("designationId")
@@ -72,6 +87,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     await dbConnect();
+
+    const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_CREATE, "Staff");
+    if (!authResult.isAuthorized) return authResult.response;
+
     const body = await request.json();
 
     let userId = body.userId;
@@ -94,6 +113,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           gender: body.gender || "OTHER",
           phone: body.phone,
           role: userRole._id,
+          // BRANCH-scoped grants deny when the account has no branch, so the
+          // new user is provisioned into the creator's tenant.
+          organization: authResult.context.organizationId,
+          branch: authResult.context.branchId,
           isActive: true,
         });
       }
@@ -107,6 +130,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    if (!Types.ObjectId.isValid(userId)) {
+      return NextResponse.json(
+        { success: false, message: "Invalid user ID format" },
+        { status: 400 }
+      );
+    }
+
     // Check if staff profile already exists for this user
     const existingStaff = await Staff.findOne({ userId });
     if (existingStaff) {
@@ -115,6 +145,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 409 }
       );
     }
+
+    const linkedUser = await User.findById(userId).select("_id organization branch").lean();
+    const branchId = linkedUser?.branch ?? authResult.context.branchId;
 
     const employeeId =
       body.employeeId?.trim().toUpperCase() ||
@@ -125,6 +158,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       employeeId,
       departmentId: body.departmentId && Types.ObjectId.isValid(body.departmentId) ? body.departmentId : undefined,
       designationId: body.designationId && Types.ObjectId.isValid(body.designationId) ? body.designationId : undefined,
+      organizationId: linkedUser?.organization ?? authResult.context.organizationId ?? branchId,
+      branchId,
       role: body.role || "NURSE",
       qualification: body.qualification?.trim() || "",
       joiningDate: body.joiningDate ? new Date(body.joiningDate) : new Date(),

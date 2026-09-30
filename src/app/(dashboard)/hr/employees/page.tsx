@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorEmptyState, ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -99,6 +101,12 @@ export default function EmployeesPage() {
   const [selectedEmp, setSelectedEmp] = useState<EmployeeItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // A 401/403 on /api/hr/employees must be visible rather than rendering as
+  // "No employees found", which reads as an empty roster instead of a
+  // permission failure.
+  const [employeeError, setEmployeeError] = useState<unknown>(null);
+  const [departmentError, setDepartmentError] = useState<unknown>(null);
+
   // Form State
   const [formData, setFormData] = useState({
     name: "",
@@ -125,20 +133,44 @@ export default function EmployeesPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [empRes, deptRes, desigRes] = await Promise.all([
-        fetch("/api/hr/employees").then((r) => r.json()).catch(() => ({})),
-        fetch("/api/department").then((r) => r.json()).catch(() => ({})),
-        fetch("/api/staff/designations").then((r) => r.json()).catch(() => ({}))
+      setEmployeeError(null);
+      setDepartmentError(null);
+
+      // Settled, not all: a rejected employee list must not also blank out the
+      // department/designation dropdowns used by the form.
+      const [empResult, deptResult, desigResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/hr/employees"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/department"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/staff/designations")
       ]);
 
-      if (empRes.success && Array.isArray(empRes.data)) {
-        setEmployees(empRes.data);
+      if (empResult.status === "fulfilled") {
+        const empRes = empResult.value;
+        if (empRes.success && Array.isArray(empRes.data)) {
+          setEmployees(empRes.data);
+        }
+      } else {
+        setEmployees([]);
+        setEmployeeError(empResult.reason);
       }
-      if (deptRes.success && Array.isArray(deptRes.data)) {
-        setDepartments(deptRes.data);
+
+      if (deptResult.status === "fulfilled") {
+        const deptRes = deptResult.value;
+        if (deptRes.success && Array.isArray(deptRes.data)) {
+          setDepartments(deptRes.data);
+        }
+      } else {
+        setDepartments([]);
+        setDepartmentError(deptResult.reason);
       }
-      if (desigRes.success && Array.isArray(desigRes.data)) {
-        setDesignations(desigRes.data);
+
+      if (desigResult.status === "fulfilled") {
+        const desigRes = desigResult.value;
+        if (desigRes.success && Array.isArray(desigRes.data)) {
+          setDesignations(desigRes.data);
+        }
+      } else {
+        setDesignations([]);
       }
     } catch (err) {
       toast({ title: "Error", description: "Failed to load employee records", variant: "destructive" });
@@ -480,6 +512,9 @@ export default function EmployeesPage() {
         </CardContent>
       </Card>
 
+      {/* Reference-data permission failures must be visible even if the table also fails. */}
+      {departmentError ? <ApiErrorNotice error={departmentError} context="the department list" className="mb-4" /> : null}
+
       {/* Employees Table */}
       <Card className="border-border/60 shadow-sm">
         <CardHeader className="p-4 border-b border-border flex flex-row items-center justify-between">
@@ -513,6 +548,12 @@ export default function EmployeesPage() {
                         <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
                         Loading employees...
                       </div>
+                    </TableCell>
+                  </TableRow>
+                ) : employeeError ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="p-0">
+                      <ApiErrorEmptyState error={employeeError} context="the employee list" />
                     </TableCell>
                   </TableRow>
                 ) : filteredEmployees.length === 0 ? (

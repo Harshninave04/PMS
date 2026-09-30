@@ -2,6 +2,7 @@ import doctorRepository, { DoctorRepository } from "@/repositories/doctor.reposi
 import { Types } from "mongoose";
 import { IDoctor } from "@/interfaces/doctor.interface";
 import { CreateDoctorDto, UpdateDoctorDto } from "@/dto/doctor.dto";
+import { isDenyAllFilter } from "@/lib/rbac/scope-filter";
 
 export class DoctorService {
     constructor(private repository: DoctorRepository = doctorRepository) { }
@@ -18,12 +19,22 @@ export class DoctorService {
         return await this.repository.create(data);
     }
 
-    async getAllDoctors(): Promise<IDoctor[]> {
-        return await this.repository.findAll();
+    /**
+     * Returns doctors inside the caller's authorization scope.
+     *
+     * `scopeFilter` is the immutable filter emitted by authorizeRequest. It is
+     * passed straight through to the repository so the boundary is enforced in
+     * the database query. An unsatisfiable (deny-all) scope is rejected before
+     * the query runs, which surfaces as an empty roster rather than a leak.
+     */
+    async getAllDoctors(scopeFilter?: Record<string, unknown>): Promise<IDoctor[]> {
+        if (isDenyAllFilter(scopeFilter)) return [];
+        return await this.repository.findAll(scopeFilter);
     }
 
-    async getDoctorById(id: Types.ObjectId): Promise<IDoctor | null> {
-        return await this.repository.findById(id);
+    async getDoctorById(id: Types.ObjectId, scopeFilter?: Record<string, unknown>): Promise<IDoctor | null> {
+        if (isDenyAllFilter(scopeFilter)) return null;
+        return await this.repository.findById(id, scopeFilter);
     }
 
     async getDoctorByUserId(userId: Types.ObjectId): Promise<IDoctor | null> {

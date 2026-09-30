@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   HeartPulse,
   Users,
@@ -25,6 +27,49 @@ import {
   Calendar,
   FileText
 } from "lucide-react";
+
+interface NursingStats {
+  activeCarePlans?: number;
+}
+
+interface NursingInpatient {
+  admissionId: string;
+  patientId: string;
+  bedNumber?: string;
+  roomNumber?: string;
+  wardName?: string;
+  name?: string;
+  uhid?: string;
+  gender?: string;
+  age?: number;
+  diagnosis?: string;
+  doctorName?: string;
+  allergies?: string[];
+}
+
+interface NursingTask {
+  _id: string;
+  status: string;
+  taskName: string;
+  patient?: { name?: string };
+  category?: string;
+  priority?: string;
+}
+
+interface NursingMedication {
+  _id: string;
+  status: string;
+  medicationName: string;
+  dosage?: string;
+  patient?: { name?: string };
+  route?: string;
+  scheduledTime?: string;
+}
+
+interface NursingResponse<T> {
+  success: boolean;
+  data?: T;
+}
 
 export default function NursingDashboardPage() {
   return (
@@ -44,42 +89,55 @@ function NursingDashboardContent() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [stats, setStats] = useState<any>(null);
-  const [inpatients, setInpatients] = useState<any[]>([]);
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [meds, setMeds] = useState<any[]>([]);
+  const [stats, setStats] = useState<NursingStats | null>(null);
+  const [inpatients, setInpatients] = useState<NursingInpatient[]>([]);
+  const [tasks, setTasks] = useState<NursingTask[]>([]);
+  const [meds, setMeds] = useState<NursingMedication[]>([]);
+  const [loadErrors, setLoadErrors] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = async () => {
-    try {
-      const [statsRes, patientsRes, tasksRes, medsRes] = await Promise.all([
-        fetch("/api/nursing/stats"),
-        fetch("/api/nursing/my-patients"),
-        fetch("/api/nursing/tasks"),
-        fetch("/api/nursing/medications")
-      ]);
+    const results = await Promise.allSettled([
+      apiFetch<NursingResponse<NursingStats>>("/api/nursing/stats"),
+      apiFetch<NursingResponse<NursingInpatient[]>>("/api/nursing/my-patients"),
+      apiFetch<NursingResponse<NursingTask[]>>("/api/nursing/tasks"),
+      apiFetch<NursingResponse<NursingMedication[]>>("/api/nursing/medications")
+    ]);
+    const nextErrors: Record<string, unknown> = {};
+    const [statsResult, patientsResult, tasksResult, medsResult] = results;
 
-      const [statsData, patientsData, tasksData, medsData] = await Promise.all([
-        statsRes.json(),
-        patientsRes.json(),
-        tasksRes.json(),
-        medsRes.json()
-      ]);
+    if (statsResult.status === "fulfilled") {
+      if (statsResult.value.success) setStats(statsResult.value.data || null);
+      else nextErrors.stats = new Error("The nursing summary could not be loaded.");
+    } else nextErrors.stats = statsResult.reason;
 
-      if (statsData.success) setStats(statsData.data);
-      if (patientsData.success) setInpatients(patientsData.data || []);
-      if (tasksData.success) setTasks(tasksData.data || []);
-      if (medsData.success) setMeds(medsData.data || []);
-    } catch (err) {
-      toast("Failed to load nursing dashboard data", "error");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+    if (patientsResult.status === "fulfilled") {
+      if (patientsResult.value.success) setInpatients(patientsResult.value.data || []);
+      else nextErrors.patients = new Error("The inpatient list could not be loaded.");
+    } else nextErrors.patients = patientsResult.reason;
+
+    if (tasksResult.status === "fulfilled") {
+      if (tasksResult.value.success) setTasks(tasksResult.value.data || []);
+      else nextErrors.tasks = new Error("Nursing tasks could not be loaded.");
+    } else nextErrors.tasks = tasksResult.reason;
+
+    if (medsResult.status === "fulfilled") {
+      if (medsResult.value.success) setMeds(medsResult.value.data || []);
+      else nextErrors.medications = new Error("Medication records could not be loaded.");
+    } else nextErrors.medications = medsResult.reason;
+
+    setLoadErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      toast("Some nursing dashboard information could not be loaded", "error");
     }
+    setLoading(false);
+    setRefreshing(false);
   };
 
   useEffect(() => {
+    // The state updates happen after asynchronous API responses resolve.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
   }, []);
 
@@ -106,6 +164,10 @@ function NursingDashboardContent() {
 
   return (
     <div className="space-y-6 pb-12">
+      {loadErrors.stats ? <ApiErrorNotice error={loadErrors.stats} context="the nursing summary" /> : null}
+      {loadErrors.patients ? <ApiErrorNotice error={loadErrors.patients} context="the inpatient list" /> : null}
+      {loadErrors.tasks ? <ApiErrorNotice error={loadErrors.tasks} context="nursing tasks" /> : null}
+      {loadErrors.medications ? <ApiErrorNotice error={loadErrors.medications} context="medication records" /> : null}
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -229,6 +291,7 @@ function NursingDashboardContent() {
                       <TableHead>Bed & Ward</TableHead>
                       <TableHead>Patient Particulars</TableHead>
                       <TableHead>Admitting Diagnosis</TableHead>
+                      <TableHead>Allergy Alerts</TableHead>
                       <TableHead>Attending Doctor</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -236,8 +299,8 @@ function NursingDashboardContent() {
                   <TableBody>
                     {inpatients.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-slate-500 py-12 text-xs">
-                          No active admitted patients found in wards.
+                        <TableCell colSpan={6} className="text-center text-slate-500 py-12 text-xs">
+                          {loadErrors.patients ? "The inpatient roster is unavailable; check the access message above." : "No active admitted patients found in wards."}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -263,6 +326,17 @@ function NursingDashboardContent() {
 
                           <TableCell className="font-medium text-slate-800 dark:text-slate-200 max-w-xs truncate">
                             {p.diagnosis}
+                          </TableCell>
+
+                          <TableCell className="max-w-[180px]">
+                            {p.allergies?.length ? (
+                              <div className="flex flex-wrap gap-1">
+                                {p.allergies.slice(0, 2).map((allergy) => (
+                                  <Badge key={allergy} variant="destructive" className="text-[10px]">{allergy}</Badge>
+                                ))}
+                                {p.allergies.length > 2 ? <Badge variant="outline" className="text-[10px]">+{p.allergies.length - 2}</Badge> : null}
+                              </div>
+                            ) : <span className="text-[11px] text-slate-400">None recorded</span>}
                           </TableCell>
 
                           <TableCell className="font-medium">
@@ -295,6 +369,14 @@ function NursingDashboardContent() {
                               >
                                 Note
                               </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => router.push(`/patients/profile?id=${p.patientId}`)}
+                              >
+                                Patient 360
+                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -307,7 +389,7 @@ function NursingDashboardContent() {
           </Card>
 
           {/* Quick Action Tiles */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
             <Button
               variant="outline"
               className="h-auto p-3 flex flex-col items-center gap-1 text-center justify-center border-dashed"
@@ -346,6 +428,36 @@ function NursingDashboardContent() {
               <ClipboardCheck className="h-5 w-5 text-amber-600 mb-1" />
               <span className="font-semibold text-xs">Nursing Tasks</span>
               <span className="text-[10px] text-slate-400">Ward procedures</span>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto p-3 flex flex-col items-center gap-1 text-center justify-center border-dashed"
+              onClick={() => router.push("/nursing/plans")}
+            >
+              <HeartPulse className="h-5 w-5 text-teal-600 mb-1" />
+              <span className="font-semibold text-xs">Care Plans</span>
+              <span className="text-[10px] text-slate-400">View and update care</span>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto p-3 flex flex-col items-center gap-1 text-center justify-center border-dashed"
+              onClick={() => router.push("/nursing/notes")}
+            >
+              <FileText className="h-5 w-5 text-cyan-600 mb-1" />
+              <span className="font-semibold text-xs">Nursing Notes</span>
+              <span className="text-[10px] text-slate-400">Record observations</span>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto p-3 flex flex-col items-center gap-1 text-center justify-center border-dashed"
+              onClick={() => router.push("/nursing/handover")}
+            >
+              <ArrowLeftRight className="h-5 w-5 text-indigo-600 mb-1" />
+              <span className="font-semibold text-xs">Shift Handover</span>
+              <span className="text-[10px] text-slate-400">Pass on patient updates</span>
             </Button>
           </div>
         </div>
@@ -390,7 +502,7 @@ function NursingDashboardContent() {
                         </div>
                       </div>
                       <Badge variant="outline" className="text-[10px] border-purple-300 text-purple-700">
-                        {new Date(m.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {m.scheduledTime ? new Date(m.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Time not set"}
                       </Badge>
                     </div>
                   ))

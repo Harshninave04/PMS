@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorEmptyState, ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -89,6 +91,13 @@ export default function StaffListPage() {
   const [selectedShift, setSelectedShift] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
 
+  // Reference-data load failures. A 403 on /api/staff must be visible, otherwise
+  // the roster below reads as "no staff members" and the filter dropdowns are
+  // silently empty.
+  const [staffError, setStaffError] = useState<unknown>(null);
+  const [departmentError, setDepartmentError] = useState<unknown>(null);
+  const [designationError, setDesignationError] = useState<unknown>(null);
+
   // Modals
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -121,18 +130,43 @@ export default function StaffListPage() {
   async function fetchStaffData() {
     try {
       setLoading(true);
-      const [staffRes, deptRes, desigRes] = await Promise.all([
-        fetch("/api/staff"),
-        fetch("/api/department"),
-        fetch("/api/staff/designations"),
-      ]);
-      const staffJson = await staffRes.json();
-      const deptJson = await deptRes.json();
-      const desigJson = await desigRes.json();
+      setStaffError(null);
+      setDepartmentError(null);
+      setDesignationError(null);
 
-      if (staffJson.success) setStaffList(staffJson.data || []);
-      if (deptJson.success) setDepartments(deptJson.data || []);
-      if (desigJson.success) setDesignations(desigJson.data || []);
+      // Settled, not all: one rejected request must not blank out the others.
+      const [staffResult, deptResult, desigResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/staff"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/department"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/staff/designations"),
+      ]);
+
+      if (staffResult.status === "fulfilled") {
+        const staffJson = staffResult.value;
+        const staffRows = staffJson.data ?? [];
+        if (staffJson.success) setStaffList(staffRows);
+      } else {
+        setStaffList([]);
+        setStaffError(staffResult.reason);
+      }
+
+      if (deptResult.status === "fulfilled") {
+        const deptJson = deptResult.value;
+        const deptRows = deptJson.data ?? [];
+        if (deptJson.success) setDepartments(deptRows);
+      } else {
+        setDepartments([]);
+        setDepartmentError(deptResult.reason);
+      }
+
+      if (desigResult.status === "fulfilled") {
+        const desigJson = desigResult.value;
+        const desigRows = desigJson.data ?? [];
+        if (desigJson.success) setDesignations(desigRows);
+      } else {
+        setDesignations([]);
+        setDesignationError(desigResult.reason);
+      }
     } catch (err) {
       toast({ title: "Error", description: "Failed to load staff records.", variant: "destructive" });
     } finally {
@@ -370,6 +404,11 @@ export default function StaffListPage() {
         </Card>
       </div>
 
+      {/* Reference-data rejections must be visible: an empty department or
+          designation dropdown is otherwise indistinguishable from "none exist". */}
+      {departmentError ? <ApiErrorNotice error={departmentError} context="the department list" /> : null}
+      {designationError ? <ApiErrorNotice error={designationError} context="the designation list" /> : null}
+
       {/* Main Staff Table Card */}
       <Card className="border-slate-200/80 dark:border-slate-800 shadow-sm">
         <CardHeader className="border-b border-slate-100 dark:border-slate-800/80 pb-4">
@@ -449,6 +488,10 @@ export default function StaffListPage() {
             <div className="flex justify-center p-12">
               <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
             </div>
+          ) : staffError ? (
+            /* A rejected /api/staff must be visible here: the "No staff members
+               found." row below would otherwise read as an empty roster. */
+            <ApiErrorEmptyState error={staffError} context="the staff list" />
           ) : filteredStaff.length === 0 ? (
             <div className="text-center py-12 text-slate-500">
               <Users className="h-10 w-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />

@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorEmptyState, ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -78,6 +80,12 @@ export default function StaffSchedulePage() {
   const [selectedDoc, setSelectedDoc] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
 
+  // Roster load failures. A 403 on /api/staff/schedule or /api/doctor must be
+  // visible, otherwise the slot table reads as "no duty schedules" and the
+  // doctor filter dropdown is silently empty.
+  const [scheduleError, setScheduleError] = useState<unknown>(null);
+  const [doctorError, setDoctorError] = useState<unknown>(null);
+
   // Modals
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -103,19 +111,36 @@ export default function StaffSchedulePage() {
   async function fetchScheduleData() {
     try {
       setLoading(true);
-      const [schedRes, docRes] = await Promise.all([
-        fetch("/api/staff/schedule"),
-        fetch("/api/doctor"),
-      ]);
-      const schedJson = await schedRes.json();
-      const docJson = await docRes.json();
+      setScheduleError(null);
+      setDoctorError(null);
 
-      if (schedJson.success) setSchedules(schedJson.data || []);
-      if (docJson.success) {
-        setDoctors(docJson.data || []);
-        if (docJson.data.length > 0 && !formData.doctorId) {
-          setFormData((p) => ({ ...p, doctorId: docJson.data[0]._id }));
+      // Settled, not all: one rejected request must not blank out the other.
+      const [schedResult, docResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/staff/schedule"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/doctor"),
+      ]);
+
+      if (schedResult.status === "fulfilled") {
+        const schedJson = schedResult.value;
+        const schedRows = schedJson.data ?? [];
+        if (schedJson.success) setSchedules(schedRows);
+      } else {
+        setSchedules([]);
+        setScheduleError(schedResult.reason);
+      }
+
+      if (docResult.status === "fulfilled") {
+        const docJson = docResult.value;
+        const docRows = docJson.data ?? [];
+        if (docJson.success) {
+          setDoctors(docRows);
+          if (docRows.length > 0 && !formData.doctorId) {
+            setFormData((p) => ({ ...p, doctorId: docRows[0]._id }));
+          }
         }
+      } else {
+        setDoctors([]);
+        setDoctorError(docResult.reason);
       }
     } catch (err) {
       toast({ title: "Error", description: "Failed to load schedules.", variant: "destructive" });
@@ -352,6 +377,10 @@ export default function StaffSchedulePage() {
         ))}
       </div>
 
+      {/* A rejected doctor roster must be visible above the filters, otherwise the
+          "All Doctors" dropdown looks like no doctor is on the roster. */}
+      {doctorError ? <ApiErrorNotice error={doctorError} context="the doctor list" /> : null}
+
       {/* Main Table Card */}
       <Card className="border-slate-200/80 dark:border-slate-800 shadow-sm">
         <CardHeader className="border-b border-slate-100 dark:border-slate-800/80 pb-4">
@@ -405,6 +434,10 @@ export default function StaffSchedulePage() {
             <div className="flex justify-center p-12">
               <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
             </div>
+          ) : scheduleError ? (
+            /* A rejected /api/staff/schedule must be visible here: the "No duty
+               schedules found" row below would otherwise read as an empty week. */
+            <ApiErrorEmptyState error={scheduleError} context="the schedule list" />
           ) : filtered.length === 0 ? (
             <div className="text-center py-12 text-slate-500">
               <Calendar className="h-10 w-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />

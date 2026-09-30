@@ -3,6 +3,8 @@
 import React, { useEffect, useState, useMemo, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,6 +67,11 @@ function ImagingOrdersContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Dependent-list load failure (orders, patients, doctors, procedure catalog).
+  // A 403 here must be visible, otherwise the patient / doctor / procedure
+  // dropdowns are silently empty and the registry looks empty.
+  const [depError, setDepError] = useState<unknown>(null);
+
   // Filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -90,24 +97,52 @@ function ImagingOrdersContent() {
 
   const loadData = async () => {
     try {
-      const [ordRes, patRes, docRes, procRes] = await Promise.all([
-        fetch("/api/radiology/orders"),
-        fetch("/api/patient"),
-        fetch("/api/doctor"),
-        fetch("/api/radiology/procedures")
+      setDepError(null);
+
+      // Settled, not all: one rejected reference-data request must not hide
+      // the state of the other lists.
+      const [ordResult, patResult, docResult, procResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/radiology/orders"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/patient"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/doctor"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/radiology/procedures")
       ]);
 
-      const [ordData, patData, docData, procData] = await Promise.all([
-        ordRes.json(),
-        patRes.json(),
-        docRes.json(),
-        procRes.json()
-      ]);
+      if (ordResult.status === "fulfilled") {
+        const ordData = ordResult.value;
+        const ordRows = ordData.data ?? [];
+        if (ordData.success) setOrders(ordRows);
+      } else {
+        setOrders([]);
+        setDepError(ordResult.reason);
+      }
 
-      if (ordData.success) setOrders(ordData.data || []);
-      if (patData.success) setPatients(patData.data || []);
-      if (docData.success) setDoctors(docData.data || []);
-      if (procData.success) setProcedures(procData.data || []);
+      if (patResult.status === "fulfilled") {
+        const patData = patResult.value;
+        const patRows = patData.data ?? [];
+        if (patData.success) setPatients(patRows);
+      } else {
+        setPatients([]);
+        setDepError(patResult.reason);
+      }
+
+      if (docResult.status === "fulfilled") {
+        const docData = docResult.value;
+        const docRows = docData.data ?? [];
+        if (docData.success) setDoctors(docRows);
+      } else {
+        setDoctors([]);
+        setDepError(docResult.reason);
+      }
+
+      if (procResult.status === "fulfilled") {
+        const procData = procResult.value;
+        const procRows = procData.data ?? [];
+        if (procData.success) setProcedures(procRows);
+      } else {
+        setProcedures([]);
+        setDepError(procResult.reason);
+      }
     } catch (error) {
       toast("Error loading imaging requisitions", "error");
     } finally {
@@ -338,6 +373,11 @@ function ImagingOrdersContent() {
           </Button>
         </div>
       </div>
+
+      {/* Surface dependent-list rejections above the filters and registry so a
+          401/403 reads as "access denied" rather than an empty table and empty
+          patient / doctor / procedure dropdowns. */}
+      <ApiErrorNotice error={depError} context="the imaging order reference data" />
 
       {/* Filter Bar */}
       <Card className="border shadow-sm">

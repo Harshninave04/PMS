@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorEmptyState, ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +53,12 @@ export default function StaffSpecializationsPage() {
   const [selectedDept, setSelectedDept] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
 
+  // Reference-data load failures. A 403 on /api/staff/specializations must be
+  // visible, otherwise the registry reads as "no specializations" and the
+  // department dropdown is silently empty.
+  const [specializationError, setSpecializationError] = useState<unknown>(null);
+  const [departmentError, setDepartmentError] = useState<unknown>(null);
+
   // Modals
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -73,15 +81,32 @@ export default function StaffSpecializationsPage() {
   async function fetchSpecializations() {
     try {
       setLoading(true);
-      const [specRes, deptRes] = await Promise.all([
-        fetch("/api/staff/specializations"),
-        fetch("/api/department"),
-      ]);
-      const specJson = await specRes.json();
-      const deptJson = await deptRes.json();
+      setSpecializationError(null);
+      setDepartmentError(null);
 
-      if (specJson.success) setSpecializations(specJson.data || []);
-      if (deptJson.success) setDepartments(deptJson.data || []);
+      // Settled, not all: one rejected request must not blank out the other.
+      const [specResult, deptResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/staff/specializations"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/department"),
+      ]);
+
+      if (specResult.status === "fulfilled") {
+        const specJson = specResult.value;
+        const specRows = specJson.data ?? [];
+        if (specJson.success) setSpecializations(specRows);
+      } else {
+        setSpecializations([]);
+        setSpecializationError(specResult.reason);
+      }
+
+      if (deptResult.status === "fulfilled") {
+        const deptJson = deptResult.value;
+        const deptRows = deptJson.data ?? [];
+        if (deptJson.success) setDepartments(deptRows);
+      } else {
+        setDepartments([]);
+        setDepartmentError(deptResult.reason);
+      }
     } catch (err) {
       toast({ title: "Error", description: "Failed to load specializations.", variant: "destructive" });
     } finally {
@@ -288,6 +313,10 @@ export default function StaffSpecializationsPage() {
         </Card>
       </div>
 
+      {/* A rejected department roster must be visible above the filters, otherwise
+          the "All Departments" dropdown looks like no department exists. */}
+      {departmentError ? <ApiErrorNotice error={departmentError} context="the department list" /> : null}
+
       {/* Main Table Card */}
       <Card className="border-slate-200/80 dark:border-slate-800 shadow-sm">
         <CardHeader className="border-b border-slate-100 dark:border-slate-800/80 pb-4">
@@ -340,6 +369,11 @@ export default function StaffSpecializationsPage() {
             <div className="flex justify-center p-12">
               <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
             </div>
+          ) : specializationError ? (
+            /* A rejected /api/staff/specializations must be visible here: the "No
+               medical specializations found." row below would otherwise read as
+               an empty specialty catalog. */
+            <ApiErrorEmptyState error={specializationError} context="the specialization list" />
           ) : filtered.length === 0 ? (
             <div className="text-center py-12 text-slate-500">
               <Sparkles className="h-10 w-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />

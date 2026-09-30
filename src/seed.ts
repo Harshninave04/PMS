@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose, { Types } from "mongoose";
 import bcrypt from "bcryptjs";
 import Role from "./models/role.model";
 import Menu from "./models/menu.model";
@@ -38,6 +38,13 @@ import ComplianceReport from "./models/compliance-report.model";
 import SystemSetting from "./models/system-setting.model";
 import Patient from "./models/patient.model";
 import "dotenv/config";
+import {
+    campusIdFor,
+    resolveDemoCampus,
+    resolveOrganizationForBranch,
+    backfillProfileBranchScope,
+    type CampusDocuments
+} from "./lib/seed/branch-scope";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
 const DEFAULT_ADMIN_EMAIL = process.env.DEFAULT_ADMIN_EMAIL || "admin@hospital.com";
@@ -566,6 +573,10 @@ const FULL_ACCESS = [
     { moduleName: "appointment", permissions: ["appointment.appointment.view", "appointment.appointment.create", "appointment.appointment.update", "appointment.appointment.cancel"] },
     { moduleName: "admission", permissions: ["admission.admission.view", "admission.admission.create", "admission.admission.update", "admission.admission.transfer", "admission.admission.discharge"] },
     { moduleName: "clinical", permissions: ["clinical.record.view", "clinical.record.create", "clinical.record.update", "clinical.record.sign", "clinical.diagnosis.view", "clinical.diagnosis.create", "clinical.diagnosis.update", "clinical.prescription.view", "clinical.prescription.create", "clinical.prescription.update", "clinical.prescription.cancel"] },
+    { moduleName: "doctor", permissions: ["doctor.doctor.view", "doctor.doctor.create", "doctor.doctor.update", "doctor.doctor.delete"] },
+    { moduleName: "staff", permissions: ["staff.staff.view", "staff.staff.create", "staff.staff.update", "staff.department.manage"] },
+    { moduleName: "hr", permissions: ["staff.staff.view", "staff.staff.create", "staff.staff.update", "staff.department.manage"] },
+    { moduleName: "department", permissions: ["department.department.view", "department.department.create", "department.department.update", "department.department.delete"] },
     { moduleName: "nursing", permissions: ["nursing.vitals.view", "nursing.vitals.create", "nursing.vitals.update"] },
     { moduleName: "lab", permissions: ["lab.order.view", "lab.order.create", "lab.sample.collect", "lab.result.create", "lab.result.update", "lab.result.verify", "lab.report.publish"] },
     { moduleName: "radiology", permissions: ["radiology.order.view", "radiology.order.create", "radiology.study.perform", "radiology.report.create", "radiology.report.verify", "radiology.report.publish"] },
@@ -586,34 +597,72 @@ const AUDITOR_ACCESS = [
     { moduleName: "system", permissions: ["system.settings.view"] }
 ];
 
+/**
+ * Read-only doctor roster.
+ *
+ * The appointment booking form, appointment lists and diagnostic order forms
+ * all populate a doctor dropdown from `GET /api/doctor`. Without this grant a
+ * receptionist receives a 403 and the dropdown silently stays empty, so every
+ * role that legitimately books or triages an appointment needs it. It grants
+ * listing/reading only - registering a doctor stays with administrative roles.
+ */
+const DOCTOR_ROSTER_READ = {
+    moduleName: "doctor",
+    permissions: ["doctor.doctor.view"]
+};
+
+/**
+ * Read-only department reference data.
+ *
+ * A doctor row is booked against a department, so the booking form needs the
+ * department list alongside the roster. Both are read-only for clinical and
+ * front-desk roles; department administration stays with administrative roles.
+ */
+const DEPARTMENT_READ = {
+    moduleName: "department",
+    permissions: ["department.department.view"]
+};
+
 const DOCTOR_ACCESS = [
-    { moduleName: "patient", permissions: ["patient.patient.view"] },
-    { moduleName: "appointment", permissions: ["appointment.appointment.view", "appointment.appointment.create"] },
+  { moduleName: "patient", permissions: ["patient.patient.view"] },
+  { moduleName: "appointment", permissions: ["appointment.appointment.view", "appointment.appointment.create", "appointment.appointment.update"] },
     { moduleName: "admission", permissions: ["admission.admission.view"] },
     { moduleName: "clinical", permissions: ["clinical.record.view", "clinical.record.create", "clinical.record.update", "clinical.record.sign", "clinical.diagnosis.view", "clinical.diagnosis.create", "clinical.diagnosis.update", "clinical.prescription.view", "clinical.prescription.create", "clinical.prescription.cancel"] },
     { moduleName: "nursing", permissions: ["nursing.vitals.view"] },
     { moduleName: "lab", permissions: ["lab.order.view", "lab.order.create"] },
     { moduleName: "radiology", permissions: ["radiology.order.view", "radiology.order.create"] },
-    { moduleName: "pharmacy", permissions: ["pharmacy.prescription.view"] }
+    { moduleName: "pharmacy", permissions: ["pharmacy.prescription.view"] },
+    // Doctors book follow-ups and refer across departments.
+    DOCTOR_ROSTER_READ,
+    DEPARTMENT_READ
 ];
 
 const NURSE_ACCESS = [
     { moduleName: "patient", permissions: ["patient.patient.view"] },
     { moduleName: "admission", permissions: ["admission.admission.view"] },
     { moduleName: "clinical", permissions: ["clinical.record.view"] },
-    { moduleName: "nursing", permissions: ["nursing.vitals.view", "nursing.vitals.create", "nursing.vitals.update"] }
+    { moduleName: "nursing", permissions: ["nursing.vitals.view", "nursing.vitals.create", "nursing.vitals.update"] },
+    // Charge nurses coordinate coverage against the roster.
+    DOCTOR_ROSTER_READ,
+    DEPARTMENT_READ
 ];
 
 const RECEPTIONIST_ACCESS = [
     { moduleName: "patient", permissions: ["patient.patient.view", "patient.patient.create", "patient.patient.update"] },
     { moduleName: "appointment", permissions: ["appointment.appointment.view", "appointment.appointment.create", "appointment.appointment.update", "appointment.appointment.cancel"] },
     { moduleName: "admission", permissions: ["admission.admission.view", "admission.admission.create"] },
-    { moduleName: "billing", permissions: ["billing.invoice.view"] }
+    { moduleName: "billing", permissions: ["billing.invoice.view"] },
+    // Booking an appointment requires choosing a doctor and a department.
+    DOCTOR_ROSTER_READ,
+    DEPARTMENT_READ
 ];
 
 const LAB_TECHNICIAN_ACCESS = [
     { moduleName: "patient", permissions: ["patient.patient.view"] },
-    { moduleName: "lab", permissions: ["lab.order.view", "lab.sample.collect", "lab.result.create", "lab.result.update"] }
+    { moduleName: "lab", permissions: ["lab.order.view", "lab.sample.collect", "lab.result.create", "lab.result.update"] },
+    // Lab orders carry the requesting doctor and department.
+    DOCTOR_ROSTER_READ,
+    DEPARTMENT_READ
 ];
 
 const LAB_SUPERVISOR_ACCESS = [
@@ -670,8 +719,8 @@ const roleDefinitions = [
     { role: "LAB_SUPERVISOR", access: LAB_SUPERVISOR_ACCESS },
     
     // RADIOLOGY
-    { role: "RADIOLOGY_TECHNICIAN", access: [{ moduleName: "radiology", permissions: ["radiology.order.view", "radiology.study.perform"] }] },
-    { role: "RADIOLOGIST", access: [{ moduleName: "radiology", permissions: ["radiology.order.view", "radiology.report.create", "radiology.report.verify", "radiology.report.publish"] }] },
+    { role: "RADIOLOGY_TECHNICIAN", access: [{ moduleName: "radiology", permissions: ["radiology.order.view", "radiology.study.perform"] }, DOCTOR_ROSTER_READ, DEPARTMENT_READ] },
+    { role: "RADIOLOGIST", access: [{ moduleName: "radiology", permissions: ["radiology.order.view", "radiology.report.create", "radiology.report.verify", "radiology.report.publish"] }, DOCTOR_ROSTER_READ, DEPARTMENT_READ] },
     
     // PHARMACY
     { role: "PHARMACIST", access: PHARMACIST_ACCESS },
@@ -694,8 +743,12 @@ const roleDefinitions = [
     { role: "PROCUREMENT_MANAGER", access: [{ moduleName: "procurement", permissions: ["procurement.request.create", "procurement.request.approve", "procurement.order.create", "procurement.order.approve"] }] },
     
     // HR
-    { role: "HR_OFFICER", access: [] },
-    { role: "HR_MANAGER", access: [] },
+    // The employee dossier IS the Staff profile, so HR reuses the staff.*
+    // permission family rather than a parallel hr.* catalogue. HR_MANAGER also
+    // gets staff.department.manage because reassigning a department is part of
+    // the HR job.
+    { role: "HR_OFFICER", access: [{ moduleName: "staff", permissions: ["staff.staff.view", "staff.staff.create", "staff.staff.update"] }] },
+    { role: "HR_MANAGER", access: [{ moduleName: "staff", permissions: ["staff.staff.view", "staff.staff.create", "staff.staff.update", "staff.department.manage"] }] },
     
     // EMERGENCY
     { role: "EMERGENCY_DOCTOR", access: DOCTOR_ACCESS },
@@ -844,6 +897,107 @@ async function seedDatabase() {
             isActive: true
         });
         console.log(`✅ Successfully seeded organization: ${defaultOrg.organizationName}`);
+
+        // The super admin is created before the organization exists, so bind its
+        // tenant scope now. SYSTEM_SUPER_ADMIN is short-circuited to GLOBAL scope
+        // by authorizeRequest, but a populated branch keeps the account consistent
+        // with every other seeded user.
+        adminUser.organization = defaultOrg._id;
+        adminUser.branch = defaultOrg._id;
+        await adminUser.save();
+
+        // 5.1 Seed Satellite Campuses
+        //
+        // These must exist BEFORE any user is created: `User.branch` is what the
+        // ScopeResolver matches against, and a `BRANCH`-scoped grant resolves to
+        // deny-all when it is missing. Creating the campuses here (rather than in
+        // section 14) lets `branchForRole`/`orgForRole` be declared once, ahead of
+        // every call site.
+        const cancerHospital = await Organization.create({
+            organizationName: "Medistra Comprehensive Cancer Center",
+            organizationId: "MEDISTRA-ONCO",
+            organizationType: "HOSPITAL",
+            branchType: "BRANCH",
+            headQuarter: defaultOrg._id,
+            email: "onco@medistra.hospital",
+            phone: "+91 33 2410 5000",
+            address: "Plot IIE/12, Action Area II, New Town, Kolkata",
+            city: "Kolkata",
+            state: "West Bengal",
+            pincode: "700156",
+            country: "India",
+            capacity: 220,
+            metadata: {
+                specialty: "Comprehensive Oncology & Bone Marrow Transplant",
+                nabhAccredited: true,
+                linearAccelerators: 3,
+                chemoDaycareChairs: 40
+            },
+            isActive: true
+        });
+
+        const saltLakeBranch = await Organization.create({
+            organizationName: "Medistra Polyclinic & Day Surgery - Salt Lake",
+            organizationId: "MEDISTRA-SL-01",
+            organizationType: "CLINIC",
+            branchType: "BRANCH",
+            headQuarter: defaultOrg._id,
+            email: "saltlake@medistra.hospital",
+            phone: "+91 33 2358 1122",
+            address: "Block BD-34, Sector 1, Salt Lake, Kolkata",
+            city: "Kolkata",
+            state: "West Bengal",
+            pincode: "700064",
+            country: "India",
+            capacity: 25,
+            metadata: {
+                facilityType: "Satellite Polyclinic & Specimen Collection",
+                consultationSuites: 8,
+                ultrasoundRooms: 2
+            },
+            isActive: true
+        });
+
+        const newTownBranch = await Organization.create({
+            organizationName: "Medistra Diagnostic & Dialysis Center - New Town",
+            organizationId: "MEDISTRA-NT-02",
+            organizationType: "DIAGNOSTIC",
+            branchType: "BRANCH",
+            headQuarter: defaultOrg._id,
+            email: "newtown@medistra.hospital",
+            phone: "+91 33 2986 4400",
+            address: "Axis Mall Tower, 3rd Floor, Major Arterial Road, New Town, Kolkata",
+            city: "Kolkata",
+            state: "West Bengal",
+            pincode: "700156",
+            country: "India",
+            capacity: 35,
+            metadata: {
+                facilityType: "Dialysis & Diagnostic Imaging",
+                dialysisStations: 16
+            },
+            isActive: true
+        });
+
+        console.log(`✅ Seeded satellite campuses: ${cancerHospital.organizationName}, ${saltLakeBranch.organizationName}, ${newTownBranch.organizationName}`);
+
+        /**
+         * Campus document map. `User.branch` points at the campus record, while
+         * `User.organization` points at the hospital that owns the campus.
+         */
+        const campuses: CampusDocuments = {
+            main: defaultOrg._id as Types.ObjectId,
+            saltLake: saltLakeBranch._id as Types.ObjectId,
+            newTown: newTownBranch._id as Types.ObjectId
+        };
+
+        /**
+         * Resolves the (branch, organization) pair that a seeded role belongs to.
+         * BRANCH-scoped grants resolve to deny-all without these values.
+         */
+        const branchForRole = (roleName: string) => campusIdFor(resolveDemoCampus(roleName), campuses);
+        const orgForRole = (roleName: string) =>
+            resolveOrganizationForBranch(branchForRole(roleName), campuses);
 
         // 6. Seed Standard Departments
         console.log("Seeding standard departments...");
@@ -1199,6 +1353,10 @@ async function seedDatabase() {
 
         const defaultHashedPassword = await bcrypt.hash("Hospital@2026", 10);
         for (const s of sampleStaffData) {
+            const staffRoleName = s.role || "NURSE";
+            const staffBranch = branchForRole(staffRoleName);
+            const staffOrg = orgForRole(staffRoleName);
+
             let user = await User.findOne({ email: s.email });
             if (!user) {
                 user = await User.create({
@@ -1208,6 +1366,8 @@ async function seedDatabase() {
                     gender: s.gender,
                     phone: s.phone,
                     role: roleMap[s.role] || roleDocs["NURSE"]?._id || adminUser.role,
+                    organization: staffOrg,
+                    branch: staffBranch,
                     isActive: true
                 });
             } else {
@@ -1216,6 +1376,8 @@ async function seedDatabase() {
                 user.gender = s.gender;
                 user.phone = s.phone;
                 user.role = roleMap[s.role] || roleDocs["NURSE"]?._id || adminUser.role;
+                user.organization = staffOrg;
+                user.branch = staffBranch;
                 user.isActive = true;
                 await user.save();
             }
@@ -1226,6 +1388,8 @@ async function seedDatabase() {
                 employeeId: s.employeeId,
                 departmentId: s.departmentId,
                 designationId: s.designationId,
+                organizationId: staffOrg,
+                branchId: staffBranch,
                 role: s.role,
                 qualification: s.qualification,
                 shift: s.shift,
@@ -1290,6 +1454,9 @@ async function seedDatabase() {
                     existing.password = demoPassword;
                     existing.role = roleDocs[roleName]._id;
                     existing.name = displayName;
+                    // BRANCH-scoped grants resolve to deny-all without a campus.
+                    existing.organization = orgForRole(roleName);
+                    existing.branch = branchForRole(roleName);
                     existing.isActive = true;
                     await existing.save();
                 } else {
@@ -1299,6 +1466,8 @@ async function seedDatabase() {
                         password: demoPassword,
                         gender: "UNSPECIFIED",
                         role: roleDocs[roleName]._id,
+                        organization: orgForRole(roleName),
+                        branch: branchForRole(roleName),
                         isActive: true
                     });
                 }
@@ -1597,80 +1766,17 @@ async function seedDatabase() {
         console.log("Seeding Organization Settings & Network Facilities...");
 
         // 14.1 Network Hospitals & Satellite Branches
-        const cancerHospital = await Organization.findOneAndUpdate(
-            { organizationId: "MEDISTRA-ONCO" },
-            {
-                organizationName: "Medistra Comprehensive Cancer Center",
-                organizationId: "MEDISTRA-ONCO",
-                organizationType: "HOSPITAL",
-                branchType: "BRANCH",
-                email: "onco@medistra.hospital",
-                phone: "+91 33 2410 5000",
-                address: "Plot IIE/12, Action Area II, New Town, Kolkata",
-                city: "Kolkata",
-                state: "West Bengal",
-                pincode: "700156",
-                country: "India",
-                capacity: 220,
-                metadata: {
-                    specialty: "Comprehensive Oncology & Bone Marrow Transplant",
-                    nabhAccredited: true,
-                    linearAccelerators: 3,
-                    chemoDaycareChairs: 40
-                },
-                isActive: true
-            },
-            { upsert: true, new: true }
-        );
-
-        const saltLakeBranch = await Organization.findOneAndUpdate(
-            { organizationId: "MEDISTRA-SL-01" },
-            {
-                organizationName: "Medistra Polyclinic & Day Surgery - Salt Lake",
-                organizationId: "MEDISTRA-SL-01",
-                organizationType: "CLINIC",
-                branchType: "BRANCH",
-                email: "saltlake@medistra.hospital",
-                phone: "+91 33 2358 1122",
-                address: "Block BD-34, Sector 1, Salt Lake, Kolkata",
-                city: "Kolkata",
-                state: "West Bengal",
-                pincode: "700064",
-                country: "India",
-                capacity: 25,
-                metadata: {
-                    facilityType: "Satellite Polyclinic & Specimen Collection",
-                    consultationSuites: 8,
-                    ultrasoundRooms: 2
-                },
-                isActive: true
-            },
-            { upsert: true, new: true }
-        );
-
-        await Organization.findOneAndUpdate(
-            { organizationId: "MEDISTRA-NT-02" },
-            {
-                organizationName: "Medistra Diagnostic & Dialysis Center - New Town",
-                organizationId: "MEDISTRA-NT-02",
-                organizationType: "DIAGNOSTIC",
-                branchType: "BRANCH",
-                email: "newtown@medistra.hospital",
-                phone: "+91 33 2986 4400",
-                address: "Axis Mall Tower, 3rd Floor, Major Arterial Road, New Town, Kolkata",
-                city: "Kolkata",
-                state: "West Bengal",
-                pincode: "700156",
-                country: "India",
-                capacity: 35,
-                metadata: {
-                    facilityType: "Dialysis & Diagnostic Imaging",
-                    dialysisStations: 16
-                },
-                isActive: true
-            },
-            { upsert: true, new: true }
-        );
+        //
+        // The satellite campus records were already created in step 5.1, before
+        // any user existed, because `User.branch` must reference a real campus for
+        // BRANCH-scoped grants to resolve. Only the shared HQ link is re-asserted
+        // here for idempotency.
+        for (const branchOrgId of ["MEDISTRA-ONCO", "MEDISTRA-SL-01", "MEDISTRA-NT-02"]) {
+            await Organization.updateOne(
+                { organizationId: branchOrgId },
+                { $set: { headQuarter: defaultOrg._id } }
+            );
+        }
 
         // 14.2 Corporate Organization Legal & Financial Settings (INR / ₹)
         const existingOrgSetting = await OrganizationSetting.findOne();
@@ -2348,6 +2454,17 @@ async function seedDatabase() {
             await SystemSetting.create(baselineSettings);
             console.log(`✅ Seeded ${baselineSettings.length} baseline System Configuration settings across all 13 modules.`);
         }
+
+        // 17. Reconcile Tenant Scope on Clinical & Administrative Profiles
+        //
+        // Doctor and Staff rows created before tenant fields existed carry no
+        // branch, so a BRANCH-scoped reader can never match them. Backfill from
+        // the owning user. Idempotent: rows that already have a branch are left
+        // untouched.
+        const backfilled = await backfillProfileBranchScope();
+        console.log(
+            `✅ Tenant scope reconciled: ${backfilled.doctors} doctor(s) and ${backfilled.staff} staff profile(s) backfilled.`
+        );
 
         console.log("\n🎉 Complete database seeding finished successfully!");
     } catch (error) {

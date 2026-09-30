@@ -13,6 +13,15 @@ const doctorSchema = new Schema<IDoctor>(
             ref: 'Department',
             required: true
         },
+        organizationId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Organization'
+        },
+        branchId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Organization',
+            index: true
+        },
         licenseNo: {
             type: String,
             required: true

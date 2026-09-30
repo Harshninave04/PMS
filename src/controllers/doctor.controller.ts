@@ -7,10 +7,26 @@ import User from "@/models/user.model";
 import Role from "@/models/role.model";
 import bcrypt from "bcryptjs";
 import { authorizeRequest } from "@/lib/rbac/guard";
+import { buildScopedQuery, documentMatchesScope } from "@/lib/rbac/scope-filter";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class DoctorController {
     constructor(private doctorService: DoctorService = defaultDoctorService) { }
+
+    /**
+     * Verifies that a specific doctor record falls inside the caller's
+     * authorization scope. Returns false for a missing record, an unsatisfiable
+     * (deny-all) scope, or a record that belongs to another branch.
+     */
+    private async assertDoctorInScope(
+        id: Types.ObjectId,
+        scopeFilter: Record<string, unknown>
+    ): Promise<boolean> {
+        return await documentMatchesScope(
+            await this.doctorService.getDoctorById(id),
+            scopeFilter
+        );
+    }
 
     async createDoctor(request: NextRequest): Promise<NextResponse> {
         try {
@@ -42,6 +58,10 @@ export class DoctorController {
                         gender: body.gender || "OTHER",
                         phone: body.phone,
                         role: doctorRole._id,
+                        // Provision the account into the creator's tenant so
+                        // BRANCH-scoped grants resolve for the new doctor.
+                        organization: authResult.context.organizationId,
+                        branch: authResult.context.branchId,
                         isActive: true
                     });
                 }
@@ -83,6 +103,14 @@ export class DoctorController {
                 status: body.status || "ACTIVE"
             };
 
+            // Tenant scope is inherited from the linked user so that a
+            // BRANCH-scoped reader can always see the doctor. The caller's own
+            // branch is the fallback when the user has none, which keeps the
+            // record inside the creator's jurisdiction.
+            const linkedUser = await User.findById(userId).select("_id organization branch").lean();
+            doctorData.branchId = linkedUser?.branch ?? authResult.context.branchId;
+            doctorData.organizationId = linkedUser?.organization ?? authResult.context.organizationId ?? doctorData.branchId;
+
             const doctor = await this.doctorService.createDoctor(doctorData);
 
             return NextResponse.json(
@@ -110,21 +138,26 @@ export class DoctorController {
             const departmentId = searchParams.get("departmentId");
             const search = searchParams.get("search")?.toLowerCase().trim();
 
-            let doctors = await this.doctorService.getAllDoctors();
-
-            // Scope filter check (e.g. department boundary)
-            if (authResult.filter.departmentId) {
-                const filterDeptId = authResult.filter.departmentId.toString();
-                doctors = doctors.filter((d) => {
-                    const deptVal = d.departmentId ? ((d.departmentId as { _id?: unknown })?._id ?? d.departmentId).toString() : "";
-                    return deptVal === filterDeptId;
-                });
-            } else if (departmentId && Types.ObjectId.isValid(departmentId)) {
-                doctors = doctors.filter((d) => {
-                    const deptVal = d.departmentId ? ((d.departmentId as { _id?: unknown })?._id ?? d.departmentId).toString() : "";
-                    return deptVal === departmentId;
-                });
+            // The authorization filter is the complete organizational +
+            // relational boundary. It is merged into the Mongo query rather
+            // than inspected field-by-field, so a BRANCH or DEPARTMENT scope
+            // can never be partially applied.
+            const scoped = buildScopedQuery(authResult.filter);
+            if (scoped.denied) {
+                return NextResponse.json(
+                    { success: true, count: 0, data: [], scope: "denied" },
+                    { status: 200 }
+                );
             }
+
+            // A caller-supplied departmentId may only narrow the scope further,
+            // never widen it.
+            const query: Record<string, unknown> = { ...scoped.query };
+            if (departmentId && Types.ObjectId.isValid(departmentId)) {
+                query.departmentId = new Types.ObjectId(departmentId);
+            }
+
+            let doctors = await this.doctorService.getAllDoctors(query);
 
             if (search) {
                 doctors = doctors.filter((d) => {
@@ -156,9 +189,11 @@ export class DoctorController {
         try {
             await dbConnect();
 
+            let scopeFilter: Record<string, unknown> | undefined;
             if (request) {
                 const authResult = await authorizeRequest(request, PERMISSION_KEYS.DOCTOR_VIEW, "Doctor");
                 if (!authResult.isAuthorized) return authResult.response;
+                scopeFilter = authResult.filter;
             }
 
             if (!Types.ObjectId.isValid(id)) {
@@ -168,7 +203,10 @@ export class DoctorController {
                 );
             }
 
-            const doctor = await this.doctorService.getDoctorById(new Types.ObjectId(id));
+            // Fetched through the same scope filter as the list endpoint, so a
+            // doctor outside the caller's branch resolves to 404 rather than
+            // being returned.
+            const doctor = await this.doctorService.getDoctorById(new Types.ObjectId(id), scopeFilter);
             if (!doctor) {
                 return NextResponse.json(
                     { success: false, message: "Doctor not found" },
@@ -219,6 +257,15 @@ export class DoctorController {
                 );
             }
 
+            // A caller must not be able to mutate a record outside its scope
+            // even though it holds the update permission.
+            if (!(await this.assertDoctorInScope(new Types.ObjectId(id), authResult.filter))) {
+                return NextResponse.json(
+                    { success: false, message: "Doctor not found" },
+                    { status: 404 }
+                );
+            }
+
             const doctor = await this.doctorService.updateDoctor(new Types.ObjectId(id), body as UpdateDoctorDto);
 
             // Also update linked user profile if doctor has userId
@@ -251,15 +298,24 @@ export class DoctorController {
         try {
             await dbConnect();
 
+            let scopeFilter: Record<string, unknown> | undefined;
             if (request) {
                 const authResult = await authorizeRequest(request, PERMISSION_KEYS.DOCTOR_DELETE, "Doctor");
                 if (!authResult.isAuthorized) return authResult.response;
+                scopeFilter = authResult.filter;
             }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
                     { success: false, message: "Invalid doctor ID" },
                     { status: 400 }
+                );
+            }
+
+            if (scopeFilter && !(await this.assertDoctorInScope(new Types.ObjectId(id), scopeFilter))) {
+                return NextResponse.json(
+                    { success: false, message: "Doctor not found" },
+                    { status: 404 }
                 );
             }
 

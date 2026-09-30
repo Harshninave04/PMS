@@ -9,6 +9,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -81,6 +83,12 @@ export default function AppointmentsListPage() {
   const [doctors, setDoctors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+
+  // Load failures. A 403 on /api/doctor must be visible, otherwise the doctor
+  // filter is silently empty and a 403 on /api/appointments reads as "no
+  // appointments match these filters".
+  const [appointmentError, setAppointmentError] = useState<unknown>(null);
+  const [doctorError, setDoctorError] = useState<unknown>(null);
   const [selectedDoctor, setSelectedDoctor] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [selectedType, setSelectedType] = useState("ALL");
@@ -100,15 +108,33 @@ export default function AppointmentsListPage() {
   const fetchAppointments = async () => {
     try {
       setLoading(true);
-      const [apptRes, docRes] = await Promise.all([
-        fetch("/api/appointments"),
-        fetch("/api/doctor"),
-      ]);
-      const apptData = await apptRes.json();
-      const docData = await docRes.json();
+      setAppointmentError(null);
+      setDoctorError(null);
 
-      if (apptData.success) setAppointments(apptData.data || []);
-      if (docData.success) setDoctors(docData.data || []);
+      // Settled, not all: one rejected reference-data request must not hide
+      // the state of the other list.
+      const [apptResult, docResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/appointments"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/doctor"),
+      ]);
+
+      if (apptResult.status === "fulfilled") {
+        const apptData = apptResult.value;
+        const apptRows = apptData.data ?? [];
+        if (apptData.success) setAppointments(apptRows);
+      } else {
+        setAppointments([]);
+        setAppointmentError(apptResult.reason);
+      }
+
+      if (docResult.status === "fulfilled") {
+        const docData = docResult.value;
+        const docRows = docData.data ?? [];
+        if (docData.success) setDoctors(docRows);
+      } else {
+        setDoctors([]);
+        setDoctorError(docResult.reason);
+      }
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
@@ -349,6 +375,11 @@ export default function AppointmentsListPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Surface load rejections above the table so a 401/403 reads as
+          "access denied" rather than an empty roster or empty doctor filter. */}
+      {appointmentError ? <ApiErrorNotice error={appointmentError} context="the appointment list" /> : null}
+      {doctorError ? <ApiErrorNotice error={doctorError} context="the doctor list" /> : null}
 
       {/* Main Table Card */}
       <Card className="border-slate-200/80 dark:border-slate-800 shadow-sm">

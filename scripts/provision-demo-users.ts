@@ -20,6 +20,14 @@
 import "dotenv/config";
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
+import { Types } from "mongoose";
+import {
+    backfillProfileBranchScope,
+    campusIdFor,
+    resolveDemoCampus,
+    resolveOrganizationForBranch,
+    type CampusDocuments
+} from "../src/lib/seed/branch-scope";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
 const DEMO_ENABLED = process.env.SEED_DEMO_USERS === "true";
@@ -115,8 +123,19 @@ async function ensureDashboardGrants(roles: any): Promise<{ updated: string[]; s
 /**
  * Creates the demo accounts, or refreshes them when they already exist.
  * Only addresses `demo.*@medistra.hospital`; no other user is ever written.
+ *
+ * Every account is bound to an organization and a branch. This is required,
+ * not cosmetic: `enrichAccessWithGrants` gives every non-SYSTEM_ role BRANCH
+ * organizational scope, and ScopeResolver answers a BRANCH grant with the
+ * deny-all sentinel when the acting user has no `branch`. Without this the
+ * receptionist would hold a valid `doctor.doctor.view` grant and still see an
+ * empty doctor list.
  */
-async function ensureDemoUsers(users: any, rolesByName: Map<string, any>): Promise<{ created: string[]; refreshed: string[] }> {
+async function ensureDemoUsers(
+    users: any,
+    rolesByName: Map<string, any>,
+    campuses: CampusDocuments
+): Promise<{ created: string[]; refreshed: string[] }> {
     const created: string[] = [];
     const refreshed: string[] = [];
     const password = await bcrypt.hash(DEMO_PASSWORD, 10);
@@ -129,12 +148,23 @@ async function ensureDemoUsers(users: any, rolesByName: Map<string, any>): Promi
         }
 
         const email = `demo.${roleName.toLowerCase()}${DEMO_DOMAIN}`;
+        const branchId = campusIdFor(resolveDemoCampus(roleName), campuses);
+        const organizationId = resolveOrganizationForBranch(branchId, campuses);
         const existing = await users.findOne({ email });
 
         if (existing) {
             await users.updateOne(
                 { _id: existing._id },
-                { $set: { name: displayName, password, role: role._id, isActive: true } }
+                {
+                    $set: {
+                        name: displayName,
+                        password,
+                        role: role._id,
+                        organization: organizationId,
+                        branch: branchId,
+                        isActive: true
+                    }
+                }
             );
             refreshed.push(email);
         } else {
@@ -144,14 +174,50 @@ async function ensureDemoUsers(users: any, rolesByName: Map<string, any>): Promi
                 password,
                 gender: "UNSPECIFIED",
                 role: role._id,
+                organization: organizationId,
+                branch: branchId,
                 isActive: true,
                 lastLoginAt: null
             });
             created.push(email);
         }
-        console.log(`   - ${profileKey.padEnd(18)} ${email.padEnd(44)} [${roleName}]`);
+        console.log(
+            `   - ${profileKey.padEnd(18)} ${email.padEnd(44)} [${roleName}] @ ${branchId.toString().slice(-6)}`
+        );
     }
     return { created, refreshed };
+}
+
+/**
+ * Resolves the campus Organization documents the demo accounts are pinned to.
+ * Falls back to a single main campus when the satellites are absent, so the
+ * script still works against a partially seeded database.
+ */
+async function resolveCampuses(organizations: any): Promise<CampusDocuments> {
+    const main = (await organizations.findOne(
+        { organizationId: "MEDISTRA-MAIN" },
+        { projection: { _id: 1 } }
+    ))?._id as Types.ObjectId | undefined;
+
+    if (!main) {
+        throw new Error(
+            "Organization MEDISTRA-MAIN not found. Run `npm run seed` once to create the campus records before provisioning demo logins."
+        );
+    }
+
+    const saltLake =
+        ((await organizations.findOne(
+            { organizationId: "MEDISTRA-SL-01" },
+            { projection: { _id: 1 } }
+        ))?._id as Types.ObjectId | undefined) ?? main;
+
+    const newTown =
+        ((await organizations.findOne(
+            { organizationId: "MEDISTRA-NT-02" },
+            { projection: { _id: 1 } }
+        ))?._id as Types.ObjectId | undefined) ?? main;
+
+    return { main, saltLake, newTown };
 }
 
 async function provision() {
@@ -169,10 +235,14 @@ async function provision() {
 
     const users = db.collection("users");
     const roles = db.collection("roles");
+    const organizations = db.collection("organizations");
 
     const userCountBefore = await users.countDocuments({});
     const demoBefore = await users.countDocuments({ email: { $regex: `^demo\\..*${DEMO_DOMAIN}$` } });
     console.log(`Existing users: ${userCountBefore} (demo accounts: ${demoBefore})`);
+
+    const campuses = await resolveCampuses(organizations);
+    console.log(`Campuses: main=${campuses.main.toString().slice(-6)} saltLake=${campuses.saltLake.toString().slice(-6)} newTown=${campuses.newTown.toString().slice(-6)}`);
 
     console.log("\n1. Ensuring every role can load its dashboard...");
     const grants = await ensureDashboardGrants(roles);
@@ -182,7 +252,11 @@ async function provision() {
     console.log(`\n2. Provisioning ${DEMO_USER_MATRIX.length} demo logins (password: ${DEMO_PASSWORD})...`);
     const rolesByName = new Map<string, any>();
     for (const role of await roles.find({}, { projection: { role: 1 } }).toArray()) rolesByName.set(role.role, role);
-    const users2 = await ensureDemoUsers(users, rolesByName);
+    const users2 = await ensureDemoUsers(users, rolesByName, campuses);
+
+    console.log("\n3. Backfilling branch scope onto doctor & staff profiles...");
+    const backfilled = await backfillProfileBranchScope();
+    console.log(`   ${backfilled.doctors} doctor profile(s), ${backfilled.staff} staff profile(s) updated.`);
 
     const userCountAfter = await users.countDocuments({});
     console.log(`\nDone. created ${users2.created.length}, refreshed ${users2.refreshed.length}.`);

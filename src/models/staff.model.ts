@@ -5,6 +5,8 @@ export interface IStaff extends Document {
   employeeId: string;
   departmentId?: Types.ObjectId;
   designationId?: Types.ObjectId;
+  organizationId?: Types.ObjectId;
+  branchId?: Types.ObjectId;
   role: string;
   qualification?: string;
   joiningDate?: Date;
@@ -45,6 +47,15 @@ const staffSchema = new Schema<IStaff>(
     designationId: {
       type: Schema.Types.ObjectId,
       ref: "Designation",
+    },
+    organizationId: {
+      type: Schema.Types.ObjectId,
+      ref: "Organization",
+    },
+    branchId: {
+      type: Schema.Types.ObjectId,
+      ref: "Organization",
+      index: true,
     },
     role: {
       type: String,

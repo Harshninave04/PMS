@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Users,
   Stethoscope,
@@ -43,18 +45,32 @@ export default function StaffHubPage() {
   });
   const [loading, setLoading] = useState(true);
 
+  // Roster load failures. A 403 on /api/doctor or /api/staff must be visible,
+  // otherwise the metric cards below read as "0 doctors / 0 staff on board".
+  const [doctorError, setDoctorError] = useState<unknown>(null);
+  const [staffError, setStaffError] = useState<unknown>(null);
+
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const [hrRes, doctorsRes, staffRes] = await Promise.all([
-        fetch("/api/hr/summary").then((r) => r.json()).catch(() => ({})),
-        fetch("/api/doctor").then((r) => r.json()).catch(() => ({})),
-        fetch("/api/staff").then((r) => r.json()).catch(() => ({}))
+      setDoctorError(null);
+      setStaffError(null);
+
+      // Settled, not all: one rejected roster request must not hide the state
+      // of the other.
+      const [hrResult, doctorResult, staffResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any }>("/api/hr/summary"),
+        apiFetch<{ success: boolean; data?: any[]; count?: number }>("/api/doctor"),
+        apiFetch<{ success: boolean; data?: any[]; count?: number }>("/api/staff"),
       ]);
 
-      const hrData = hrRes?.data || {};
-      const docCount = doctorsRes?.count || (Array.isArray(doctorsRes?.data) ? doctorsRes.data.length : 0);
-      const stfCount = staffRes?.count || (Array.isArray(staffRes?.data) ? staffRes.data.length : 0);
+      const hrJson = hrResult.status === "fulfilled" ? hrResult.value : null;
+      const doctorsJson = doctorResult.status === "fulfilled" ? doctorResult.value : null;
+      const staffJson = staffResult.status === "fulfilled" ? staffResult.value : null;
+
+      const hrData = hrJson?.data || {};
+      const docCount = doctorsJson?.count || (Array.isArray(doctorsJson?.data) ? doctorsJson.data.length : 0);
+      const stfCount = staffJson?.count || (Array.isArray(staffJson?.data) ? staffJson.data.length : 0);
 
       setStats({
         totalEmployees: (docCount || hrData.activeDoctors || 0) + (stfCount || hrData.activeStaff || 0),
@@ -64,6 +80,9 @@ export default function StaffHubPage() {
         activeShiftsCount: hrData.activeShiftsCount || 0,
         onDutyCount: hrData.presentToday || Math.max(1, Math.round((docCount + stfCount) * 0.75))
       });
+
+      if (doctorResult.status === "rejected") setDoctorError(doctorResult.reason);
+      if (staffResult.status === "rejected") setStaffError(staffResult.reason);
     } catch (err) {
       console.error("Failed to load staff hub stats:", err);
     } finally {
@@ -179,6 +198,11 @@ export default function StaffHubPage() {
           </Link>
         </div>
       </div>
+
+      {/* Surface roster rejections above the metric cards: otherwise a 403
+          renders as "0 active physicians" and looks like an empty hospital. */}
+      {doctorError ? <ApiErrorNotice error={doctorError} context="the doctor list" /> : null}
+      {staffError ? <ApiErrorNotice error={staffError} context="the staff list" /> : null}
 
       {/* Top Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

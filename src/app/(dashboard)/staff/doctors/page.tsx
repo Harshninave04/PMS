@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorEmptyState, ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -69,6 +71,11 @@ export default function DoctorsPage() {
   const [selectedDept, setSelectedDept] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
 
+  // Roster load failures. A 403 on /api/doctor must be visible, otherwise the
+  // roster below reads as "no doctors found" rather than an access failure.
+  const [doctorError, setDoctorError] = useState<unknown>(null);
+  const [departmentError, setDepartmentError] = useState<unknown>(null);
+
   // Modals
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -101,21 +108,38 @@ export default function DoctorsPage() {
   async function fetchDoctors() {
     try {
       setLoading(true);
-      const [docRes, deptRes] = await Promise.all([
-        fetch("/api/doctor"),
-        fetch("/api/department"),
-      ]);
-      const docData = await docRes.json();
-      const deptData = await deptRes.json();
+      setDoctorError(null);
+      setDepartmentError(null);
 
-      if (docData.success) {
-        setDoctors(docData.data || []);
-      }
-      if (deptData.success) {
-        setDepartments(deptData.data || []);
-        if (deptData.data.length > 0 && !formData.departmentId) {
-          setFormData((prev) => ({ ...prev, departmentId: deptData.data[0]._id }));
+      // Settled, not all: one rejected request must not blank out the other.
+      const [docResult, deptResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/doctor"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/department"),
+      ]);
+
+      if (docResult.status === "fulfilled") {
+        const docData = docResult.value;
+        const docRows = docData.data ?? [];
+        if (docData.success) {
+          setDoctors(docRows);
         }
+      } else {
+        setDoctors([]);
+        setDoctorError(docResult.reason);
+      }
+
+      if (deptResult.status === "fulfilled") {
+        const deptData = deptResult.value;
+        const deptRows = deptData.data ?? [];
+        if (deptData.success) {
+          setDepartments(deptRows);
+          if (deptRows.length > 0 && !formData.departmentId) {
+            setFormData((prev) => ({ ...prev, departmentId: deptRows[0]._id }));
+          }
+        }
+      } else {
+        setDepartments([]);
+        setDepartmentError(deptResult.reason);
       }
     } catch (err) {
       toast({ title: "Error", description: "Failed to load doctors.", variant: "destructive" });
@@ -351,6 +375,10 @@ export default function DoctorsPage() {
         </Card>
       </div>
 
+      {/* A rejected department roster must be visible above the filters, otherwise
+          the "All Departments" dropdown looks like no department exists. */}
+      {departmentError ? <ApiErrorNotice error={departmentError} context="the department list" /> : null}
+
       {/* Main Table Card */}
       <Card className="border-slate-200/80 dark:border-slate-800 shadow-sm">
         <CardHeader className="border-b border-slate-100 dark:border-slate-800/80 pb-4">
@@ -405,6 +433,10 @@ export default function DoctorsPage() {
             <div className="flex justify-center p-12">
               <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
             </div>
+          ) : doctorError ? (
+            /* A rejected /api/doctor must be visible here: the "No doctors found"
+               row below would otherwise read as an empty medical staff. */
+            <ApiErrorEmptyState error={doctorError} context="the doctor list" />
           ) : filteredDoctors.length === 0 ? (
             <div className="text-center py-12 text-slate-500">
               <Stethoscope className="h-10 w-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />

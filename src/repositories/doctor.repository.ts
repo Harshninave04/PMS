@@ -8,12 +8,27 @@ export class DoctorRepository {
         return await new Doctor(data).save();
     }
 
-    async findAll(): Promise<IDoctor[]> {
-        return await Doctor.find().populate("userId", "-password").populate("departmentId").lean();
+    /**
+     * Lists doctors within an authorization scope.
+     *
+     * `scopeFilter` is the immutable filter produced by
+     * `authorizeRequest` -> `ScopeResolver`. It MUST be merged into the Mongo
+     * query rather than post-filtered, otherwise a branch boundary is not
+     * enforced at the database layer. Callers must have already rejected a
+     * deny-all scope (see `buildScopedQuery`).
+     */
+    async findAll(scopeFilter?: Record<string, unknown>): Promise<IDoctor[]> {
+        return await Doctor.find(scopeFilter ?? {})
+            .populate("userId", "-password")
+            .populate("departmentId")
+            .lean();
     }
 
-    async findById(id: Types.ObjectId): Promise<IDoctor | null> {
-        return await Doctor.findById(id).populate("userId", "-password").populate("departmentId").lean();
+    async findById(id: Types.ObjectId, scopeFilter?: Record<string, unknown>): Promise<IDoctor | null> {
+        const query: Record<string, unknown> = scopeFilter && Object.keys(scopeFilter).length > 0
+            ? { $and: [{ _id: id }, scopeFilter] }
+            : { _id: id };
+        return await Doctor.findOne(query).populate("userId", "-password").populate("departmentId").lean();
     }
 
     async findByUserId(userId: Types.ObjectId): Promise<IDoctor | null> {

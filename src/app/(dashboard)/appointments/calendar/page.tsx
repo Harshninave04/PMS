@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -67,6 +69,12 @@ export default function AppointmentCalendarPage() {
   const [appointments, setAppointments] = useState<AppointmentItem[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Load failures. A 403 on /api/doctor must be visible, otherwise the doctor
+  // filter is silently empty; a 403 on /api/appointments leaves a calendar grid
+  // with no bookings that looks like a free clinic rather than a denial.
+  const [appointmentError, setAppointmentError] = useState<unknown>(null);
+  const [doctorError, setDoctorError] = useState<unknown>(null);
   const [selectedDoctor, setSelectedDoctor] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [viewMode, setViewMode] = useState<"month" | "week">("month");
@@ -80,15 +88,33 @@ export default function AppointmentCalendarPage() {
   async function fetchData() {
     try {
       setLoading(true);
-      const [apptRes, docRes] = await Promise.all([
-        fetch("/api/appointments"),
-        fetch("/api/doctor"),
-      ]);
-      const apptJson = await apptRes.json();
-      const docJson = await docRes.json();
+      setAppointmentError(null);
+      setDoctorError(null);
 
-      if (apptJson.success) setAppointments(apptJson.data || []);
-      if (docJson.success) setDoctors(docJson.data || []);
+      // Settled, not all: one rejected reference-data request must not hide
+      // the state of the other list.
+      const [apptResult, docResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/appointments"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/doctor"),
+      ]);
+
+      if (apptResult.status === "fulfilled") {
+        const apptJson = apptResult.value;
+        const apptRows = apptJson.data ?? [];
+        if (apptJson.success) setAppointments(apptRows);
+      } else {
+        setAppointments([]);
+        setAppointmentError(apptResult.reason);
+      }
+
+      if (docResult.status === "fulfilled") {
+        const docJson = docResult.value;
+        const docRows = docJson.data ?? [];
+        if (docJson.success) setDoctors(docRows);
+      } else {
+        setDoctors([]);
+        setDoctorError(docResult.reason);
+      }
     } catch (err) {
       toast({ title: "Error", description: "Failed to load calendar appointments.", variant: "destructive" });
     } finally {
@@ -210,6 +236,11 @@ export default function AppointmentCalendarPage() {
           </Link>
         </div>
       </div>
+
+      {/* Surface load rejections above the filter bar (and therefore the doctor
+          dropdown) so a 401/403 reads as "access denied" not "no bookings". */}
+      {appointmentError ? <ApiErrorNotice error={appointmentError} context="the appointment list" /> : null}
+      {doctorError ? <ApiErrorNotice error={doctorError} context="the doctor list" /> : null}
 
       {/* Navigation & Filter Bar */}
       <Card className="border-slate-200/80 dark:border-slate-800 shadow-sm">

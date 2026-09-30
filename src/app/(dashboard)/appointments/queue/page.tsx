@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import {
   Users,
   Clock,
@@ -61,6 +63,12 @@ export default function AppointmentQueuePage() {
     estimatedWaitTimeMins: 0,
   });
   const [loading, setLoading] = useState(true);
+
+  // Load failures. A 403 on /api/doctor must be visible, otherwise the doctor
+  // filter is silently empty; a 403 on the queue endpoint shows as a clear
+  // waiting room instead of an access denial.
+  const [queueError, setQueueError] = useState<unknown>(null);
+  const [doctorError, setDoctorError] = useState<unknown>(null);
   const [selectedDoctor, setSelectedDoctor] = useState("ALL");
   const [tvMode, setTvMode] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -70,20 +78,40 @@ export default function AppointmentQueuePage() {
   async function fetchQueue() {
     try {
       setLoading(true);
+      setQueueError(null);
+      setDoctorError(null);
       const url =
         selectedDoctor && selectedDoctor !== "ALL"
           ? `/api/appointments/queue?doctorId=${selectedDoctor}`
           : "/api/appointments/queue";
 
-      const [qRes, dRes] = await Promise.all([fetch(url), fetch("/api/doctor")]);
-      const qJson = await qRes.json();
-      const dJson = await dRes.json();
+      // Settled, not all: one rejected reference-data request must not hide
+      // the state of the other list.
+      const [qResult, dResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[]; metrics?: any }>(url),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/doctor"),
+      ]);
 
-      if (qJson.success) {
-        setQueue(qJson.data || []);
-        if (qJson.metrics) setMetrics(qJson.metrics);
+      if (qResult.status === "fulfilled") {
+        const qJson = qResult.value;
+        const qRows = qJson.data ?? [];
+        if (qJson.success) {
+          setQueue(qRows);
+          if (qJson.metrics) setMetrics(qJson.metrics);
+        }
+      } else {
+        setQueue([]);
+        setQueueError(qResult.reason);
       }
-      if (dJson.success) setDoctors(dJson.data || []);
+
+      if (dResult.status === "fulfilled") {
+        const dJson = dResult.value;
+        const dRows = dJson.data ?? [];
+        if (dJson.success) setDoctors(dRows);
+      } else {
+        setDoctors([]);
+        setDoctorError(dResult.reason);
+      }
     } catch (err: any) {
       toast({ title: "Error", description: "Failed to load queue.", variant: "destructive" });
     } finally {
@@ -278,6 +306,11 @@ export default function AppointmentQueuePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Surface load rejections above the doctor dropdown so a 401/403 reads as
+          "access denied" rather than an empty filter and a clear waiting room. */}
+      {queueError ? <ApiErrorNotice error={queueError} context="the queue list" /> : null}
+      {doctorError ? <ApiErrorNotice error={doctorError} context="the doctor list" /> : null}
 
       {/* Doctor Filter */}
       <div className="flex items-center gap-3">

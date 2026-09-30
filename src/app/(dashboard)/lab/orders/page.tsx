@@ -3,6 +3,8 @@
 import React, { useEffect, useState, useMemo, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/toast";
+import { ApiErrorNotice } from "@/components/ui/permission-state";
+import { apiFetch } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -67,6 +69,11 @@ function LabOrdersContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Dependent-list load failure (orders, patients, test catalog, doctors). A 403
+  // here must be visible, otherwise the patient / doctor / test dropdowns are
+  // silently empty and the registry looks empty.
+  const [depError, setDepError] = useState<unknown>(null);
+
   // Filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -86,24 +93,52 @@ function LabOrdersContent() {
 
   const loadData = async () => {
     try {
-      const [ordRes, patRes, tstRes, docRes] = await Promise.all([
-        fetch("/api/lab/orders"),
-        fetch("/api/patient"),
-        fetch("/api/lab/tests"),
-        fetch("/api/doctor")
+      setDepError(null);
+
+      // Settled, not all: one rejected reference-data request must not hide
+      // the state of the other lists.
+      const [ordResult, patResult, tstResult, docResult] = await Promise.allSettled([
+        apiFetch<{ success: boolean; data?: any[] }>("/api/lab/orders"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/patient"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/lab/tests"),
+        apiFetch<{ success: boolean; data?: any[] }>("/api/doctor")
       ]);
 
-      const [ordData, patData, tstData, docData] = await Promise.all([
-        ordRes.json(),
-        patRes.json(),
-        tstRes.json(),
-        docRes.json()
-      ]);
+      if (ordResult.status === "fulfilled") {
+        const ordData = ordResult.value;
+        const ordRows = ordData.data ?? [];
+        if (ordData.success) setOrders(ordRows);
+      } else {
+        setOrders([]);
+        setDepError(ordResult.reason);
+      }
 
-      if (ordData.success) setOrders(ordData.data || []);
-      if (patData.success) setPatients(patData.data || []);
-      if (tstData.success) setTests(tstData.data || []);
-      if (docData.success) setDoctors(docData.data || []);
+      if (patResult.status === "fulfilled") {
+        const patData = patResult.value;
+        const patRows = patData.data ?? [];
+        if (patData.success) setPatients(patRows);
+      } else {
+        setPatients([]);
+        setDepError(patResult.reason);
+      }
+
+      if (tstResult.status === "fulfilled") {
+        const tstData = tstResult.value;
+        const tstRows = tstData.data ?? [];
+        if (tstData.success) setTests(tstRows);
+      } else {
+        setTests([]);
+        setDepError(tstResult.reason);
+      }
+
+      if (docResult.status === "fulfilled") {
+        const docData = docResult.value;
+        const docRows = docData.data ?? [];
+        if (docData.success) setDoctors(docRows);
+      } else {
+        setDoctors([]);
+        setDepError(docResult.reason);
+      }
     } catch (error) {
       toast("Error loading lab orders", "error");
     } finally {
@@ -319,6 +354,11 @@ function LabOrdersContent() {
           </Button>
         </div>
       </div>
+
+      {/* Surface dependent-list rejections above the filters and registry so a
+          401/403 reads as "access denied" rather than an empty table and empty
+          patient / doctor / test dropdowns. */}
+      <ApiErrorNotice error={depError} context="the lab order reference data" />
 
       {/* Filter Bar */}
       <Card className="border shadow-sm">
