@@ -14,6 +14,11 @@ services:
       - NEXTAUTH_SECRET=medistra_super_secret_production_jwt_key_2026_hms
       - DEFAULT_ADMIN_EMAIL=admin@hospital.com
       - DEFAULT_ADMIN_PASSWORD=password123
+      # On first start against an empty database the app seeds all required
+      # reference data by itself (menus, roles, super admin, organization,
+      # departments, catalogs, settings). It never deletes anything and never
+      # creates demo accounts. Set to "true" to turn it off.
+      - DISABLE_DEFAULT_BOOTSTRAP=false
       - PORT=3000
       - HOSTNAME=0.0.0.0
     depends_on:

@@ -44,4 +44,10 @@ const roleSchema = new Schema<IRole>({
 
 const Role = mongoose.models.Role || mongoose.model<IRole>("Role", roleSchema);
 
+// Role names are the join key used by the seed, the hierarchy and every
+// permission lookup, so duplicates are never valid. Enforced at the database
+// level as well as in role.service.ts, so a concurrent bootstrap or a race
+// between two admins cannot create a second "DOCTOR".
+roleSchema.index({ role: 1 }, { unique: true });
+
 export default Role;

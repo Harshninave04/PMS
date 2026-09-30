@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed": "npx tsx src/seed.ts",
+    "seed": "npx tsx scripts/seed-full.ts",
+    "seed:roles": "npx tsx scripts/seed-roles.ts",
     "seed:demo": "npx tsx scripts/provision-demo-users.ts"
   },
   "dependencies": {

@@ -42,9 +42,14 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy seed script and metadata for in-container database seeding
+# Copy seed scripts and metadata for in-container database seeding
+# (npm run seed, npm run seed:roles, npm run seed:demo).
+# The first-run bootstrap itself lives in src/ and needs none of this - it runs
+# automatically on the first request against an empty database.
 COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/src ./src
+COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./tsconfig.json
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 
 USER nextjs

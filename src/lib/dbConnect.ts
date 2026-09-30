@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import "@/models/organization.model";
+import { ensureFirstRunSeed } from "@/lib/bootstrap/first-run";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
 
@@ -36,6 +37,11 @@ export async function dbConnect() {
     cached.promise = null;
     throw e;
   }
+
+  // First run against an empty database seeds all required reference data
+  // (menus, roles, super admin, organization, departments, catalogs, settings).
+  // Additive and idempotent - it never deletes or overwrites existing data.
+  await ensureFirstRunSeed();
 
   return cached.conn;
 }

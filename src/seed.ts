@@ -37,6 +37,7 @@ import SecurityEvent from "./models/security-event.model";
 import ComplianceReport from "./models/compliance-report.model";
 import SystemSetting from "./models/system-setting.model";
 import Patient from "./models/patient.model";
+import { BOOTSTRAP_SENTINEL_KEY } from "./lib/bootstrap/constants";
 import "dotenv/config";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
@@ -586,6 +587,17 @@ const AUDITOR_ACCESS = [
     { moduleName: "system", permissions: ["system.settings.view"] }
 ];
 
+/**
+ * The IT administrator provisions accounts and roles, so it needs the user and
+ * role management permissions in addition to system settings. Kept in sync with
+ * IT_ADMIN_ACCESS in src/lib/rbac/default-roles.ts.
+ */
+const IT_ADMIN_ACCESS = [
+    { moduleName: "user", permissions: ["user.user.view", "user.user.create", "user.user.update", "user.user.disable"] },
+    { moduleName: "role", permissions: ["role.role.view", "role.role.create", "role.role.update", "role.role.assign"] },
+    { moduleName: "system", permissions: ["system.settings.view", "system.settings.update"] }
+];
+
 const DOCTOR_ACCESS = [
     { moduleName: "patient", permissions: ["patient.patient.view"] },
     { moduleName: "appointment", permissions: ["appointment.appointment.view", "appointment.appointment.create"] },
@@ -646,7 +658,7 @@ const roleDefinitions = [
     // PLATFORM LEVEL
     { role: "SYSTEM_SUPER_ADMIN", access: FULL_ACCESS },
     { role: "SYSTEM_AUDITOR", access: AUDITOR_ACCESS },
-    { role: "SYSTEM_IT_ADMIN", access: [{ moduleName: "system", permissions: ["system.settings.view", "system.settings.update"] }] },
+    { role: "SYSTEM_IT_ADMIN", access: IT_ADMIN_ACCESS },
     
     // ORGANIZATION LEVEL
     { role: "ORGANIZATION_ADMIN", access: FULL_ACCESS },
@@ -715,12 +727,38 @@ const roleDefinitions = [
     { role: "INSURANCE_MANAGER", access: [] }
 ];
 
-async function seedDatabase() {
-    try {
-        console.log("Connecting to database...");
-        await mongoose.connect(MONGODB_URI);
-        console.log("Connected successfully!");
+export interface SeedOptions {
+    /** Delete existing documents first. Only the `npm run seed` CLI should set this. */
+    wipe?: boolean;
+    /**
+     * Include fake operational data: sample staff logins, blood bank donors,
+     * user sessions, audit logs, security events and compliance reports.
+     */
+    demo?: boolean;
+    /** Close the mongoose connection when finished. */
+    disconnect?: boolean;
+}
 
+/**
+ * Seeds the database.
+ *
+ * This module is a library - importing it has no side effects. The CLI entry
+ * point lives in scripts/seed-full.ts.
+ */
+export async function seedDatabase(options: SeedOptions = {}) {
+    const wipe = options.wipe ?? true;
+    const demo = options.demo ?? true;
+    const shouldDisconnect = options.disconnect ?? true;
+    const alreadyConnected = mongoose.connection.readyState !== 0;
+
+    try {
+        if (!alreadyConnected) {
+            console.log("Connecting to database...");
+            await mongoose.connect(MONGODB_URI);
+            console.log("Connected successfully!");
+        }
+
+        if (wipe) {
         console.log("Clearing existing seed data...");
         await User.deleteMany({});
         await Role.deleteMany({});
@@ -740,6 +778,7 @@ async function seedDatabase() {
         await Attendance.deleteMany({});
         await Leave.deleteMany({});
         await StaffDocument.deleteMany({});
+        } // end wipe
 
         // 1. Seed Menus
         console.log("Seeding menus...");
@@ -996,6 +1035,8 @@ async function seedDatabase() {
         console.log(`✅ Successfully seeded pharmacy catalog with essential medicines.`);
 
         // 8. Seed Blood Bank Reference Donors & Inventory
+        //    Demo data - only when `demo` is enabled.
+        if (demo) {
         console.log("Seeding Blood Bank reference donors & inventory...");
         await BloodDonor.deleteMany({});
         await BloodInventory.deleteMany({});
@@ -1025,6 +1066,7 @@ async function seedDatabase() {
             await BloodInventory.create(inv);
         }
         console.log(`✅ Successfully seeded Blood Bank donors and certified inventory.`);
+        } // end demo: blood bank
 
         // 9. Seed Inventory Categories & Consumables Catalog
         console.log("Seeding Inventory reference categories & catalog items...");
@@ -1076,19 +1118,22 @@ async function seedDatabase() {
         console.log(`✅ Successfully seeded Procurement approved hospital suppliers.`);
 
         // 11. Seed Representative Staff, Shifts, Attendance, Leaves & Compliance Documents
-        console.log("Seeding representative Staff & HR records...");
-        const staffRoles = await Role.find({ role: { $in: ["NURSE", "PHARMACIST", "LAB_TECHNICIAN", "RECEPTIONIST", "BILLING_OFFICER"] } }).lean();
+        //     Demo data - creates shared-credential logins, so only when `demo` is enabled.
+        const staffRoles = demo
+            ? await Role.find({ role: { $in: ["NURSE", "PHARMACIST", "LAB_TECHNICIAN", "RECEPTIONIST", "BILLING_OFFICER"] } }).lean()
+            : [];
         const roleMap: Record<string, any> = {};
         staffRoles.forEach((r: any) => { roleMap[r.role] = r._id; });
 
-        const designationsList = await Designation.find().lean();
+        const designationsList = demo ? await Designation.find().lean() : [];
         const desigMap: Record<string, any> = {};
         designationsList.forEach((d: any) => { desigMap[d.code] = d._id; });
 
-        const deptList = await Department.find().lean();
+        const deptList = demo ? await Department.find().lean() : [];
         const dMap: Record<string, any> = {};
         deptList.forEach((d: any) => { dMap[d.code] = d._id; });
 
+        if (demo) {
         const sampleStaffData = [
             {
                 name: "Sister Priya Das",
@@ -1267,6 +1312,7 @@ async function seedDatabase() {
             });
         }
         console.log(`✅ Successfully seeded ${sampleStaffData.length} Staff & HR employee dossiers with biometric attendance & compliance documents.`);
+        } // end demo: sample staff
 
         // 11.5. Seed Role-Aware Demo Logins (opt-in, never runs by default)
         //
@@ -1551,7 +1597,8 @@ async function seedDatabase() {
             console.log(`✅ Seeded default Hospital Security & Access Policies.`);
         }
 
-        const existingSessionsCount = await UserSession.countDocuments();
+        // Sample sessions are demo data. Real sessions are created by NextAuth on login.
+        const existingSessionsCount = demo ? await UserSession.countDocuments() : 1;
         if (existingSessionsCount === 0) {
             const adminUser = await User.findOne({ email: DEFAULT_ADMIN_EMAIL }).lean();
             const doctorUsers = await User.find({ email: { $ne: DEFAULT_ADMIN_EMAIL } }).limit(3).lean();
@@ -1734,9 +1781,10 @@ async function seedDatabase() {
         }
 
         // 15. Seed Audit & Compliance Records
-        console.log("Seeding Audit & Compliance baseline logs, security events & reports...");
-        const existingAuditCount = await AuditLog.countDocuments();
+        //     Demo data - fabricated activity history, so only when `demo` is enabled.
+        const existingAuditCount = demo ? await AuditLog.countDocuments() : 1;
         if (existingAuditCount === 0) {
+            console.log("Seeding Audit & Compliance baseline logs, security events & reports...");
             const adminUserDoc = await User.findOne({ email: DEFAULT_ADMIN_EMAIL }).lean();
             const doctorUserDoc = await User.findOne({ email: { $ne: DEFAULT_ADMIN_EMAIL } }).lean();
             const patientDoc: any = await Patient.findOne().lean();
@@ -2004,7 +2052,8 @@ async function seedDatabase() {
         }
 
         // 15.2 Seed Security Incidents
-        const existingSecurityCount = await SecurityEvent.countDocuments();
+        //      Demo data - fabricated incidents, so only when `demo` is enabled.
+        const existingSecurityCount = demo ? await SecurityEvent.countDocuments() : 1;
         if (existingSecurityCount === 0) {
             const adminDoc = await User.findOne({ email: DEFAULT_ADMIN_EMAIL }).lean();
             const sampleSecurityEvents: any[] = [
@@ -2064,7 +2113,8 @@ async function seedDatabase() {
         }
 
         // 15.3 Seed Regulatory Compliance Framework Reports
-        const existingComplianceCount = await ComplianceReport.countDocuments();
+        //      Demo data - fabricated regulatory reports, so only when `demo` is enabled.
+        const existingComplianceCount = demo ? await ComplianceReport.countDocuments() : 1;
         if (existingComplianceCount === 0) {
             const sampleReports: any[] = [
                 {
@@ -2196,7 +2246,13 @@ async function seedDatabase() {
         // ==========================================
         // 16. SYSTEM CONFIGURATION SETTINGS
         // ==========================================
-        const systemSettingCount = await SystemSetting.countDocuments();
+        // The bootstrap sentinel lives in this same collection and is written
+        // before the seed runs, so it must be excluded here - otherwise the
+        // first-run bootstrap would see one row, conclude the settings already
+        // exist, and silently leave the system unconfigured.
+        const systemSettingCount = await SystemSetting.countDocuments({
+            key: { $ne: BOOTSTRAP_SENTINEL_KEY },
+        });
         if (systemSettingCount === 0) {
             console.log("Seeding baseline System Configuration across 13 modules...");
 
@@ -2352,10 +2408,13 @@ async function seedDatabase() {
         console.log("\n🎉 Complete database seeding finished successfully!");
     } catch (error) {
         console.error("❌ Error during seeding:", error);
+        throw error;
     } finally {
-        await mongoose.disconnect();
-        console.log("Disconnected from database.");
+        if (shouldDisconnect && !alreadyConnected) {
+            await mongoose.disconnect();
+            console.log("Disconnected from database.");
+        }
     }
 }
 
-seedDatabase();
+export default seedDatabase;
