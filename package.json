@@ -9,7 +9,8 @@
     "lint": "eslint",
     "seed": "npx tsx src/seed.ts",
     "seed:demo": "npx tsx scripts/provision-demo-users.ts",
-    "repair:rbac": "npx tsx scripts/repair-rbac-access.ts"
+    "repair:rbac": "npx tsx scripts/repair-rbac-access.ts",
+    "repair:rbac:apply": "npx tsx scripts/repair-rbac-access.ts --apply"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1122.0",
