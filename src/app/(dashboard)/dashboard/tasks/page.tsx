@@ -52,7 +52,7 @@ export default function TasksPage() {
       }
 
       // Fetch Staff Users
-      const staffRes = await fetch("/api/user");
+      const staffRes = await fetch("/api/user/directory");
       const staffData = await staffRes.json();
       if (staffData.success) {
         setStaff(staffData.data);

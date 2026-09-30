@@ -33,6 +33,7 @@ import OrganizationSetting from "./models/organization-setting.model";
 import HospitalSetting from "./models/hospital-setting.model";
 import BranchSetting from "./models/branch-setting.model";
 import AuditLog from "./models/audit-log.model";
+import { buildFullAccess, buildGrant, withBaselineAccess } from "./lib/rbac/role-access";
 import SecurityEvent from "./models/security-event.model";
 import ComplianceReport from "./models/compliance-report.model";
 import SystemSetting from "./models/system-setting.model";
@@ -107,31 +108,10 @@ function getMenuModuleKey(menu: { moduleKey?: string; path?: string; name?: stri
 }
 
 function enrichAccessWithGrants(accessList: any[], roleName: string): any[] {
-    return accessList.map(item => {
-        const isDoc = roleName.includes("DOCTOR") || roleName.includes("CONSULTANT");
-        const isOrgLevel = roleName.includes("ORGANIZATION");
-        const isGlobal = roleName.includes("SYSTEM_");
-        const defaultOrgScope = isGlobal ? "GLOBAL" : (isOrgLevel ? "ORGANIZATION" : "BRANCH");
-
-        const grants = (item.permissions || []).map((perm: string) => {
-            let relScope = "UNRESTRICTED";
-            if (isDoc && (perm.startsWith("appointment.") || perm.startsWith("clinical."))) {
-                relScope = "OWN";
-            } else if (roleName.includes("NURSE") && perm.startsWith("nursing.task.")) {
-                relScope = "ASSIGNED";
-            }
-            return {
-                permission: perm,
-                orgScope: defaultOrgScope,
-                relScope: relScope
-            };
-        });
-
-        return {
-            ...item,
-            grants
-        };
-    });
+    return accessList.map(item => ({
+        ...item,
+        grants: (item.permissions || []).map((perm: string) => buildGrant(perm, roleName))
+    }));
 }
 
 const menusData = [
@@ -544,40 +524,12 @@ const menusData = [
     }
 ];
 
-const DASHBOARD_ACCESS = {
-    moduleName: "dashboard",
-    permissions: ["dashboard.dashboard.view"]
-};
-
 /**
- * Every authenticated role must be able to load its own dashboard.
- * Without this grant the /api/dashboard/stats guard rejects the request and
- * every non-super-admin falls back to the same empty placeholder view.
+ * Every permission in the taxonomy. The previous hand-written list omitted
+ * department, doctor, organization, ward, staff, emergency, OT, blood bank,
+ * insurance, reports and more, so admin roles were locked out of those APIs.
  */
-function withDashboardAccess(accessList: any[]): any[] {
-    const alreadyGranted = Array.isArray(accessList) && accessList.some(
-        item => (item.moduleName || "").toLowerCase() === DASHBOARD_ACCESS.moduleName
-    );
-    return alreadyGranted ? accessList : [DASHBOARD_ACCESS, ...(accessList ?? [])];
-}
-
-const FULL_ACCESS = [
-    { moduleName: "patient", permissions: ["patient.patient.view", "patient.patient.create", "patient.patient.update", "patient.patient.delete", "patient.patient.export"] },
-    { moduleName: "appointment", permissions: ["appointment.appointment.view", "appointment.appointment.create", "appointment.appointment.update", "appointment.appointment.cancel"] },
-    { moduleName: "admission", permissions: ["admission.admission.view", "admission.admission.create", "admission.admission.update", "admission.admission.transfer", "admission.admission.discharge"] },
-    { moduleName: "clinical", permissions: ["clinical.record.view", "clinical.record.create", "clinical.record.update", "clinical.record.sign", "clinical.diagnosis.view", "clinical.diagnosis.create", "clinical.diagnosis.update", "clinical.prescription.view", "clinical.prescription.create", "clinical.prescription.update", "clinical.prescription.cancel"] },
-    { moduleName: "nursing", permissions: ["nursing.vitals.view", "nursing.vitals.create", "nursing.vitals.update"] },
-    { moduleName: "lab", permissions: ["lab.order.view", "lab.order.create", "lab.sample.collect", "lab.result.create", "lab.result.update", "lab.result.verify", "lab.report.publish"] },
-    { moduleName: "radiology", permissions: ["radiology.order.view", "radiology.order.create", "radiology.study.perform", "radiology.report.create", "radiology.report.verify", "radiology.report.publish"] },
-    { moduleName: "pharmacy", permissions: ["pharmacy.prescription.view", "pharmacy.dispense.create", "pharmacy.dispense.cancel", "pharmacy.stock.view"] },
-    { moduleName: "billing", permissions: ["billing.invoice.view", "billing.invoice.create", "billing.invoice.update", "billing.invoice.cancel", "billing.payment.view", "billing.payment.create", "billing.refund.create"] },
-    { moduleName: "inventory", permissions: ["inventory.stock.view", "inventory.stock.receive", "inventory.stock.issue", "inventory.stock.transfer", "inventory.stock.adjust"] },
-    { moduleName: "procurement", permissions: ["procurement.request.create", "procurement.request.approve", "procurement.order.create", "procurement.order.approve"] },
-    { moduleName: "user", permissions: ["user.user.view", "user.user.create", "user.user.update", "user.user.disable"] },
-    { moduleName: "role", permissions: ["role.role.view", "role.role.create", "role.role.update", "role.role.delete", "role.role.assign"] },
-    { moduleName: "audit", permissions: ["audit.audit.view", "audit.audit.export"] },
-    { moduleName: "system", permissions: ["system.settings.view", "system.settings.update"] }
-];
+const FULL_ACCESS = buildFullAccess(["clinical.diagnosis.update", "clinical.prescription.update"]);
 
 const AUDITOR_ACCESS = [
     { moduleName: "audit", permissions: ["audit.audit.view", "audit.audit.export"] },
@@ -601,7 +553,7 @@ const NURSE_ACCESS = [
     { moduleName: "patient", permissions: ["patient.patient.view"] },
     { moduleName: "admission", permissions: ["admission.admission.view"] },
     { moduleName: "clinical", permissions: ["clinical.record.view"] },
-    { moduleName: "nursing", permissions: ["nursing.vitals.view", "nursing.vitals.create", "nursing.vitals.update"] }
+    { moduleName: "nursing", permissions: ["nursing.vitals.view", "nursing.vitals.create", "nursing.vitals.update", "nursing.task.view", "nursing.task.create", "nursing.task.execute"] }
 ];
 
 const RECEPTIONIST_ACCESS = [
@@ -765,7 +717,7 @@ async function seedDatabase() {
         for (const r of roleDefinitions) {
             const role = await Role.create({
                 ...r,
-                access: enrichAccessWithGrants(withDashboardAccess(r.access), r.role)
+                access: enrichAccessWithGrants(withBaselineAccess(r.access), r.role)
             });
             roleDocs[r.role] = role;
         }
@@ -1208,6 +1160,7 @@ async function seedDatabase() {
                     gender: s.gender,
                     phone: s.phone,
                     role: roleMap[s.role] || roleDocs["NURSE"]?._id || adminUser.role,
+                    organization: defaultOrg._id,
                     isActive: true
                 });
             } else {
@@ -1216,6 +1169,7 @@ async function seedDatabase() {
                 user.gender = s.gender;
                 user.phone = s.phone;
                 user.role = roleMap[s.role] || roleDocs["NURSE"]?._id || adminUser.role;
+                user.organization = defaultOrg._id;
                 user.isActive = true;
                 await user.save();
             }
@@ -1290,6 +1244,7 @@ async function seedDatabase() {
                     existing.password = demoPassword;
                     existing.role = roleDocs[roleName]._id;
                     existing.name = displayName;
+                    existing.organization = existing.organization || defaultOrg._id;
                     existing.isActive = true;
                     await existing.save();
                 } else {
@@ -1299,6 +1254,7 @@ async function seedDatabase() {
                         password: demoPassword,
                         gender: "UNSPECIFIED",
                         role: roleDocs[roleName]._id,
+                        organization: defaultOrg._id,
                         isActive: true
                     });
                 }

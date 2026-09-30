@@ -74,7 +74,7 @@ function ClinicalVitalsContent() {
       const [vitRes, patRes, docRes] = await Promise.all([
         fetch("/api/clinical/vitals"),
         fetch("/api/patient"),
-        fetch("/api/user")
+        fetch("/api/user/directory")
       ]);
 
       const [vitData, patData, docData] = await Promise.all([

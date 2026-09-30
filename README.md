@@ -414,18 +414,48 @@ docker compose up -d
 This builds the optimized standalone Next.js image (~180MB) and launches:
 
 - **Medistra HMS Web Portal**: [http://localhost:3000](http://localhost:3000)
-- **MongoDB Database**: `mongodb://localhost:27017`
+- **MongoDB Database**: internal only, at `mongodb://mongodb:27017` on the compose network (not published to the host; use `docker exec -it medistra-mongodb mongosh medistra-hms`)
 - **Mongo Express DB Admin GUI**: [http://localhost:8081](http://localhost:8081) _(User: `admin`, Pass: `medistra`)_
 
 ### 2. Initialize & Seed Database Inside Container
 
-To populate the database with all 39 roles, navigation menus, and baseline settings:
+To populate a **new, empty** database with all 39 roles, navigation menus, and baseline settings:
 
 ```bash
 docker compose exec app npm run seed
 ```
 
-### 3. Management & Monitoring Commands
+> ⚠️ `npm run seed` is destructive: it clears existing users, roles, menus and staff records before reseeding. Never run it against a database with real data. To fix permissions on an existing database, use the RBAC repair below.
+
+### 3. Repair RBAC Permissions on an Existing Database
+
+Databases seeded before the RBAC permission fix have roles that are missing the read permissions used by form dropdowns (departments, doctors, branches, wards/beds/rooms, staff pickers). The dropdowns then show nothing because those APIs return `403`. Seeded staff may also have no organization, so their lists come back empty.
+
+The repair adds what is missing, in place:
+
+- baseline lookup permissions for every role (`department.department.view`, `doctor.doctor.view`, `organization.organization.view`, `ward.ward.view`, `user.directory.view`)
+- the complete permission set for full-access admin roles (Organization Admin, Hospital Admin, Branch Manager, Finance, Emergency and OT Managers)
+- nursing task permissions for nurse roles
+- the main organization for users that have neither an organization nor a branch (only when exactly one main organization exists)
+
+It never deletes or narrows anything, so it is safe to run more than once.
+
+```bash
+# Rebuild once so the image contains the fix and the repair script
+docker compose up -d --build
+
+# Preview what would change (writes nothing)
+docker compose exec app npm run repair:rbac
+
+# Apply the repair
+docker compose exec app npm run repair:rbac:apply
+```
+
+Inside the container `MONGODB_URI` already points at the compose database, so no connection settings are needed. Changes take effect on the next request; users do not need to log in again. A second run should report `0 role(s) updated` and `0 user(s) updated`.
+
+A freshly seeded database already includes these permissions and does not need the repair.
+
+### 4. Management & Monitoring Commands
 
 ```bash
 # View real-time container logs
@@ -493,6 +523,13 @@ npm run seed
 ```
 
 _Note: This command runs `npx tsx src/seed.ts` and prepares a ready-to-use hospital database._
+
+If your database was seeded before the RBAC permission fix, repair it in place instead of reseeding (see [Repair RBAC Permissions](#3-repair-rbac-permissions-on-an-existing-database) for what it changes):
+
+```bash
+npm run repair:rbac         # preview
+npm run repair:rbac:apply   # apply
+```
 
 ### 5. Start Development Server
 

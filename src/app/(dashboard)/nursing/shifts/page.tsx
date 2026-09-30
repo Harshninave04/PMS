@@ -73,7 +73,7 @@ function ShiftManagementContent() {
       const [shiftsRes, wardsRes, usersRes] = await Promise.all([
         fetch("/api/nursing/shifts"),
         fetch("/api/ward"),
-        fetch("/api/user")
+        fetch("/api/user/directory")
       ]);
 
       const [shiftsData, wardsData, usersData] = await Promise.all([

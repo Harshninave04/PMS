@@ -65,7 +65,7 @@ export default function NewAdmissionPage() {
         }
 
         // Fetch Doctors (Users)
-        const dRes = await fetch("/api/user");
+        const dRes = await fetch("/api/user/directory");
         if (dRes.ok) {
           const dData = await dRes.json();
           setDoctors(dData.data || []);

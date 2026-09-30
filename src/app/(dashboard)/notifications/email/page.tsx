@@ -61,7 +61,7 @@ export default function EmailGatewayPage() {
         fetch("/api/notifications/email"),
         fetch("/api/notifications/templates?type=EMAIL"),
         fetch("/api/patient"),
-        fetch("/api/user"),
+        fetch("/api/user/directory"),
       ]);
 
       const emailData = await emailRes.json();

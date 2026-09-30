@@ -4,6 +4,7 @@ import dbConnect from "@/lib/dbConnect";
 import defaultUserService, { UserService } from "@/services/user.service";
 import { CreateUserDto, UpdateUserDto } from "@/dto/user.dto";
 import Role from "@/models/role.model";
+import User from "@/models/user.model";
 import Organization from "@/models/organization.model";
 import roleHierarchyRepository from "@/repositories/role-hierarchy.repository";
 import { authorizeRequest } from "@/lib/rbac/guard";
@@ -166,6 +167,38 @@ export class UserController {
             return NextResponse.json(
                 { success: false, message: err?.message || "Failed to create user" },
                 { status: statusCode }
+            );
+        }
+    }
+
+    /**
+     * Minimal staff directory for pickers (doctor, nurse, assignee dropdowns).
+     * Unlike getUsers, this is not bound to the role hierarchy: any staff role
+     * with the directory grant sees active colleagues within its own scope,
+     * and only non-sensitive fields are returned.
+     */
+    async getUserDirectory(request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DIRECTORY_VIEW, "User");
+            if (!authResult.isAuthorized) return authResult.response;
+
+            const users = await User.find({ ...authResult.filter, isActive: { $ne: false } })
+                .select("name email phone gender role organization branch isActive")
+                .populate("role", "role")
+                .sort({ name: 1 })
+                .lean();
+
+            return NextResponse.json(
+                { success: true, count: users.length, data: users },
+                { status: 200 }
+            );
+        } catch (error: unknown) {
+            const err = error as { message?: string };
+            return NextResponse.json(
+                { success: false, message: err?.message || "Failed to fetch user directory" },
+                { status: 500 }
             );
         }
     }

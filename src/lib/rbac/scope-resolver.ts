@@ -80,18 +80,21 @@ export class ScopeResolver {
       }
 
       case "BRANCH": {
-        if (!context.branchId) {
-          // Deny if user has no branch assigned
+        // Headquarters staff have an organization but no branch; their branch is
+        // the main organization itself.
+        const branchId = context.branchId || context.organizationId;
+        if (!branchId) {
+          // Deny if user has neither a branch nor an organization assigned
           return { _id: new Types.ObjectId("000000000000000000000000") };
         }
 
         if (normalizedModel === "user") {
-          return { branch: context.branchId };
+          return context.branchId ? { branch: branchId } : { organization: branchId, branch: null };
         }
 
         if (normalizedModel === "ward" || normalizedModel === "department") {
           // Ward and Department use organizationId to store the branch entity
-          return { organizationId: context.branchId };
+          return { organizationId: branchId };
         }
 
         if (normalizedModel === "room" || normalizedModel === "bed") {
@@ -99,7 +102,7 @@ export class ScopeResolver {
         }
 
         // Default branch field for Patient, Appointment, Invoice, Admission, Prescription
-        return { branchId: context.branchId };
+        return { branchId };
       }
 
       case "DEPARTMENT": {

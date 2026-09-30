@@ -5,6 +5,8 @@ import {
   listRoleProfileAssignments,
   resolveDashboardProfile
 } from "@/lib/rbac/dashboard-profiles";
+import { withBaselineAccess } from "@/lib/rbac/role-access";
+import { BASELINE_REFERENCE_PERMISSIONS, PERMISSION_KEYS } from "@/types/rbac";
 
 interface MockMenu {
   _id: string;
@@ -278,19 +280,25 @@ async function runMenuTests() {
     );
   });
 
-  // Test 9: Every seeded role is granted the dashboard view permission
-  test("seed.ts grants dashboard.dashboard.view to every role definition", () => {
+  // Test 9: Every seeded role is granted the dashboard view and dropdown lookup permissions
+  test("seed.ts grants dashboard and reference lookups to every role definition", () => {
     const seedPath = path.resolve(process.cwd(), "src/seed.ts");
     const seedContent = fs.readFileSync(seedPath, "utf-8");
 
     assert.ok(
-      seedContent.includes('permissions: ["dashboard.dashboard.view"]'),
-      "seed.ts must declare the dashboard.dashboard.view grant"
+      seedContent.includes("enrichAccessWithGrants(withBaselineAccess(r.access), r.role)"),
+      "seed.ts must apply withBaselineAccess() to every role before creating it"
     );
 
+    const granted = withBaselineAccess([]).flatMap((item) => item.permissions);
+    for (const perm of [PERMISSION_KEYS.DASHBOARD_VIEW, ...BASELINE_REFERENCE_PERMISSIONS]) {
+      assert.ok(granted.includes(perm), `withBaselineAccess() must grant ${perm}`);
+    }
+
+    const baselineModules = withBaselineAccess([]).map((item) => item.moduleName);
     assert.ok(
-      seedContent.includes("enrichAccessWithGrants(withDashboardAccess(r.access), r.role)"),
-      "seed.ts must apply withDashboardAccess() to every role before creating it"
+      !baselineModules.some((mod) => ["department", "doctor", "organization", "ward", "user"].includes(mod)),
+      "Reference lookups must not be stored under a menu module, or they would widen navigation"
     );
   });
 

@@ -245,6 +245,7 @@ export const PERMISSION_KEYS = {
   USER_CREATE: "user.user.create",
   USER_UPDATE: "user.user.update",
   USER_DISABLE: "user.user.disable",
+  USER_DIRECTORY_VIEW: "user.directory.view",
   ROLE_VIEW: "role.role.view",
   ROLE_CREATE: "role.role.create",
   ROLE_UPDATE: "role.role.update",
@@ -304,3 +305,22 @@ export const PERMISSION_KEYS = {
 } as const;
 
 export type PermissionKey = typeof PERMISSION_KEYS[keyof typeof PERMISSION_KEYS];
+
+/**
+ * Module name under which baseline reference permissions are stored on a role.
+ * It deliberately matches no menu module, so granting it never widens navigation.
+ */
+export const REFERENCE_DATA_MODULE = "reference-data";
+
+/**
+ * Read-only lookups that every staff role needs to fill in forms (department,
+ * doctor, ward/bed, branch and staff pickers). Records are still bounded by the
+ * role's organization/branch scope.
+ */
+export const BASELINE_REFERENCE_PERMISSIONS: readonly PermissionKey[] = [
+  PERMISSION_KEYS.DEPARTMENT_VIEW,
+  PERMISSION_KEYS.DOCTOR_VIEW,
+  PERMISSION_KEYS.ORGANIZATION_VIEW,
+  PERMISSION_KEYS.WARD_VIEW,
+  PERMISSION_KEYS.USER_DIRECTORY_VIEW,
+];
