@@ -78,7 +78,7 @@ function ConsultationsContent() {
       const [recRes, patRes, docRes] = await Promise.all([
         fetch("/api/clinical/records?recordType=Consultation"),
         fetch("/api/patient"),
-        fetch("/api/user")
+        fetch("/api/user/directory")
       ]);
 
       const [recData, patData, docData] = await Promise.all([

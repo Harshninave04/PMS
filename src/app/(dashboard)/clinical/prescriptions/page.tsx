@@ -87,7 +87,7 @@ function ClinicalPrescriptionsContent() {
       const [rxRes, patRes, docRes] = await Promise.all([
         fetch("/api/prescription"),
         fetch("/api/patient"),
-        fetch("/api/user")
+        fetch("/api/user/directory")
       ]);
 
       const [rxData, patData, docData] = await Promise.all([

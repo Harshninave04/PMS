@@ -91,7 +91,7 @@ export default function NotificationsListPage() {
     try {
       const [patRes, userRes] = await Promise.all([
         fetch("/api/patient"),
-        fetch("/api/user"),
+        fetch("/api/user/directory"),
       ]);
       const patJson = await patRes.json();
       const userJson = await userRes.json();

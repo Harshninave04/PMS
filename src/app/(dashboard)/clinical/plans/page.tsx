@@ -77,7 +77,7 @@ function TreatmentPlansContent() {
       const [recRes, patRes, docRes] = await Promise.all([
         fetch("/api/clinical/records?recordType=Treatment Plan"),
         fetch("/api/patient"),
-        fetch("/api/user")
+        fetch("/api/user/directory")
       ]);
 
       const [recData, patData, docData] = await Promise.all([

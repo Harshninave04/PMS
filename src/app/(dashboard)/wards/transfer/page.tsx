@@ -83,7 +83,7 @@ function WardBedTransferContent() {
       }
 
       // 3. Fetch doctors
-      const dRes = await fetch("/api/user");
+      const dRes = await fetch("/api/user/directory");
       const dData = await dRes.json();
       if (dData.success && Array.isArray(dData.data)) {
         setDoctors(dData.data);

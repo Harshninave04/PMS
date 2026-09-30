@@ -74,7 +74,7 @@ function DiagnosesContent() {
       const [diagRes, patRes, docRes] = await Promise.all([
         fetch("/api/clinical/diagnoses"),
         fetch("/api/patient"),
-        fetch("/api/user")
+        fetch("/api/user/directory")
       ]);
 
       const [diagData, patData, docData] = await Promise.all([

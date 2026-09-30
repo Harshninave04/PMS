@@ -45,7 +45,7 @@ export default function NotificationsPage() {
         fetch("/api/notifications/logs"),
         fetch("/api/notifications/templates"),
         fetch("/api/patient"),
-        fetch("/api/user")
+        fetch("/api/user/directory")
       ]);
 
       const logsData = await logsRes.json();
