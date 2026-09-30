@@ -11,7 +11,8 @@
  * It NEVER deletes or narrows anything. It only:
  *   1. adds the baseline reference permissions to every role,
  *   2. completes the access of full-access admin roles,
- *   3. adds nursing task permissions to nurse roles, and
+ *   3. adds nursing task permissions to nurse roles and staff permissions
+ *      to HR roles, and
  *   4. attaches users that have neither organization nor branch to the main
  *      organization, when exactly one main organization exists.
  *
@@ -25,6 +26,8 @@ import type { Collection } from "mongodb";
 import {
     BASELINE_ACCESS,
     FULL_ACCESS_ROLES,
+    HR_MANAGER_ACCESS,
+    HR_OFFICER_ACCESS,
     ModuleAccess,
     NURSING_TASK_ACCESS,
     buildFullAccess,
@@ -41,6 +44,8 @@ function additionsFor(roleName: string): ModuleAccess[] {
     const additions: ModuleAccess[] = [...BASELINE_ACCESS];
     if (FULL_ACCESS_ROLES.includes(roleName)) additions.push(...FULL_ACCESS);
     if (roleName.includes("NURSE")) additions.push(NURSING_TASK_ACCESS);
+    if (roleName === "HR_OFFICER") additions.push(...HR_OFFICER_ACCESS);
+    if (roleName === "HR_MANAGER") additions.push(...HR_MANAGER_ACCESS);
     return additions;
 }
 

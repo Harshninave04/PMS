@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { AdminService } from "@/services/admin.service";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export async function GET(req: Request) {
+  const authResult = await authorizeRequest(req, PERMISSION_KEYS.USER_VIEW);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status") || "ALL";
@@ -14,7 +19,10 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DISABLE);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     const result = await AdminService.terminateAllStaleSessions();
     return NextResponse.json({

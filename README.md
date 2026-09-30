@@ -436,6 +436,7 @@ The repair adds what is missing, in place:
 - baseline lookup permissions for every role (`department.department.view`, `doctor.doctor.view`, `organization.organization.view`, `ward.ward.view`, `user.directory.view`)
 - the complete permission set for full-access admin roles (Organization Admin, Hospital Admin, Branch Manager, Finance, Emergency and OT Managers)
 - nursing task permissions for nurse roles
+- staff/HR permissions for `HR_OFFICER` and `HR_MANAGER` (previously seeded with no access)
 - the main organization for users that have neither an organization nor a branch (only when exactly one main organization exists)
 
 It never deletes or narrows anything, so it is safe to run more than once.

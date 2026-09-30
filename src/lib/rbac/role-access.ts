@@ -77,6 +77,19 @@ export const NURSING_TASK_ACCESS: ModuleAccess = {
     permissions: [PERMISSION_KEYS.NURSING_TASK_VIEW, PERMISSION_KEYS.NURSING_TASK_CREATE, PERMISSION_KEYS.NURSING_TASK_EXECUTE],
 };
 
+/** HR desk access. Stored under "hr" and "staff" so both menus appear for HR roles. */
+const HR_STAFF_PERMISSIONS = [PERMISSION_KEYS.STAFF_VIEW, PERMISSION_KEYS.STAFF_CREATE, PERMISSION_KEYS.STAFF_UPDATE];
+
+export const HR_OFFICER_ACCESS: readonly ModuleAccess[] = [
+    { moduleName: "hr", permissions: [...HR_STAFF_PERMISSIONS] },
+    { moduleName: "staff", permissions: [PERMISSION_KEYS.STAFF_VIEW] },
+];
+
+export const HR_MANAGER_ACCESS: readonly ModuleAccess[] = [
+    { moduleName: "hr", permissions: [...HR_STAFF_PERMISSIONS, PERMISSION_KEYS.STAFF_DEPT_MANAGE] },
+    { moduleName: "staff", permissions: [PERMISSION_KEYS.STAFF_VIEW] },
+];
+
 /** Deterministic scope for a permission on a given role (mirrors the guard's legacy fallback). */
 export function buildGrant(permission: string, roleName: string) {
     const isDoc = roleName.includes("DOCTOR") || roleName.includes("CONSULTANT");

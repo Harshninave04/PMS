@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { OrganizationMgmtService } from "@/services/organization-mgmt.service";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { PERMISSION_KEYS } from "@/types/rbac";
 
 export async function GET(req: Request) {
+  const authResult = await authorizeRequest(req, PERMISSION_KEYS.ORGANIZATION_VIEW);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     const { searchParams } = new URL(req.url);
     const hospitalId = searchParams.get("hospitalId") || undefined;
@@ -13,6 +18,9 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
+  const authResult = await authorizeRequest(req, PERMISSION_KEYS.ORGANIZATION_UPDATE);
+  if (!authResult.isAuthorized) return authResult.response;
+
   try {
     const body = await req.json();
     const updated = await OrganizationMgmtService.updateHospitalSettings(body);
