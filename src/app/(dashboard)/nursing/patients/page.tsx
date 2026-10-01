@@ -17,13 +17,10 @@ import {
   Download,
   HeartPulse,
   Pill,
-  Droplets,
   FileText,
   Eye,
   ShieldAlert,
   Loader2,
-  Calendar,
-  User,
   BedDouble
 } from "lucide-react";
 
@@ -481,19 +478,6 @@ function MyInpatientsContent() {
                   >
                     <FileText className="h-3.5 w-3.5 mr-1.5" />
                     Nurse Note
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs text-sky-600 border-sky-200 hover:bg-sky-50 justify-start"
-                    onClick={() => {
-                      setSelectedPatient(null);
-                      router.push(`/nursing/intake-output?patientId=${selectedPatient.patientId}`);
-                    }}
-                  >
-                    <Droplets className="h-3.5 w-3.5 mr-1.5" />
-                    I/O Balance
                   </Button>
                 </div>
               </div>

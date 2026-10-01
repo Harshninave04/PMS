@@ -8,31 +8,17 @@ import {
   Calendar,
   UserCheck,
   Bed,
-  Activity,
-  FlaskConical,
-  Radio,
   Pill,
-  Package,
-  ShoppingCart,
   CreditCard,
-  ShieldCheck,
-  Building2,
-  TrendingUp,
   RefreshCw,
   Printer,
-  Download,
   IndianRupee,
   ChevronRight,
-  Clock,
-  AlertTriangle,
-  FileSpreadsheet,
   ArrowUpRight,
-  LogOut,
   Hospital
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
 
 export default function ReportsHubPage() {
@@ -74,41 +60,19 @@ export default function ReportsHubPage() {
     totalRevenue: 0,
     totalBilled: 0,
     totalOutstanding: 0,
-    pendingInsuranceReceivables: 0,
     lowStockAlerts: 0
   };
 
   const reportModules = [
     {
-      category: "Executive & Administrative",
-      items: [
-        {
-          title: "Management Dashboard",
-          path: "/reports/management",
-          icon: BarChart3,
-          color: "text-blue-600 bg-blue-50 dark:bg-blue-950/40",
-          description: "High-level hospital KPI cockpit, doctor productivity, daily census, and revenue distribution.",
-          metric: `${overview.activeInpatients} Active IPD`
-        },
-        {
-          title: "Department Performance",
-          path: "/reports/departments",
-          icon: Building2,
-          color: "text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40",
-          description: "Footfall, admissions, bed allocation, and revenue contribution across clinical specialties.",
-          metric: "All Specialties"
-        }
-      ]
-    },
-    {
-      category: "Clinical & Inpatient Care",
+      category: "Patients & OPD",
       items: [
         {
           title: "Patient Reports",
           path: "/reports/patients",
           icon: Users,
           color: "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40",
-          description: "Patient demographic analysis, age group brackets, blood group trends, and registration growth.",
+          description: "New registrations, age groups, gender and blood group breakdown.",
           metric: `${overview.totalPatients} Registered`
         },
         {
@@ -116,119 +80,45 @@ export default function ReportsHubPage() {
           path: "/reports/appointments",
           icon: Calendar,
           color: "text-purple-600 bg-purple-50 dark:bg-purple-950/40",
-          description: "Booking load, completed vs cancelled rates, no-show monitoring, and departmental queues.",
+          description: "OPD bookings, completed vs cancelled visits and no-shows.",
           metric: `${overview.totalAppointments} Booked`
         },
         {
-          title: "Doctor Productivity",
+          title: "Doctor Reports",
           path: "/reports/doctors",
           icon: UserCheck,
           color: "text-cyan-600 bg-cyan-50 dark:bg-cyan-950/40",
-          description: "Consultation volumes, department staffing, schedule load, and estimated revenue generation.",
+          description: "Consultations per doctor and department.",
           metric: "Doctor Roster"
-        },
+        }
+      ]
+    },
+    {
+      category: "IPD, Pharmacy & Billing",
+      items: [
         {
           title: "Admission Reports",
           path: "/reports/admissions",
           icon: Hospital,
           color: "text-teal-600 bg-teal-50 dark:bg-teal-950/40",
-          description: "Inpatient admission rates, emergency vs elective admissions, admitting consultants, and ward share.",
+          description: "Admissions, discharges and ward-wise inpatient census.",
           metric: `${overview.totalAdmissions} Total IPD`
-        },
-        {
-          title: "Discharge & ALOS Reports",
-          path: "/reports/discharges",
-          icon: LogOut,
-          color: "text-amber-600 bg-amber-50 dark:bg-amber-950/40",
-          description: "Patient recovery rates, discharge conditions (Recovered, LAMA, Transferred), and Average Length of Stay.",
-          metric: "Inpatient ALOS"
-        },
-        {
-          title: "Bed Occupancy Reports",
-          path: "/reports/beds",
-          icon: Bed,
-          color: "text-rose-600 bg-rose-50 dark:bg-rose-950/40",
-          description: "Live bed availability, ward-by-ward occupancy rates (BOR %), ICU capacity, and maintenance beds.",
-          metric: overview.bedOccupancyRate
-        },
-        {
-          title: "Clinical & Diagnoses Reports",
-          path: "/reports/clinical",
-          icon: Activity,
-          color: "text-red-600 bg-red-50 dark:bg-red-950/40",
-          description: "Morbidity patterns, top clinical diagnoses, treatment plan compliance, and clinical record logs.",
-          metric: "ICD-10 Morbidity"
-        }
-      ]
-    },
-    {
-      category: "Diagnostics & Pharmacy",
-      items: [
-        {
-          title: "Laboratory Reports",
-          path: "/reports/lab",
-          icon: FlaskConical,
-          color: "text-amber-600 bg-amber-50 dark:bg-amber-950/40",
-          description: "Test ordering volumes, priority distribution (Routine vs STAT), sample collection, and lab TAT.",
-          metric: "Diagnostic Lab"
-        },
-        {
-          title: "Radiology Reports",
-          path: "/reports/radiology",
-          icon: Radio,
-          color: "text-violet-600 bg-violet-50 dark:bg-violet-950/40",
-          description: "Imaging study loads across modalities (MRI, CT, X-Ray, USG), reporting TAT, and study completion.",
-          metric: "Imaging Modalities"
         },
         {
           title: "Pharmacy Reports",
           path: "/reports/pharmacy",
           icon: Pill,
           color: "text-green-600 bg-green-50 dark:bg-green-950/40",
-          description: "Drug dispensing volumes, top fast-moving medicines, pharmacy sales revenue in ₹, and payment modes.",
-          metric: "Drug Dispensing"
-        }
-      ]
-    },
-    {
-      category: "Supply Chain & Procurement",
-      items: [
-        {
-          title: "Inventory Reports",
-          path: "/reports/inventory",
-          icon: Package,
-          color: "text-orange-600 bg-orange-50 dark:bg-orange-950/40",
-          description: "Stock valuation in ₹, reorder level alerts, stock wastage tracking, and surgical consumable levels.",
-          metric: `${overview.lowStockAlerts} Low Stock Alerts`
+          description: "Medicines dispensed, fast-moving items and pharmacy sales.",
+          metric: `${overview.lowStockAlerts} Low Stock`
         },
         {
-          title: "Procurement Reports",
-          path: "/reports/procurement",
-          icon: ShoppingCart,
-          color: "text-blue-600 bg-blue-50 dark:bg-blue-950/40",
-          description: "Purchase order commitments in ₹, PO approval pipeline, vendor spend analysis, and goods receipts.",
-          metric: "PO Commitments"
-        }
-      ]
-    },
-    {
-      category: "Financial & TPA Insurance",
-      items: [
-        {
-          title: "Billing & Revenue Reports",
+          title: "Billing & Collection Reports",
           path: "/reports/billing",
           icon: CreditCard,
           color: "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40",
-          description: "Gross billings, net collections in ₹, collection efficiency, outstanding patient dues, and payment modes.",
+          description: "Amount billed, collected and outstanding, by payment mode.",
           metric: `₹${overview.totalRevenue.toLocaleString("en-IN")}`
-        },
-        {
-          title: "Insurance & TPA Reports",
-          path: "/reports/insurance",
-          icon: ShieldCheck,
-          color: "text-sky-600 bg-sky-50 dark:bg-sky-950/40",
-          description: "Cashless claims recovery yield, settled remittances vs disallowed deductions in ₹, and carrier scorecards.",
-          metric: `₹${overview.pendingInsuranceReceivables.toLocaleString("en-IN")} Pending`
         }
       ]
     }
@@ -249,7 +139,7 @@ export default function ReportsHubPage() {
             Hospital Reports & Analytics Hub
           </h1>
           <p className="text-muted-foreground text-sm">
-            Centralized enterprise intelligence across clinical, diagnostic, supply chain, and financial hospital operations in ₹.
+            Key numbers for patients, OPD, IPD, pharmacy and billing.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -336,7 +226,7 @@ export default function ReportsHubPage() {
                 ₹{overview.totalOutstanding.toLocaleString("en-IN")}
               </h3>
               <p className="text-xs text-amber-600 font-medium mt-1">
-                + ₹{overview.pendingInsuranceReceivables.toLocaleString("en-IN")} TPA claims
+                Patient dues pending collection
               </p>
             </div>
             <div className="h-11 w-11 rounded-lg bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center text-amber-600">

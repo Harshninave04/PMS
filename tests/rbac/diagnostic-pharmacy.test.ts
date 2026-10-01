@@ -8,13 +8,13 @@ import {
 import { ScopeResolver } from "@/lib/rbac/scope-resolver";
 
 /**
- * Phase 4 Diagnostic, Pharmacy, Ward & Nursing Security Test Suite
+ * Pharmacy, Ward & Nursing Security Test Suite
  * Tests strict authorization, branch isolation, and ASSIGNED relational constraints
- * for Laboratory, Radiology, Pharmacy, Nursing, and Ward/Bed domains.
+ * for the Pharmacy, Nursing, and Ward/Bed domains.
  */
 async function runDiagnosticPharmacyRbacTests() {
   console.log("=================================================");
-  console.log("  Running Phase 4 Diagnostic & Pharmacy RBAC Tests");
+  console.log("  Running Pharmacy, Nursing & Ward RBAC Tests");
   console.log("=================================================\n");
 
   let passedTests = 0;
@@ -34,70 +34,18 @@ async function runDiagnosticPharmacyRbacTests() {
   }
 
   const branchA = new Types.ObjectId();
-  const branchB = new Types.ObjectId();
   const orgId = new Types.ObjectId();
 
   const ward1 = new Types.ObjectId();
   const ward2 = new Types.ObjectId();
 
-  const labTechUserId = new Types.ObjectId();
-  const radiologistUserId = new Types.ObjectId();
   const pharmacistUserId = new Types.ObjectId();
   const nurseAUserId = new Types.ObjectId();
   const nurseBUserId = new Types.ObjectId();
   const wardInchargeUserId = new Types.ObjectId();
   const receptionistUserId = new Types.ObjectId();
 
-  // 1. Lab Technician Context (Branch A, BRANCH scope)
-  const labTechContext: AuthenticatedUserContext = {
-    userId: labTechUserId,
-    email: "labtech@hospital.com",
-    name: "John Labtech",
-    roleId: new Types.ObjectId(),
-    roleName: "LAB_TECHNICIAN",
-    organizationId: orgId,
-    branchId: branchA,
-    assignedWardIds: [],
-    permissions: new Set([
-      PERMISSION_KEYS.LAB_ORDER_VIEW,
-      PERMISSION_KEYS.LAB_ORDER_CREATE,
-      PERMISSION_KEYS.LAB_SAMPLE_COLLECT,
-      PERMISSION_KEYS.LAB_RESULT_CREATE,
-      PERMISSION_KEYS.LAB_RESULT_UPDATE,
-      PERMISSION_KEYS.LAB_RESULT_VERIFY,
-      PERMISSION_KEYS.LAB_REPORT_PUBLISH
-    ]),
-    grants: new Map<string, IPermissionGrant>([
-      [PERMISSION_KEYS.LAB_ORDER_VIEW, { permission: PERMISSION_KEYS.LAB_ORDER_VIEW, orgScope: "BRANCH", relScope: "UNRESTRICTED" }],
-      [PERMISSION_KEYS.LAB_RESULT_VERIFY, { permission: PERMISSION_KEYS.LAB_RESULT_VERIFY, orgScope: "BRANCH", relScope: "UNRESTRICTED" }]
-    ])
-  };
-
-  // 2. Radiologist Context (Branch A, BRANCH scope)
-  const radiologistContext: AuthenticatedUserContext = {
-    userId: radiologistUserId,
-    email: "radiologist@hospital.com",
-    name: "Dr. Ray Radiologist",
-    roleId: new Types.ObjectId(),
-    roleName: "RADIOLOGIST",
-    organizationId: orgId,
-    branchId: branchA,
-    assignedWardIds: [],
-    permissions: new Set([
-      PERMISSION_KEYS.RADIOLOGY_ORDER_VIEW,
-      PERMISSION_KEYS.RADIOLOGY_STUDY_PERFORM,
-      PERMISSION_KEYS.RADIOLOGY_REPORT_CREATE,
-      PERMISSION_KEYS.RADIOLOGY_REPORT_VERIFY,
-      PERMISSION_KEYS.RADIOLOGY_REPORT_PUBLISH
-    ]),
-    grants: new Map<string, IPermissionGrant>([
-      [PERMISSION_KEYS.RADIOLOGY_ORDER_VIEW, { permission: PERMISSION_KEYS.RADIOLOGY_ORDER_VIEW, orgScope: "BRANCH", relScope: "UNRESTRICTED" }],
-      [PERMISSION_KEYS.RADIOLOGY_STUDY_PERFORM, { permission: PERMISSION_KEYS.RADIOLOGY_STUDY_PERFORM, orgScope: "BRANCH", relScope: "UNRESTRICTED" }],
-      [PERMISSION_KEYS.RADIOLOGY_REPORT_CREATE, { permission: PERMISSION_KEYS.RADIOLOGY_REPORT_CREATE, orgScope: "BRANCH", relScope: "UNRESTRICTED" }]
-    ])
-  };
-
-  // 3. Pharmacist Context (Branch A, BRANCH scope)
+  // 1. Pharmacist Context (Branch A, BRANCH scope)
   const pharmacistContext: AuthenticatedUserContext = {
     userId: pharmacistUserId,
     email: "pharmacist@hospital.com",
@@ -110,7 +58,6 @@ async function runDiagnosticPharmacyRbacTests() {
     permissions: new Set([
       PERMISSION_KEYS.PHARMACY_PRESCRIPTION_VIEW,
       PERMISSION_KEYS.PHARMACY_DISPENSE_CREATE,
-      PERMISSION_KEYS.PHARMACY_DISPENSE_CANCEL,
       PERMISSION_KEYS.PHARMACY_STOCK_VIEW,
       PERMISSION_KEYS.PHARMACY_STOCK_MANAGE
     ]),
@@ -121,13 +68,13 @@ async function runDiagnosticPharmacyRbacTests() {
     ])
   };
 
-  // 4. Nurse A Context (Branch A, Ward 1, WARD scope + ASSIGNED relational scope)
+  // 2. Nurse A Context (Branch A, Ward 1, WARD scope + ASSIGNED relational scope)
   const nurseAContext: AuthenticatedUserContext = {
     userId: nurseAUserId,
     email: "nurse.a@hospital.com",
     name: "Nurse Alice",
     roleId: new Types.ObjectId(),
-    roleName: "STAFF_NURSE",
+    roleName: "NURSE",
     organizationId: orgId,
     branchId: branchA,
     assignedWardIds: [ward1],
@@ -146,13 +93,13 @@ async function runDiagnosticPharmacyRbacTests() {
     ])
   };
 
-  // 5. Nurse B Context (Branch A, Ward 2, WARD scope + ASSIGNED relational scope)
+  // 3. Nurse B Context (Branch A, Ward 2, WARD scope + ASSIGNED relational scope)
   const nurseBContext: AuthenticatedUserContext = {
     userId: nurseBUserId,
     email: "nurse.b@hospital.com",
     name: "Nurse Bob",
     roleId: new Types.ObjectId(),
-    roleName: "STAFF_NURSE",
+    roleName: "NURSE",
     organizationId: orgId,
     branchId: branchA,
     assignedWardIds: [ward2],
@@ -171,7 +118,7 @@ async function runDiagnosticPharmacyRbacTests() {
     ])
   };
 
-  // 6. Ward Incharge Context (Branch A, WARD_MANAGE + WARD_VIEW)
+  // 4. Ward Incharge Context (Branch A, WARD_MANAGE + WARD_VIEW)
   const wardInchargeContext: AuthenticatedUserContext = {
     userId: wardInchargeUserId,
     email: "ward.incharge@hospital.com",
@@ -195,7 +142,7 @@ async function runDiagnosticPharmacyRbacTests() {
     ])
   };
 
-  // 7. Receptionist Context (No clinical/diagnostic/pharmacy permissions)
+  // 5. Receptionist Context (No clinical or pharmacy permissions)
   const receptionistContext: AuthenticatedUserContext = {
     userId: receptionistUserId,
     email: "receptionist@hospital.com",
@@ -215,67 +162,7 @@ async function runDiagnosticPharmacyRbacTests() {
     ])
   };
 
-  // ==========================================
-  // 1. Laboratory RBAC Tests
-  // ==========================================
-  console.log("--- 1. Laboratory Domain Tests ---");
-
-  test("Lab: Lab Technician has verification permission", () => {
-    assert.equal(labTechContext.permissions.has(PERMISSION_KEYS.LAB_RESULT_VERIFY), true);
-    assert.equal(labTechContext.permissions.has(PERMISSION_KEYS.LAB_REPORT_PUBLISH), true);
-  });
-
-  test("Lab: Receptionist cannot verify lab results or collect samples", () => {
-    assert.equal(receptionistContext.permissions.has(PERMISSION_KEYS.LAB_RESULT_VERIFY), false);
-    assert.equal(receptionistContext.permissions.has(PERMISSION_KEYS.LAB_SAMPLE_COLLECT), false);
-  });
-
-  test("Lab: Lab Order query derives branch boundary filter", () => {
-    const grant = labTechContext.grants.get(PERMISSION_KEYS.LAB_ORDER_VIEW)!;
-    const filter = ScopeResolver.resolve(grant, labTechContext, "LabOrder");
-
-    assert.deepEqual(filter, { branchId: branchA });
-  });
-
-  test("Lab: Lab Technician in Branch A cannot access Branch B lab order", () => {
-    const orderBranchB = { _id: new Types.ObjectId(), branchId: branchB };
-    const canAccess = labTechContext.branchId?.toString() === orderBranchB.branchId.toString();
-
-    assert.equal(canAccess, false, "Branch A lab tech must not access Branch B lab order");
-  });
-
-  // ==========================================
-  // 2. Radiology RBAC Tests
-  // ==========================================
-  console.log("\n--- 2. Radiology Domain Tests ---");
-
-  test("Radiology: Radiologist has study performance and report permissions", () => {
-    assert.equal(radiologistContext.permissions.has(PERMISSION_KEYS.RADIOLOGY_STUDY_PERFORM), true);
-    assert.equal(radiologistContext.permissions.has(PERMISSION_KEYS.RADIOLOGY_REPORT_CREATE), true);
-  });
-
-  test("Radiology: Non-radiologist (Nurse) cannot perform radiology study", () => {
-    assert.equal(nurseAContext.permissions.has(PERMISSION_KEYS.RADIOLOGY_STUDY_PERFORM), false);
-  });
-
-  test("Radiology: Radiology order query derives branch boundary filter", () => {
-    const grant = radiologistContext.grants.get(PERMISSION_KEYS.RADIOLOGY_ORDER_VIEW)!;
-    const filter = ScopeResolver.resolve(grant, radiologistContext, "RadiologyOrder");
-
-    assert.deepEqual(filter, { branchId: branchA });
-  });
-
-  test("Radiology: Radiologist in Branch A cannot access Branch B radiology order", () => {
-    const studyBranchB = { _id: new Types.ObjectId(), branchId: branchB };
-    const canAccess = radiologistContext.branchId?.toString() === studyBranchB.branchId.toString();
-
-    assert.equal(canAccess, false, "Branch A radiologist must not access Branch B radiology order");
-  });
-
-  // ==========================================
-  // 3. Pharmacy RBAC Tests
-  // ==========================================
-  console.log("\n--- 3. Pharmacy Domain Tests ---");
+  console.log("--- 1. Pharmacy Domain Tests ---");
 
   test("Pharmacy: Pharmacist has medication dispense and stock permissions", () => {
     assert.equal(pharmacistContext.permissions.has(PERMISSION_KEYS.PHARMACY_DISPENSE_CREATE), true);
@@ -294,10 +181,7 @@ async function runDiagnosticPharmacyRbacTests() {
     assert.deepEqual(filter, { branchId: branchA });
   });
 
-  // ==========================================
-  // 4. Nursing & Ward Scope Tests
-  // ==========================================
-  console.log("\n--- 4. Nursing & Ward Domain Tests ---");
+  console.log("\n--- 2. Nursing & Ward Domain Tests ---");
 
   test("Nursing: Nurse A derives both WARD spatial boundary and ASSIGNED relational constraint", () => {
     const grant = nurseAContext.grants.get(PERMISSION_KEYS.NURSING_TASK_VIEW)!;
@@ -359,10 +243,9 @@ async function runDiagnosticPharmacyRbacTests() {
     assert.deepEqual(filter, {});
   });
 
-  // Summary
-  console.log(`\n=================================================`);
-  console.log(`  Phase 4 Diagnostic & Pharmacy Tests: ${passedTests}/${totalTests} Passed`);
-  console.log(`=================================================\n`);
+  console.log("\n=================================================");
+  console.log(`  Pharmacy, Nursing & Ward Tests: ${passedTests}/${totalTests} Passed`);
+  console.log("=================================================\n");
 }
 
 runDiagnosticPharmacyRbacTests().catch((err) => {

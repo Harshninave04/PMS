@@ -12,14 +12,10 @@ import {
   Bed,
   Users,
   UserPlus,
-  ArrowRightLeft,
-  LogOut,
   FileText,
-  History,
   Clock,
   Activity,
   CheckCircle2,
-  AlertCircle,
   TrendingUp,
   Building,
   RefreshCw,
@@ -354,7 +350,7 @@ export default function AdmissionsOverviewPage() {
               variant="ghost"
               size="sm"
               className="text-xs text-emerald-600 hover:text-emerald-700"
-              onClick={() => router.push("/admissions/discharge-history")}
+              onClick={() => router.push("/admissions/history")}
             >
               View All →
             </Button>

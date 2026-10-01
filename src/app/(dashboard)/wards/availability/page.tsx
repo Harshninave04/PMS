@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -17,14 +17,10 @@ import {
   DoorOpen,
   Search,
   CheckCircle2,
-  AlertTriangle,
   Wrench,
-  Clock,
-  User,
   Plus,
   RefreshCw,
-  Loader2,
-  ShieldCheck
+  Loader2
 } from "lucide-react";
 
 export default function BedAvailabilityPage() {
@@ -309,7 +305,7 @@ function BedAvailabilityContent() {
           <Button
             size="sm"
             className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5"
-            onClick={() => router.push("/wards/allocate")}
+            onClick={() => router.push("/admissions/new")}
           >
             <Plus className="h-4 w-4" />
             Allocate Bed
@@ -593,9 +589,8 @@ function BedAvailabilityContent() {
                       size="sm"
                       className="w-full text-teal-700 border-teal-300 hover:bg-teal-50 flex items-center justify-center gap-1.5"
                       onClick={() => {
-                        const bedId = selectedBed._id;
                         setSelectedBed(null);
-                        router.push(`/wards/allocate?bedId=${bedId}`);
+                        router.push("/admissions/new");
                       }}
                     >
                       <Plus className="h-4 w-4" />

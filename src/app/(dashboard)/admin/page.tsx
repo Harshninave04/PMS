@@ -7,17 +7,9 @@ import {
   Users,
   UserPlus,
   Shield,
-  ShieldPlus,
-  Key,
-  UserCheck,
-  FileKey,
   RefreshCw,
   ArrowUpRight,
-  Laptop,
-  CheckCircle2,
-  AlertTriangle,
-  Radio,
-  Sliders,
+  Building2
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,68 +46,36 @@ export default function AdminHubPage() {
 
   const adminModules = [
     {
-      title: "User Directory",
+      title: "Users",
       path: "/admin/users",
       icon: Users,
-      desc: "Manage hospital staff, physicians, and administrative user accounts with branch associations.",
+      desc: "Staff login accounts. Activate, deactivate or change a user's role.",
       badge: `${stats?.totalUsers || 0} Accounts`,
       badgeColor: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
     },
     {
       title: "Add New User",
-      path: "/admin/users/add",
+      path: "/admin/users/create",
       icon: UserPlus,
-      desc: "Onboard new clinical or operational personnel with immediate role and department binding.",
+      desc: "Create a login for a doctor, nurse, receptionist, pharmacist or accountant.",
       badge: "Onboarding",
       badgeColor: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
     },
     {
-      title: "User Sessions & Tokens",
-      path: "/admin/sessions",
-      icon: Laptop,
-      desc: "Monitor active login sessions, terminal IP addresses, and revoke stale access tokens.",
-      badge: `${stats?.activeSessions || 0} Live`,
-      badgeColor: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-    },
-    {
-      title: "Role Management",
+      title: "Roles & Permissions",
       path: "/admin/roles",
       icon: Shield,
-      desc: "Maintain RBAC role hierarchies, access scopes, and granular module permissions.",
+      desc: "See what each role can access and adjust its permissions.",
       badge: `${stats?.totalRoles || 0} Roles`,
       badgeColor: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
     },
     {
-      title: "Create Custom Role",
-      path: "/admin/roles/create",
-      icon: ShieldPlus,
-      desc: "Design custom role profiles with fine-grained CRUD authorization matrices.",
-      badge: "RBAC Builder",
+      title: "Hospital Profile",
+      path: "/organization/details",
+      icon: Building2,
+      desc: "Hospital name, address, contact details, GSTIN and letterhead.",
+      badge: "Settings",
       badgeColor: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
-    },
-    {
-      title: "Permissions Matrix",
-      path: "/admin/permissions",
-      icon: Key,
-      desc: "Comprehensive heatmap mapping all 21 hospital modules against defined user roles.",
-      badge: "Heatmap View",
-      badgeColor: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200",
-    },
-    {
-      title: "Role Assignments",
-      path: "/admin/assignments",
-      icon: UserCheck,
-      desc: "Governance workstation to audit user privileges and perform bulk role re-assignments.",
-      badge: "Governance",
-      badgeColor: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200",
-    },
-    {
-      title: "Security & Access Policies",
-      path: "/admin/policies",
-      icon: FileKey,
-      desc: "Enforce password complexity, session idle timeouts, MFA policies, and IP whitelisting.",
-      badge: `MFA: ${stats?.policies?.mfaPolicy || "ADMIN"}`,
-      badgeColor: "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200",
     },
   ];
 
@@ -130,10 +90,10 @@ export default function AdminHubPage() {
             </div>
             <div>
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-                Administration & Governance Command Center
+                Administration
               </h1>
               <p className="text-muted-foreground text-sm">
-                Centralized user management, role-based access control (RBAC), live sessions, and security policies.
+                Manage staff logins, roles and hospital details.
               </p>
             </div>
           </div>
@@ -144,29 +104,17 @@ export default function AdminHubPage() {
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Link href="/admin/users/add">
+          <Link href="/admin/users/create">
             <Button size="sm" className="shadow-sm">
               <UserPlus className="w-4 h-4 mr-2" />
               Add User
-            </Button>
-          </Link>
-          <Link href="/admin/roles/create">
-            <Button variant="outline" size="sm">
-              <ShieldPlus className="w-4 h-4 mr-2" />
-              Create Role
-            </Button>
-          </Link>
-          <Link href="/admin/policies">
-            <Button variant="outline" size="sm">
-              <FileKey className="w-4 h-4 mr-2" />
-              Security Policies
             </Button>
           </Link>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         <Card className="shadow-sm border">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -196,49 +144,16 @@ export default function AdminHubPage() {
               {loading ? "..." : stats?.totalRoles || 0}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Custom & System Super Admin Roles
+              Admin, Doctor, Nurse, Reception, Pharmacy, Accounts
             </p>
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm border">
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Active User Sessions
-            </CardTitle>
-            <Laptop className="w-4 h-4 text-purple-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-              {loading ? "..." : stats?.activeSessions || 0}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Terminated/Revoked: {stats?.terminatedSessions || 0}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm border">
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Security Governance
-            </CardTitle>
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400 truncate">
-              {loading ? "..." : `MFA: ${stats?.policies?.mfaPolicy || "ADMIN_ONLY"}`}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Timeout: {stats?.policies?.sessionTimeoutMinutes || 30}m | Pwd Expiry: {stats?.policies?.passwordExpiryDays || 90}d
-            </p>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Administration Subsystems Grid */}
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">Administration & Security Subsystems</h2>
+        <h2 className="text-lg font-semibold tracking-tight">Administration</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
           {adminModules.map((m) => {
             const Icon = m.icon;

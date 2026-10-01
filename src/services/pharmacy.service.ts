@@ -1,8 +1,6 @@
 import Medicine from "@/models/medicine.model";
 import MedicineCategory from "@/models/medicine-category.model";
 import PharmacyDispense from "@/models/pharmacy-dispense.model";
-import PharmacyReturn from "@/models/pharmacy-return.model";
-import PharmacySupplier from "@/models/pharmacy-supplier.model";
 import Prescription from "@/models/prescription.model";
 
 export class PharmacyService {
@@ -58,14 +56,7 @@ export class PharmacyService {
             dispenseStatus: { $in: ["PENDING", "PARTIAL", null] }
         });
 
-        // Categories & Suppliers
         const totalCategories = await MedicineCategory.countDocuments({ isActive: true });
-        const totalSuppliers = await PharmacySupplier.countDocuments({ isActive: true });
-
-        // Total Returns
-        const totalReturns = await PharmacyReturn.countDocuments();
-        const returns = await PharmacyReturn.find().select("totalRefund");
-        const totalRefundAmount = returns.reduce((acc, r) => acc + (r.totalRefund || 0), 0);
 
         return {
             totalMedicines,
@@ -80,10 +71,7 @@ export class PharmacyService {
             totalDispensesCount,
             totalRevenue: Math.round(totalRevenue),
             pendingPrescriptionsCount,
-            totalCategories,
-            totalSuppliers,
-            totalReturns,
-            totalRefundAmount: Math.round(totalRefundAmount)
+            totalCategories
         };
     }
 
@@ -134,37 +122,6 @@ export class PharmacyService {
     }
 
     /**
-     * Process a return of medicine with conditional restocking
-     */
-    static async createReturn(data: any) {
-        if (!data.returnNumber) {
-            const randomCode = Math.floor(100000 + Math.random() * 900000);
-            data.returnNumber = `RET-${randomCode}`;
-        }
-
-        // Restock intact items
-        if (data.items && Array.isArray(data.items)) {
-            for (const item of data.items) {
-                if (item.condition === "INTACT_RESTOCKABLE" && item.medicineId && item.quantity > 0) {
-                    await Medicine.findByIdAndUpdate(item.medicineId, {
-                        $inc: { stockQuantity: item.quantity }
-                    });
-                    item.restocked = true;
-                } else {
-                    item.restocked = false;
-                }
-            }
-        }
-
-        const ret = await PharmacyReturn.create(data);
-        return ret;
-    }
-
-    static async getAllReturns(filter: any = {}) {
-        return PharmacyReturn.find(filter).sort({ createdAt: -1 });
-    }
-
-    /**
      * Adjust stock directly (Stock-In or Stock-Out / Disposal)
      */
     static async adjustStock(medicineId: string, quantityChange: number, notes?: string) {
@@ -194,25 +151,6 @@ export class PharmacyService {
 
     static async deleteCategory(id: string) {
         return MedicineCategory.findByIdAndDelete(id);
-    }
-
-    /**
-     * Supplier Operations
-     */
-    static async getAllSuppliers() {
-        return PharmacySupplier.find().sort({ name: 1 });
-    }
-
-    static async createSupplier(data: any) {
-        return PharmacySupplier.create(data);
-    }
-
-    static async updateSupplier(id: string, data: any) {
-        return PharmacySupplier.findByIdAndUpdate(id, data, { new: true });
-    }
-
-    static async deleteSupplier(id: string) {
-        return PharmacySupplier.findByIdAndDelete(id);
     }
 
     /**

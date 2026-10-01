@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
-import { User, Heart, Shield, Phone, MapPin, Plus, X, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { User, Heart, Shield, Phone, MapPin, Plus, X, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 export default function RegisterPatientPage() {
@@ -441,12 +441,13 @@ export default function RegisterPatientPage() {
           </CardContent>
         </Card>
 
-        {/* Section 5: Hospital Facility & Branch */}
+        {/* Section 5: Hospital (only shown when more than one hospital exists; otherwise auto-selected) */}
+        {organizations.length > 1 && (
         <Card className="border-slate-200 dark:border-slate-800">
           <CardHeader className="border-b border-slate-100 dark:border-slate-800/60 pb-4">
             <CardTitle className="text-base font-semibold flex items-center gap-2 text-slate-900 dark:text-white">
               <MapPin className="h-4 w-4 text-emerald-500" />
-              5. Hospital Branch Assignment
+              5. Hospital
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-6">
@@ -463,6 +464,7 @@ export default function RegisterPatientPage() {
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* Submit Bottom Bar */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">

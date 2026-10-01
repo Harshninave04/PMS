@@ -7,24 +7,13 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { Shield, ArrowLeft, Loader2, Plus, X, Check, Save } from "lucide-react";
 import Link from "next/link";
+import { groupPermissionsByModule } from "@/lib/rbac/permissions";
+import { ADMIN_ROLE, ROLE_LABELS } from "@/lib/rbac/roles";
 
-const VALID_PERMISSIONS: Record<string, string[]> = {
-  patient: ["patient.patient.view", "patient.patient.create", "patient.patient.update", "patient.patient.delete", "patient.patient.export"],
-  appointment: ["appointment.appointment.view", "appointment.appointment.create", "appointment.appointment.update", "appointment.appointment.cancel"],
-  admission: ["admission.admission.view", "admission.admission.create", "admission.admission.update", "admission.admission.transfer", "admission.admission.discharge"],
-  clinical: ["clinical.record.view", "clinical.record.create", "clinical.record.update", "clinical.record.sign", "clinical.diagnosis.view", "clinical.diagnosis.create", "clinical.diagnosis.update", "clinical.prescription.view", "clinical.prescription.create", "clinical.prescription.update", "clinical.prescription.cancel"],
-  nursing: ["nursing.vitals.view", "nursing.vitals.create", "nursing.vitals.update"],
-  lab: ["lab.order.view", "lab.order.create", "lab.sample.collect", "lab.result.create", "lab.result.update", "lab.result.verify", "lab.report.publish"],
-  radiology: ["radiology.order.view", "radiology.order.create", "radiology.study.perform", "radiology.report.create", "radiology.report.verify", "radiology.report.publish"],
-  pharmacy: ["pharmacy.prescription.view", "pharmacy.dispense.create", "pharmacy.dispense.cancel", "pharmacy.stock.view"],
-  billing: ["billing.invoice.view", "billing.invoice.create", "billing.invoice.update", "billing.invoice.cancel", "billing.payment.view", "billing.payment.create", "billing.refund.create"],
-  inventory: ["inventory.stock.view", "inventory.stock.receive", "inventory.stock.issue", "inventory.stock.transfer", "inventory.stock.adjust"],
-  procurement: ["procurement.request.create", "procurement.request.approve", "procurement.order.create", "procurement.order.approve"],
-  user: ["user.user.view", "user.user.create", "user.user.update", "user.user.disable"],
-  role: ["role.role.view", "role.role.create", "role.role.update", "role.role.delete", "role.role.assign"],
-  audit: ["audit.audit.view", "audit.audit.export"],
-  system: ["system.settings.view", "system.settings.update"]
-};
+/** Every permission, grouped by module. Dashboard access is always granted, so it is not editable here. */
+const VALID_PERMISSIONS = Object.fromEntries(
+  Object.entries(groupPermissionsByModule()).filter(([moduleName]) => moduleName !== "dashboard")
+);
 
 const DEFAULT_MODULES = Object.keys(VALID_PERMISSIONS);
 
@@ -126,7 +115,7 @@ export default function RolePermissionsPage({ params }: { params: Promise<{ id: 
   }
 
   const availableModules = DEFAULT_MODULES.filter(m => !modules.find(mod => mod.moduleName === m));
-  const isSuperAdmin = role?.role === "SYSTEM_SUPER_ADMIN";
+  const isSuperAdmin = role?.role === ADMIN_ROLE;
 
   if (loading) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>;
@@ -142,7 +131,7 @@ export default function RolePermissionsPage({ params }: { params: Promise<{ id: 
         </Link>
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Edit Role Permissions</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Modify access permissions for <strong className="text-slate-900 dark:text-slate-200">{role?.role}</strong></p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Modify access permissions for <strong className="text-slate-900 dark:text-slate-200">{role ? ROLE_LABELS[role.role] ?? role.role : ""}</strong></p>
         </div>
       </div>
 
@@ -162,7 +151,7 @@ export default function RolePermissionsPage({ params }: { params: Promise<{ id: 
         <CardContent className="p-6 space-y-6">
           {isSuperAdmin && (
              <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 mb-4 text-amber-800 dark:text-amber-300 text-sm">
-                <strong>SYSTEM_SUPER_ADMIN</strong> is a built-in role with full system access. Its permissions cannot be modified.
+                <strong>Administrator</strong> always has full access. Its permissions cannot be modified.
              </div>
           )}
 

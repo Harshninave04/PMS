@@ -1,14 +1,13 @@
 import { BASELINE_REFERENCE_PERMISSIONS, PERMISSION_KEYS, REFERENCE_DATA_MODULE } from "../../types/rbac";
+import { groupPermissionsByModule } from "./permissions";
+import { ADMIN_ROLE, ROLE_ACCESS, type ModuleAccess } from "./roles";
 
-export interface ModuleAccess {
-    moduleName: string;
-    permissions: string[];
-    grants?: unknown[];
-}
+export type { ModuleAccess } from "./roles";
+export { ADMIN_ROLE, ALL_ROLES, ROLE_ACCESS, ROLE_LABELS } from "./roles";
 
 /**
  * Access every staff role receives on top of its own grants:
- * - its role-specific dashboard
+ * - the dashboard
  * - the read-only lookups that populate form dropdowns
  */
 export const BASELINE_ACCESS: readonly ModuleAccess[] = [
@@ -16,20 +15,9 @@ export const BASELINE_ACCESS: readonly ModuleAccess[] = [
     { moduleName: REFERENCE_DATA_MODULE, permissions: [...BASELINE_REFERENCE_PERMISSIONS] },
 ];
 
-/** Groups permission strings by their module prefix ("ward.ward.view" -> "ward"). */
-function groupByModule(permissions: Iterable<string>): ModuleAccess[] {
-    const modules = new Map<string, Set<string>>();
-    for (const perm of permissions) {
-        const moduleName = perm.split(".")[0];
-        if (!modules.has(moduleName)) modules.set(moduleName, new Set());
-        modules.get(moduleName)!.add(perm);
-    }
-    return Array.from(modules, ([moduleName, perms]) => ({ moduleName, permissions: Array.from(perms) }));
-}
-
-/** Every permission in the canonical taxonomy, plus any extra legacy permissions. */
-export function buildFullAccess(extraPermissions: readonly string[] = []): ModuleAccess[] {
-    return groupByModule([...Object.values(PERMISSION_KEYS), ...extraPermissions]);
+/** Every permission in the taxonomy, grouped by module. */
+export function buildFullAccess(): ModuleAccess[] {
+    return Object.entries(groupPermissionsByModule()).map(([moduleName, permissions]) => ({ moduleName, permissions }));
 }
 
 /**
@@ -60,53 +48,28 @@ export function mergeAccess<T extends ModuleAccess>(
     return { access, added };
 }
 
-/** Role names whose seeded access is FULL_ACCESS. */
-export const FULL_ACCESS_ROLES: readonly string[] = [
-    "SYSTEM_SUPER_ADMIN",
-    "ORGANIZATION_ADMIN",
-    "HOSPITAL_ADMIN",
-    "BRANCH_MANAGER",
-    "FINANCE_MANAGER",
-    "EMERGENCY_MANAGER",
-    "OT_MANAGER",
-];
-
-/** Nursing task permissions every nurse role needs for its own worklist. */
-export const NURSING_TASK_ACCESS: ModuleAccess = {
-    moduleName: "nursing",
-    permissions: [PERMISSION_KEYS.NURSING_TASK_VIEW, PERMISSION_KEYS.NURSING_TASK_CREATE, PERMISSION_KEYS.NURSING_TASK_EXECUTE],
-};
-
-/** HR desk access. Stored under "hr" and "staff" so both menus appear for HR roles. */
-const HR_STAFF_PERMISSIONS = [PERMISSION_KEYS.STAFF_VIEW, PERMISSION_KEYS.STAFF_CREATE, PERMISSION_KEYS.STAFF_UPDATE];
-
-export const HR_OFFICER_ACCESS: readonly ModuleAccess[] = [
-    { moduleName: "hr", permissions: [...HR_STAFF_PERMISSIONS] },
-    { moduleName: "staff", permissions: [PERMISSION_KEYS.STAFF_VIEW] },
-];
-
-export const HR_MANAGER_ACCESS: readonly ModuleAccess[] = [
-    { moduleName: "hr", permissions: [...HR_STAFF_PERMISSIONS, PERMISSION_KEYS.STAFF_DEPT_MANAGE] },
-    { moduleName: "staff", permissions: [PERMISSION_KEYS.STAFF_VIEW] },
-];
-
-/** Deterministic scope for a permission on a given role (mirrors the guard's legacy fallback). */
-export function buildGrant(permission: string, roleName: string) {
-    const isDoc = roleName.includes("DOCTOR") || roleName.includes("CONSULTANT");
-    const isOrgLevel = roleName.includes("ORGANIZATION");
-    const isGlobal = roleName.includes("SYSTEM_");
-    const orgScope = isGlobal ? "GLOBAL" : (isOrgLevel ? "ORGANIZATION" : "BRANCH");
-
-    let relScope = "UNRESTRICTED";
-    if (isDoc && (permission.startsWith("appointment.") || permission.startsWith("clinical."))) {
-        relScope = "OWN";
-    } else if (roleName.includes("NURSE") && permission.startsWith("nursing.task.")) {
-        relScope = "ASSIGNED";
-    }
-
-    return { permission, orgScope, relScope };
-}
-
 export function withBaselineAccess<T extends ModuleAccess>(accessList: readonly T[] | undefined): ModuleAccess[] {
     return mergeAccess(accessList, BASELINE_ACCESS).access;
+}
+
+/**
+ * Deterministic scope for a permission on a given role (mirrors the guard's fallback).
+ * Single hospital: everything is scoped to the hospital, except that doctors only
+ * see their own appointments and consultations.
+ */
+export function buildGrant(permission: string, roleName: string) {
+    const relScope = roleName === "DOCTOR" && (permission.startsWith("appointment.") || permission.startsWith("clinical."))
+        ? "OWN"
+        : "UNRESTRICTED";
+
+    return { permission, orgScope: "BRANCH", relScope };
+}
+
+/** The complete access list stored on a role document, including scope grants. */
+export function buildRoleAccess(roleName: string): ModuleAccess[] {
+    const own = roleName === ADMIN_ROLE ? buildFullAccess() : (ROLE_ACCESS[roleName] ?? []);
+    return withBaselineAccess(own).map(item => ({
+        ...item,
+        grants: item.permissions.map(perm => buildGrant(perm, roleName)),
+    }));
 }

@@ -10,23 +10,9 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { UserPlus, ArrowLeft, Loader2, Mail, Lock, Phone, User as UserIcon } from "lucide-react";
 import Link from "next/link";
+import { ROLE_LABELS } from "@/lib/rbac/roles";
 
 interface RoleOption { _id: string; role: string; }
-interface OrganizationOption {
-  _id: string;
-  organizationName: string;
-  branchType: "MAIN" | "BRANCH";
-  headQuarter?: string;
-}
-interface SessionUser {
-  role?: string;
-  organization?: string | { _id?: string };
-  branch?: string | { _id?: string };
-}
-
-function idOf(value?: string | { _id?: string } | null): string {
-  return typeof value === "object" ? value?._id || "" : value || "";
-}
 
 export default function CreateUserPage() {
   const router = useRouter();
@@ -34,35 +20,14 @@ export default function CreateUserPage() {
   const [loading, setLoading] = useState(false);
   const [roles, setRoles] = useState<RoleOption[]>([]);
   const [rolesLoading, setRolesLoading] = useState(true);
-  const [organizations, setOrganizations] = useState<OrganizationOption[]>([]);
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
-  const [form, setForm] = useState({ name: "", email: "", password: "", gender: "", phone: "", role: "", organization: "", branch: "", isActive: true });
+  const [form, setForm] = useState({ name: "", email: "", password: "", gender: "", phone: "", role: "", isActive: true });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [roleRes, orgRes, sessionRes] = await Promise.all([
-          fetch("/api/role?permission=CREATE"),
-          fetch("/api/org"),
-          fetch("/api/auth/session"),
-        ]);
-        const [roleJson, orgJson, sessionJson] = await Promise.all([
-          roleRes.json(),
-          orgRes.json(),
-          sessionRes.json(),
-        ]);
-
+        const roleJson = await (await fetch("/api/role")).json();
         if (roleJson.success && Array.isArray(roleJson.data)) setRoles(roleJson.data);
-        if (orgJson.success && Array.isArray(orgJson.data)) setOrganizations(orgJson.data);
-
-        const currentUser = sessionJson?.user || null;
-        setSessionUser(currentUser);
-        setForm(prev => ({
-          ...prev,
-          organization: idOf(currentUser?.organization) || prev.organization,
-          branch: idOf(currentUser?.branch) || prev.branch,
-        }));
       } catch {
         toast("Failed to load form data", "error");
       } finally {
@@ -81,7 +46,6 @@ export default function CreateUserPage() {
     else if (form.password.length < 6) errs.password = "Min 6 characters";
     if (!form.gender) errs.gender = "Gender is required";
     if (!form.role) errs.role = "Role is required";
-    if (sessionUser?.organization && !form.organization) errs.organization = "Organization is required";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -91,12 +55,7 @@ export default function CreateUserPage() {
     if (!validate()) return;
     setLoading(true);
     try {
-      const payload = {
-        ...form,
-        organization: form.organization || undefined,
-        branch: form.branch || undefined,
-      };
-      const res = await fetch("/api/user", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const res = await fetch("/api/user", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
       const json = await res.json();
       if (json.success) { toast("User created successfully!", "success"); router.push("/admin/users"); }
       else toast(json.message || "Failed to create user", "error");
@@ -108,27 +67,13 @@ export default function CreateUserPage() {
     if (errors[field]) setErrors((prev) => { const c = { ...prev }; delete c[field]; return c; });
   }
 
-  const sessionOrganizationId = idOf(sessionUser?.organization);
-  const sessionBranchId = idOf(sessionUser?.branch);
-  const organizationOptions = sessionOrganizationId
-    ? organizations.filter(org => org._id === sessionOrganizationId)
-    : organizations.filter(org => org.branchType === "MAIN");
-  const branchOptions = organizations.filter(org => {
-    if (org.branchType !== "BRANCH") return false;
-    if (sessionBranchId) return org._id === sessionBranchId;
-    if (form.organization) return org.headQuarter === form.organization;
-    return true;
-  });
-  const organizationLocked = Boolean(sessionOrganizationId);
-  const branchLocked = Boolean(sessionBranchId);
-
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       <div className="flex items-center gap-4">
         <Link href="/admin/users"><Button variant="ghost" size="sm" className="gap-2 text-slate-600 dark:text-slate-400"><ArrowLeft className="h-4 w-4" />Back</Button></Link>
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Create New User</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Add a new user to the hospital management system</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Create a login for a staff member</p>
         </div>
       </div>
 
@@ -171,30 +116,7 @@ export default function CreateUserPage() {
               </Select>
               <Select id="cu-role" label="Role *" value={form.role} onChange={(e) => updateField("role", e.target.value)} error={errors.role} disabled={rolesLoading}>
                 <option value="">{rolesLoading ? "Loading..." : "Select Role"}</option>
-                {roles.map((r) => (<option key={r._id} value={r._id}>{r.role}</option>))}
-              </Select>
-            </div>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Select
-                id="cu-organization"
-                label="Organization"
-                value={form.organization}
-                onChange={(e) => setForm(prev => ({ ...prev, organization: e.target.value, branch: "" }))}
-                error={errors.organization}
-                disabled={organizationLocked}
-              >
-                <option value="">Select Organization</option>
-                {organizationOptions.map((org) => (<option key={org._id} value={org._id}>{org.organizationName}</option>))}
-              </Select>
-              <Select
-                id="cu-branch"
-                label="Branch"
-                value={form.branch}
-                onChange={(e) => updateField("branch", e.target.value)}
-                disabled={branchLocked || !form.organization}
-              >
-                <option value="">No branch</option>
-                {branchOptions.map((branch) => (<option key={branch._id} value={branch._id}>{branch.organizationName}</option>))}
+                {roles.map((r) => (<option key={r._id} value={r._id}>{ROLE_LABELS[r.role] ?? r.role}</option>))}
               </Select>
             </div>
             <div className="flex items-center gap-3 rounded-lg border border-slate-200 dark:border-slate-800 p-4 bg-slate-50/50 dark:bg-slate-900/30">

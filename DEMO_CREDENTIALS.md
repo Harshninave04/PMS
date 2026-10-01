@@ -1,12 +1,11 @@
 # Demo Credentials
 
-Every role-specific dashboard in the PMS has its own login, so each one can be
-reviewed independently. All demo accounts share a single password.
+There is one demo login per role, so each role's menus and dashboard can be
+reviewed on its own. All demo accounts share one password.
 
-> **Warning — shared credentials.** These accounts exist for demonstration and
-> testing only. Every user below has identical access to nothing beyond their own
-> role, but they all share one publicly documented password. Never enable them in
-> a production or patient-facing environment.
+> **Warning: shared credentials.** These accounts are for demonstration and
+> testing only. They all share one publicly documented password. Never enable
+> them in a production or patient-facing environment.
 
 ---
 
@@ -14,115 +13,69 @@ reviewed independently. All demo accounts share a single password.
 
 **Password for every account below: `Demo@2026`**
 
-| Dashboard shown | Email | Role |
+| Role | Email | Dashboard |
 | --- | --- | --- |
-| Administration | `demo.system_super_admin@medistra.hospital` | `SYSTEM_SUPER_ADMIN` |
-| Administration | `demo.hospital_admin@medistra.hospital` | `HOSPITAL_ADMIN` |
-| System Administration | `demo.system_it_admin@medistra.hospital` | `SYSTEM_IT_ADMIN` |
-| Compliance & Audit | `demo.system_auditor@medistra.hospital` | `SYSTEM_AUDITOR` |
-| Clinical Practice | `demo.doctor@medistra.hospital` | `DOCTOR` |
-| Nursing Station | `demo.nurse@medistra.hospital` | `NURSE` |
-| Laboratory | `demo.lab_technician@medistra.hospital` | `LAB_TECHNICIAN` |
-| Radiology & Imaging | `demo.radiologist@medistra.hospital` | `RADIOLOGIST` |
-| Pharmacy | `demo.pharmacist@medistra.hospital` | `PHARMACIST` |
-| Inventory & Stores | `demo.storekeeper@medistra.hospital` | `STOREKEEPER` |
-| Procurement | `demo.procurement_officer@medistra.hospital` | `PROCUREMENT_OFFICER` |
-| Front Desk | `demo.receptionist@medistra.hospital` | `RECEPTIONIST` |
-| Finance & Billing | `demo.cashier@medistra.hospital` | `CASHIER` |
-| Human Resources | `demo.hr_officer@medistra.hospital` | `HR_OFFICER` |
-| Blood Bank | `demo.blood_bank_technician@medistra.hospital` | `BLOOD_BANK_TECHNICIAN` |
-| Insurance & TPA | `demo.insurance_officer@medistra.hospital` | `INSURANCE_OFFICER` |
-| Emergency | `demo.emergency_doctor@medistra.hospital` | `EMERGENCY_DOCTOR` |
-| Operation Theatre | `demo.ot_nurse@medistra.hospital` | `OT_NURSE` |
-| Ward Administration | `demo.branch_manager@medistra.hospital` | `BRANCH_MANAGER` |
+| Administrator | `demo.admin@medistra.hospital` | Administration |
+| Doctor | `demo.doctor@medistra.hospital` | Doctor |
+| Nurse | `demo.nurse@medistra.hospital` | Nursing Station |
+| Receptionist | `demo.receptionist@medistra.hospital` | Reception |
+| Pharmacist | `demo.pharmacist@medistra.hospital` | Pharmacy |
+| Accountant | `demo.accountant@medistra.hospital` | Billing & Accounts |
 
-19 logins cover all 18 non-default dashboard profiles. Two of them
-(`SYSTEM_SUPER_ADMIN` and `HOSPITAL_ADMIN`) intentionally render the same
-Administration dashboard, so both the platform and hospital levels are covered.
+The dashboard and menus come from the role in the session token.
+`src/lib/rbac/dashboard-profiles.ts` maps roles to dashboards and
+`src/lib/rbac/roles.ts` defines what each role can access.
 
-The dashboard is selected from the role in the session token, not from anything
-the user types at login. `src/lib/rbac/dashboard-profiles.ts` holds the full
-role-to-profile map; a role with no entry falls back to the generic "Staff"
-profile.
+The main administrator account (`admin@hospital.com` / `password123`, unless
+changed through `DEFAULT_ADMIN_EMAIL` / `DEFAULT_ADMIN_PASSWORD`) is always
+created by `npm run seed`.
 
 ---
 
-## Pre-existing accounts
+## Creating the demo accounts
 
-These are created by the main seed and are unaffected by the demo provisioner.
-
-| Email | Password |
-| --- | --- |
-| `admin@hospital.com` | `password123` |
-| `priya.das@medistra.hospital` | `Hospital@2026` |
-| `sourav.roy@medistra.hospital` | `Hospital@2026` |
-| `subhashis.m@medistra.hospital` | `Hospital@2026` |
-| `tanushree.m@medistra.hospital` | `Hospital@2026` |
-| `rohan.c@medistra.hospital` | `Hospital@2026` |
-
-Other real accounts may also exist in a live database and are not listed here.
-
----
-
-## Provisioning the demo accounts
-
-`npm run seed` is destructive — it clears users, roles, menus and staff records
-before reseeding. Use the additive provisioner instead when working against a
-database that already holds data:
+**New database** — seed with demo accounts included:
 
 ```bash
+SEED_DEMO_USERS=true npm run seed
+```
+
+The demo doctor also gets a doctor profile (General Medicine), and the other
+demo users get staff profiles, so appointments can be booked with them.
+
+**Existing database** — add the demo accounts without wiping anything. Run the
+role upgrade first if the database predates the six roles:
+
+```bash
+npm run repair:rbac:apply
 SEED_DEMO_USERS=true npm run seed:demo
 ```
 
-Optional overrides:
+`scripts/provision-demo-users.ts` never deletes anything. It only creates the
+`demo.*@medistra.hospital` accounts, or refreshes their password, role and
+active flag if they already exist. Accounts provisioned this way have no doctor
+or staff profile; add one under **Settings → Doctors / Staff** if needed.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SEED_DEMO_USERS` | unset | Must be exactly `true`, otherwise the script exits immediately. |
-| `SEED_DEMO_PASSWORD` | `Demo@2026` | Password applied to all demo accounts. |
+| `SEED_DEMO_USERS` | unset | Must be exactly `true`, otherwise nothing is created. |
+| `SEED_DEMO_PASSWORD` | `Demo@2026` | Password for all demo accounts. |
 | `MONGODB_URI` | `mongodb://localhost:27017/medistra-hms` | **Must match the database the running app uses.** |
 
-`scripts/provision-demo-users.ts` never deletes anything. It only:
+### Under Docker
 
-1. adds `dashboard.dashboard.view` to any role that is missing it (without
-   touching that role's other module grants), and
-2. creates the demo accounts, or refreshes their password, role and active flag
-   if they already exist.
-
-It only ever writes to `demo.*@medistra.hospital` addresses.
-
-### Running it against Docker
-
-This is the most common reason demo logins "do not work": the provisioner writes
-to a different database than the app reads from.
-
-When the app runs under `docker compose`, the app container uses
-`mongodb://mongodb:27017/medistra-hms` (the `mongodb` service on the internal
-network), while `MONGODB_URI` in `.env` points at `localhost:27017`. If a
-different Mongo is publishing that host port, the host-side script provisions
-the wrong database and every demo login fails with *Invalid email or password*
-even though the accounts look correct in the database you inspected.
-
-Check which database the app is really using:
+Run the commands inside the app container so they target the same database as
+the app:
 
 ```bash
-docker inspect medistra-app --format '{{range .Config.Env}}{{println .}}{{end}}' | grep MONGODB_URI
+docker compose exec -e SEED_DEMO_USERS=true app npm run seed:demo
 ```
 
-Then run the provisioner inside the same network, using the `mongodb` hostname:
-
-```bash
-docker run --rm --network pms_medistra-network \
-  -e MONGODB_URI=mongodb://mongodb:27017/medistra-hms \
-  -e SEED_DEMO_USERS=true \
-  -v "$PWD:/src:ro" -w /work node:20-alpine sh -c \
-  "mkdir -p scripts && cp /src/scripts/provision-demo-users.ts scripts/ \
-   && npm i tsx mongoose bcryptjs dotenv --silent >/dev/null 2>&1 \
-   && npx tsx scripts/provision-demo-users.ts"
-```
-
-The script prints the target database and the user count before and after, so
-you can confirm it hit the right one.
+Running the script from the host with `MONGODB_URI=mongodb://localhost:27017/...`
+is the usual reason demo logins fail with *Invalid email or password*: the
+compose MongoDB is not published to the host, so the script writes to a
+different database. The script prints the target database and the user count
+before and after, so you can confirm it hit the right one.
 
 ---
 
@@ -135,6 +88,4 @@ curl -s -b jar.txt -c jar.txt -X POST http://localhost:3000/api/auth/callback/cr
 curl -s -b jar.txt http://localhost:3000/api/auth/session
 ```
 
-`roleName` in the session response is the value that drives which dashboard
-renders. `/api/dashboard/stats` returns `403` for any role missing the
-`dashboard.dashboard.view` grant.
+`roleName` in the session response decides which dashboard and menus appear.

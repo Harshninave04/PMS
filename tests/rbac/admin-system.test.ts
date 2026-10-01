@@ -8,13 +8,13 @@ import {
 import { ScopeResolver } from "@/lib/rbac/scope-resolver";
 
 /**
- * Phase 6 Administration, Staff, Roles, Audit, Config & Ops Security Test Suite
- * Tests strict authorization, boundary confinement, delegation integrity, and privilege separation
- * across administrative, configuration, reporting, and procurement domains.
+ * Administration, Staff, Roles & Reporting Security Test Suite
+ * Tests strict authorization, boundary confinement and privilege separation
+ * across the user, role, organization, department and reporting domains.
  */
 async function runAdminSystemRbacTests() {
   console.log("=================================================");
-  console.log("  Running Phase 6 Admin, Roles, Audit & Ops Tests");
+  console.log("  Running Admin, Roles & Reporting Tests");
   console.log("=================================================\n");
 
   let passedTests = 0;
@@ -34,24 +34,21 @@ async function runAdminSystemRbacTests() {
   }
 
   const branchA = new Types.ObjectId();
-  const branchB = new Types.ObjectId();
   const orgId = new Types.ObjectId();
 
   const superAdminUserId = new Types.ObjectId();
   const hospitalAdminUserId = new Types.ObjectId();
-  const auditorUserId = new Types.ObjectId();
-  const procurementMgrUserId = new Types.ObjectId();
-  const cashierUserId = new Types.ObjectId();
+  const accountantUserId = new Types.ObjectId();
   const nurseUserId = new Types.ObjectId();
   const doctorUserId = new Types.ObjectId();
 
   // 1. Super Admin Context (Global boundary, unrestricted)
   const superAdminContext: AuthenticatedUserContext = {
     userId: superAdminUserId,
-    email: "superadmin@medistra.com",
+    email: "admin@hospital.com",
     name: "System Super Admin",
     roleId: new Types.ObjectId(),
-    roleName: "SYSTEM_SUPER_ADMIN",
+    roleName: "ADMIN",
     assignedWardIds: [],
     permissions: new Set(Object.values(PERMISSION_KEYS)),
     grants: new Map()
@@ -73,73 +70,24 @@ async function runAdminSystemRbacTests() {
       PERMISSION_KEYS.USER_UPDATE,
       PERMISSION_KEYS.USER_DISABLE,
       PERMISSION_KEYS.ROLE_VIEW,
-      PERMISSION_KEYS.ROLE_CREATE,
       PERMISSION_KEYS.ROLE_UPDATE,
-      PERMISSION_KEYS.ROLE_HIERARCHY_VIEW,
       PERMISSION_KEYS.DEPARTMENT_VIEW,
       PERMISSION_KEYS.DEPARTMENT_CREATE,
       PERMISSION_KEYS.DEPARTMENT_UPDATE,
       PERMISSION_KEYS.DOCTOR_VIEW,
       PERMISSION_KEYS.DOCTOR_CREATE,
-      PERMISSION_KEYS.REPORTS_VIEW,
-      PERMISSION_KEYS.REPORTS_OPERATIONAL_VIEW,
-      PERMISSION_KEYS.SYSTEM_SETTINGS_VIEW,
-      PERMISSION_KEYS.TASK_VIEW,
-      PERMISSION_KEYS.TASK_CREATE,
-      PERMISSION_KEYS.ALERT_VIEW,
-      PERMISSION_KEYS.ALERT_CREATE,
-      PERMISSION_KEYS.ALERT_MANAGE,
-    ]),
-    grants: new Map()
-  };
-
-  // 3. Auditor Context (Audit and security events only)
-  const auditorContext: AuthenticatedUserContext = {
-    userId: auditorUserId,
-    email: "auditor@medistra.com",
-    name: "Arthur Auditor",
-    roleId: new Types.ObjectId(),
-    roleName: "COMPLIANCE_OFFICER",
-    organizationId: orgId,
-    branchId: branchA,
-    assignedWardIds: [],
-    permissions: new Set([
-      PERMISSION_KEYS.AUDIT_VIEW,
-      PERMISSION_KEYS.AUDIT_EXPORT,
-      PERMISSION_KEYS.REPORTS_VIEW,
       PERMISSION_KEYS.REPORTS_OPERATIONAL_VIEW,
     ]),
     grants: new Map()
   };
 
-  // 4. Procurement Manager Context
-  const procurementMgrContext: AuthenticatedUserContext = {
-    userId: procurementMgrUserId,
-    email: "procurement@hospital.com",
-    name: "Peter Procurement",
+  // 3. Accountant Context (Billing & Finance only)
+  const accountantContext: AuthenticatedUserContext = {
+    userId: accountantUserId,
+    email: "accounts@hospital.com",
+    name: "Alan Accountant",
     roleId: new Types.ObjectId(),
-    roleName: "PROCUREMENT_MANAGER",
-    organizationId: orgId,
-    branchId: branchA,
-    assignedWardIds: [],
-    permissions: new Set([
-      PERMISSION_KEYS.PROCUREMENT_VIEW,
-      PERMISSION_KEYS.PROCUREMENT_SUPPLIER_MANAGE,
-      PERMISSION_KEYS.PROCUREMENT_PO_CREATE,
-      PERMISSION_KEYS.PROCUREMENT_PO_APPROVE,
-      PERMISSION_KEYS.PROCUREMENT_PO_RECEIVE,
-      PERMISSION_KEYS.INVENTORY_STOCK_VIEW,
-    ]),
-    grants: new Map()
-  };
-
-  // 5. Cashier Context (Billing & Finance only)
-  const cashierContext: AuthenticatedUserContext = {
-    userId: cashierUserId,
-    email: "cashier@hospital.com",
-    name: "Clara Cashier",
-    roleId: new Types.ObjectId(),
-    roleName: "CASHIER",
+    roleName: "ACCOUNTANT",
     organizationId: orgId,
     branchId: branchA,
     assignedWardIds: [],
@@ -151,13 +99,13 @@ async function runAdminSystemRbacTests() {
     grants: new Map()
   };
 
-  // 6. Nurse Context (Clinical & Ward only)
+  // 4. Nurse Context (Clinical & Ward only)
   const nurseContext: AuthenticatedUserContext = {
     userId: nurseUserId,
     email: "nurse@hospital.com",
     name: "Nancy Nurse",
     roleId: new Types.ObjectId(),
-    roleName: "STAFF_NURSE",
+    roleName: "NURSE",
     organizationId: orgId,
     branchId: branchA,
     assignedWardIds: [new Types.ObjectId()],
@@ -169,7 +117,7 @@ async function runAdminSystemRbacTests() {
     grants: new Map()
   };
 
-  // 7. Doctor Context (Clinical only)
+  // 5. Doctor Context (Clinical only)
   const doctorContext: AuthenticatedUserContext = {
     userId: doctorUserId,
     email: "doctor@hospital.com",
@@ -222,32 +170,32 @@ async function runAdminSystemRbacTests() {
     assert.deepEqual(filter, { organization: orgId }, "User query must be scoped to admin's organization");
   });
 
-  test("User Admin: Non-administrative staff (Cashier/Nurse) cannot create or disable users", () => {
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.USER_CREATE), false);
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.USER_DISABLE), false);
+  test("User Admin: Non-administrative staff (Accountant/Nurse) cannot create or disable users", () => {
+    assert.equal(accountantContext.permissions.has(PERMISSION_KEYS.USER_CREATE), false);
+    assert.equal(accountantContext.permissions.has(PERMISSION_KEYS.USER_DISABLE), false);
     assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.USER_CREATE), false);
     assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.USER_DISABLE), false);
   });
 
-  console.log("\n--- 2. Role Management & Hierarchy Domain Tests ---");
+  console.log("\n--- 2. Role Management Domain Tests ---");
 
-  test("Role Management: Super Admin has full role creation, deletion and assignment permissions", () => {
-    assert.equal(superAdminContext.permissions.has(PERMISSION_KEYS.ROLE_CREATE), true);
-    assert.equal(superAdminContext.permissions.has(PERMISSION_KEYS.ROLE_DELETE), true);
-    assert.equal(superAdminContext.permissions.has(PERMISSION_KEYS.ROLE_ASSIGN), true);
-    assert.equal(superAdminContext.permissions.has(PERMISSION_KEYS.ROLE_HIERARCHY_UPDATE), true);
+  test("Role Management: Super Admin holds every permission including role update", () => {
+    for (const permission of Object.values(PERMISSION_KEYS)) {
+      assert.equal(superAdminContext.permissions.has(permission), true, `Admin must hold ${permission}`);
+    }
+    assert.equal(superAdminContext.permissions.has(PERMISSION_KEYS.ROLE_UPDATE), true);
   });
 
-  test("Role Management: Hospital Admin cannot delete roles (restricted to ROLE_VIEW, ROLE_CREATE, ROLE_UPDATE)", () => {
+  test("Role Management: Hospital Admin can view and update roles", () => {
     assert.equal(hospitalAdminContext.permissions.has(PERMISSION_KEYS.ROLE_VIEW), true);
-    assert.equal(hospitalAdminContext.permissions.has(PERMISSION_KEYS.ROLE_DELETE), false, "Hospital admin must not have ROLE_DELETE");
+    assert.equal(hospitalAdminContext.permissions.has(PERMISSION_KEYS.ROLE_UPDATE), true);
   });
 
-  test("Role Management: Non-admin staff cannot manage roles or role hierarchies", () => {
+  test("Role Management: Non-admin staff cannot view or manage roles", () => {
     assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.ROLE_VIEW), false);
-    assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.ROLE_CREATE), false);
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.ROLE_HIERARCHY_VIEW), false);
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.ROLE_HIERARCHY_UPDATE), false);
+    assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.ROLE_UPDATE), false);
+    assert.equal(accountantContext.permissions.has(PERMISSION_KEYS.ROLE_VIEW), false);
+    assert.equal(accountantContext.permissions.has(PERMISSION_KEYS.ROLE_UPDATE), false);
   });
 
   console.log("\n--- 3. Organization & Department Domain Tests ---");
@@ -266,7 +214,7 @@ async function runAdminSystemRbacTests() {
   test("Department: Non-admin staff cannot create or delete departments", () => {
     assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.DEPARTMENT_CREATE), false);
     assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.DEPARTMENT_DELETE), false);
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.DEPARTMENT_CREATE), false);
+    assert.equal(accountantContext.permissions.has(PERMISSION_KEYS.DEPARTMENT_CREATE), false);
   });
 
   test("Organization: Platform Super Admin has organization creation and update permissions", () => {
@@ -277,85 +225,31 @@ async function runAdminSystemRbacTests() {
 
   test("Organization: Branch staff cannot delete or modify organization entities", () => {
     assert.equal(hospitalAdminContext.permissions.has(PERMISSION_KEYS.ORGANIZATION_DELETE), false);
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.ORGANIZATION_VIEW), false);
+    assert.equal(accountantContext.permissions.has(PERMISSION_KEYS.ORGANIZATION_VIEW), false);
     assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.ORGANIZATION_CREATE), false);
   });
 
-  console.log("\n--- 4. Audit & Security Log Domain Tests ---");
+  console.log("\n--- 4. Reporting & Analytics Domain Tests ---");
 
-  test("Audit: Compliance Auditor has audit viewing and export permissions", () => {
-    assert.equal(auditorContext.permissions.has(PERMISSION_KEYS.AUDIT_VIEW), true);
-    assert.equal(auditorContext.permissions.has(PERMISSION_KEYS.AUDIT_EXPORT), true);
-  });
-
-  test("Audit: Non-audit staff (Cashier, Nurse, Doctor) are strictly forbidden from viewing audit logs", () => {
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.AUDIT_VIEW), false);
-    assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.AUDIT_VIEW), false);
-    assert.equal(doctorContext.permissions.has(PERMISSION_KEYS.AUDIT_VIEW), false);
-  });
-
-  console.log("\n--- 5. System Configuration Domain Tests ---");
-
-  test("Config: Super Admin has system settings view and update permissions", () => {
-    assert.equal(superAdminContext.permissions.has(PERMISSION_KEYS.SYSTEM_SETTINGS_VIEW), true);
-    assert.equal(superAdminContext.permissions.has(PERMISSION_KEYS.SYSTEM_SETTINGS_UPDATE), true);
-  });
-
-  test("Config: Regular staff (Nurse, Cashier) cannot view or update system configuration", () => {
-    assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.SYSTEM_SETTINGS_VIEW), false);
-    assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.SYSTEM_SETTINGS_UPDATE), false);
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.SYSTEM_SETTINGS_VIEW), false);
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.SYSTEM_SETTINGS_UPDATE), false);
-  });
-
-  console.log("\n--- 6. Reporting & Analytics Domain Tests ---");
-
-  test("Reports: Financial reports restricted to financial personnel (Cashier allowed, Nurse denied)", () => {
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.REPORTS_FINANCIAL_VIEW), true);
+  test("Reports: Financial reports restricted to financial personnel (Accountant allowed, Nurse denied)", () => {
+    assert.equal(accountantContext.permissions.has(PERMISSION_KEYS.REPORTS_FINANCIAL_VIEW), true);
     assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.REPORTS_FINANCIAL_VIEW), false);
   });
 
-  test("Reports: Clinical reports restricted to clinical personnel (Doctor/Nurse allowed, Cashier denied)", () => {
+  test("Reports: Clinical reports restricted to clinical personnel (Doctor/Nurse allowed, Accountant denied)", () => {
     assert.equal(doctorContext.permissions.has(PERMISSION_KEYS.REPORTS_CLINICAL_VIEW), true);
     assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.REPORTS_CLINICAL_VIEW), true);
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.REPORTS_CLINICAL_VIEW), false);
+    assert.equal(accountantContext.permissions.has(PERMISSION_KEYS.REPORTS_CLINICAL_VIEW), false);
   });
 
-  test("Reports: Operational reports accessible to Admin and Auditor", () => {
+  test("Reports: Operational reports are not granted to clinical or financial staff", () => {
     assert.equal(hospitalAdminContext.permissions.has(PERMISSION_KEYS.REPORTS_OPERATIONAL_VIEW), true);
-    assert.equal(auditorContext.permissions.has(PERMISSION_KEYS.REPORTS_OPERATIONAL_VIEW), true);
-  });
-
-  console.log("\n--- 7. Procurement & Supply Chain Domain Tests ---");
-
-  test("Procurement: Procurement Manager has supplier management and PO approval permissions", () => {
-    assert.equal(procurementMgrContext.permissions.has(PERMISSION_KEYS.PROCUREMENT_VIEW), true);
-    assert.equal(procurementMgrContext.permissions.has(PERMISSION_KEYS.PROCUREMENT_SUPPLIER_MANAGE), true);
-    assert.equal(procurementMgrContext.permissions.has(PERMISSION_KEYS.PROCUREMENT_PO_CREATE), true);
-    assert.equal(procurementMgrContext.permissions.has(PERMISSION_KEYS.PROCUREMENT_PO_APPROVE), true);
-    assert.equal(procurementMgrContext.permissions.has(PERMISSION_KEYS.PROCUREMENT_PO_RECEIVE), true);
-  });
-
-  test("Procurement: Non-procurement staff (Nurse / Cashier) cannot approve POs or manage suppliers", () => {
-    assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.PROCUREMENT_PO_APPROVE), false);
-    assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.PROCUREMENT_SUPPLIER_MANAGE), false);
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.PROCUREMENT_PO_APPROVE), false);
-  });
-
-  console.log("\n--- 8. Operational Alerts & Tasks Domain Tests ---");
-
-  test("Alerts & Tasks: Hospital Admin can create tasks and manage alerts", () => {
-    assert.equal(hospitalAdminContext.permissions.has(PERMISSION_KEYS.TASK_CREATE), true);
-    assert.equal(hospitalAdminContext.permissions.has(PERMISSION_KEYS.ALERT_MANAGE), true);
-  });
-
-  test("Alerts & Tasks: Cashier cannot create operational tasks or manage system alerts", () => {
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.TASK_CREATE), false);
-    assert.equal(cashierContext.permissions.has(PERMISSION_KEYS.ALERT_MANAGE), false);
+    assert.equal(doctorContext.permissions.has(PERMISSION_KEYS.REPORTS_OPERATIONAL_VIEW), false);
+    assert.equal(nurseContext.permissions.has(PERMISSION_KEYS.REPORTS_OPERATIONAL_VIEW), false);
   });
 
   console.log("\n=================================================");
-  console.log(`  Phase 6 Admin & Ops Tests: ${passedTests}/${totalTests} Passed`);
+  console.log(`  Admin, Roles & Reporting Tests: ${passedTests}/${totalTests} Passed`);
   console.log("=================================================\n");
 }
 

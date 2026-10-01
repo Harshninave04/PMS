@@ -4,21 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Pill,
-  LayoutDashboard,
-  Layers,
   FileText,
   ShoppingCart,
-  RotateCcw,
-  Boxes,
   ClockAlert,
-  Truck,
-  BarChart3,
   AlertTriangle,
-  Sparkles,
-  ArrowUpRight,
   TrendingUp,
   RefreshCw,
-  Plus,
   ReceiptText
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,9 +32,6 @@ interface PharmacyStats {
   totalRevenue: number;
   pendingPrescriptionsCount: number;
   totalCategories: number;
-  totalSuppliers: number;
-  totalReturns: number;
-  totalRefundAmount: number;
 }
 
 export default function PharmacyHubPage() {
