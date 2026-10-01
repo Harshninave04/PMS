@@ -11,6 +11,19 @@ Built with Next.js 16 (App Router), React 19, TypeScript and MongoDB. Money is s
 
 ---
 
+## First time here?
+
+**Start with [FIRST_TIME_SETUP.md](./FIRST_TIME_SETUP.md)** — a Docker walkthrough for a brand-new clone. No seeding required.
+
+```bash
+docker compose up -d --build
+docker compose exec app npm run bootstrap -- --admin-password 'choose-a-real-password'
+```
+
+Then sign in at <http://localhost:3000/login>.
+
+---
+
 ## Daily Workflow
 
 ```
@@ -54,6 +67,7 @@ Where these are defined:
 - `src/lib/rbac/roles.ts` — what each role can do
 - `src/lib/rbac/permissions.ts` — the list of permissions
 - `src/lib/menu-data.ts` — the sidebar menus
+- `src/lib/rbac/canonical-sync.ts` — keeps roles and menus in the database in step with the code
 - `src/lib/rbac/dashboard-profiles.ts` — each role's dashboard
 
 An administrator can adjust a role's permissions from **Settings → Roles & Permissions**.
@@ -88,35 +102,49 @@ docker compose up -d
 - **MongoDB**: internal only, `mongodb://mongodb:27017` on the compose network (`docker exec -it medistra-mongodb mongosh medistra-hms`)
 - **Mongo Express**: [http://localhost:8081](http://localhost:8081) _(User: `admin`, Pass: `medistra`)_
 
-### Seed a new, empty database
+### Prepare a new, empty database
+
+> First time here? [FIRST_TIME_SETUP.md](./FIRST_TIME_SETUP.md) is the walkthrough. The short version is the two commands below.
 
 ```bash
-docker compose exec app npm run seed
+docker compose exec app npm run bootstrap -- --admin-password 'choose-a-real-password'
 ```
 
-This creates the six roles, the menus, one hospital, departments, designations and a starter medicine list.
+This is the step to run on a fresh install. It creates the six roles, the menus, the hospital, sample departments, designations, a starter medicine list and the first administrator, so you can log in and start working.
 
-> ⚠️ `npm run seed` is destructive: it clears users, roles, menus, departments, doctors, staff and medicines first. Never run it against a database with real data.
+It never deletes anything and it is safe to re-run: every step checks first and only fills a gap. On a database that already has departments or job titles it leaves them completely alone rather than merging the sample set in.
+
+The administrator password comes from `--admin-password`, or from `DEFAULT_ADMIN_PASSWORD` if you omit the flag, and must be at least 8 characters. An existing administrator is never overwritten and its password is never reset.
+
+If the database already has an administrator and you supply a new password, `bootstrap` creates an additional administrator at the email you gave. Leave the password out and it creates nothing.
+
+> ⚠️ `npm run seed` is the older, destructive alternative: it clears users, roles, menus, departments, doctors, staff and medicines first. Never run it against a database with real data. Use `bootstrap`.
 
 ### Upgrade an existing database
 
-A database created by an older version still has the old roles (Lab Technician, HR Officer, …) and the old menus. Move it to the six roles without losing data:
+Nothing to run. A database created by an older version still has the old roles (Lab Technician, HR Officer, …) and the old menus, and it can outlive any given build. The app brings its own access data up to date on the way up, so `docker compose up -d --build` is the whole procedure.
+
+On every start, `src/instrumentation.ts` reconciles the database against the code:
+
+- creates or refreshes the six roles
+- replaces the sidebar menus when they no longer match the menus the code ships
+- moves users from old roles to the matching new role (for example `HOSPITAL_ADMIN` → Admin, `CASHIER` → Accountant, `CONSULTANT` → Doctor) and deletes old roles that nobody holds
+- attaches users without a hospital to the hospital
+
+It compares before it writes, so a healthy database costs one read per collection and no writes. **No user is ever deleted.** Users whose old role has no equivalent (Lab, Radiology, HR, …) are reported in the app log and left alone for you to reassign in **Settings → Users**.
+
+Users must log out and back in afterwards. Data from the removed modules (lab orders, insurance claims, …) is left in MongoDB untouched.
+
+Even if that reconciliation cannot run — a read-only or unreachable database — the sidebar stays correct: `MenuController` filters menus to the ones the running build ships on every request, so a leftover row can never become a link to a deleted page.
+
+If you want to see, or force, the reconciliation without restarting the app:
 
 ```bash
-docker compose up -d --build                         # rebuild with the new code
 docker compose exec app npm run repair:rbac          # preview, writes nothing
 docker compose exec app npm run repair:rbac:apply    # apply
 ```
 
-The upgrade:
-
-- creates or refreshes the six roles
-- replaces the sidebar menus
-- moves users from old roles to the matching new role (for example `HOSPITAL_ADMIN` → Admin, `CASHIER` → Accountant, `CONSULTANT` → Doctor) and deletes old roles that nobody holds
-- lists users whose old role has no equivalent (Lab, Radiology, HR, …) so you can reassign them in **Settings → Users**
-- attaches users without a hospital to the hospital
-
-Users must log out and back in afterwards. Data from the removed modules (lab orders, insurance claims, …) is left in MongoDB untouched.
+It is the same code path the app runs at startup, so the result is identical.
 
 ### Useful commands
 
@@ -150,7 +178,7 @@ DEFAULT_ADMIN_PASSWORD=password123
 Then:
 
 ```bash
-npm run seed        # new database only (see warning above)
+npm run bootstrap    # new database only (see warning above)
 npm run dev         # http://localhost:3000
 ```
 
@@ -158,7 +186,7 @@ Checks before a release:
 
 ```bash
 npm run typecheck   # tsc --noEmit
-npm test            # role, menu and permission tests (7 suites)
+npm test            # role, menu, permission and bootstrap tests (9 suites)
 npm run build
 ```
 
@@ -166,13 +194,13 @@ npm run build
 
 ## Logging In
 
-After `npm run seed`, log in at `http://localhost:3000/login`:
+After `npm run bootstrap`, log in at `http://localhost:3000/login`:
 
 | Email | Password | Role |
 | --- | --- | --- |
-| `admin@hospital.com` | `password123` | Administrator |
+| `admin@hospital.com` | the password you passed to `bootstrap` | Administrator |
 
-Change the password (or set `DEFAULT_ADMIN_EMAIL` / `DEFAULT_ADMIN_PASSWORD` before seeding) and create staff logins from **Settings → Users**.
+Change it afterwards from **Settings → Users**, and create staff logins the same way.
 
 For one demo login per role, see [DEMO_CREDENTIALS.md](./DEMO_CREDENTIALS.md).
 

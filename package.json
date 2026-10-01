@@ -7,9 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx tests/rbac/foundation.test.ts && tsx tests/rbac/clinical.test.ts && tsx tests/rbac/roles.test.ts && tsx tests/rbac/menu.test.ts && tsx tests/rbac/billing-finance.test.ts && tsx tests/rbac/diagnostic-pharmacy.test.ts && tsx tests/rbac/admin-system.test.ts",
+    "test": "tsx tests/rbac/foundation.test.ts && tsx tests/rbac/clinical.test.ts && tsx tests/rbac/roles.test.ts && tsx tests/rbac/menu.test.ts && tsx tests/rbac/billing-finance.test.ts && tsx tests/rbac/diagnostic-pharmacy.test.ts && tsx tests/rbac/admin-system.test.ts && tsx tests/rbac/self-heal.test.ts && tsx tests/rbac/bootstrap.test.ts",
     "typecheck": "tsc --noEmit",
     "seed": "npx tsx src/seed.ts",
+    "bootstrap": "npx tsx scripts/bootstrap.ts",
     "seed:demo": "npx tsx scripts/provision-demo-users.ts",
     "repair:rbac": "npx tsx scripts/repair-rbac-access.ts",
     "repair:rbac:apply": "npx tsx scripts/repair-rbac-access.ts --apply"

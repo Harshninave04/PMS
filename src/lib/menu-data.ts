@@ -170,6 +170,38 @@ export interface MenuNode {
     children?: MenuNode[];
 }
 
+/** Every path this build owns, parents and children alike. */
+export const CANONICAL_MENU_PATHS: ReadonlySet<string> = new Set(
+    MENUS.flatMap(({ children, ...parent }) => [
+        parent.path ?? "",
+        ...(children ?? []).map((child) => child.path ?? ""),
+    ])
+);
+
+function isCanonicalMenu(menu: MenuNode): boolean {
+    return CANONICAL_MENU_PATHS.has((menu.path ?? "").toLowerCase());
+}
+
+/**
+ * Drops every stored menu this build does not ship.
+ *
+ * The sidebar reads `Menu` documents from MongoDB, and that database outlives a
+ * code change: it keeps rows for modules that no longer exist, so they would
+ * render as links to pages that were deleted. Filtering here means the UI is
+ * correct even when the rows have not been cleaned up yet — the reconciler in
+ * `rbac/canonical-sync` removes them from the database, this stops them from
+ * ever being shown.
+ */
+export function restrictToCanonicalMenus<T extends MenuNode>(menus: readonly T[]): T[] {
+    return menus
+        .filter(isCanonicalMenu)
+        .map((menu) =>
+            Array.isArray(menu.children)
+                ? { ...menu, children: menu.children.filter(isCanonicalMenu) }
+                : menu
+        );
+}
+
 /**
  * Keeps only the menus a role may open. Visibility comes exclusively from the
  * role's own module grants; nothing is blanket-granted, otherwise every role

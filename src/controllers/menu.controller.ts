@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import authOptions from "@/lib/auth";
 import Role from "@/models/role.model";
 import { IMenu } from "@/interfaces/menu.interface";
-import { filterMenusForAccess, type MenuNode } from "@/lib/menu-data";
+import { filterMenusForAccess, restrictToCanonicalMenus, type MenuNode } from "@/lib/menu-data";
 
 export class MenuController {
     constructor(private service: MenuService = defaultMenuService) { }
@@ -47,7 +47,12 @@ export class MenuController {
     async getMenus(): Promise<NextResponse> {
         try {
             await dbConnect();
-            let menus = await this.service.getAllMenus();
+            // Drop rows for modules this build does not ship before anything can
+            // see them. The reconciler removes them from the database, but the
+            // sidebar must stay correct even if that never ran.
+            let menus = restrictToCanonicalMenus(
+                (await this.service.getAllMenus()) as unknown as MenuNode[]
+            ) as unknown as IMenu[];
 
             // Filter menus based on user role access
             const session = await getServerSession(authOptions);

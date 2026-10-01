@@ -12,6 +12,13 @@ import MedicineCategory from "./models/medicine-category.model";
 import Medicine from "./models/medicine.model";
 import { ADMIN_ROLE, ALL_ROLES, buildRoleAccess } from "./lib/rbac/role-access";
 import { MENUS, getMenuModuleKey } from "./lib/menu-data";
+import {
+    DEPARTMENTS,
+    DESIGNATIONS,
+    HOSPITAL,
+    MEDICINE_CATEGORIES,
+    starterMedicines,
+} from "./lib/reference-data";
 import "dotenv/config";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
@@ -80,21 +87,7 @@ async function seedDatabase() {
         console.log(`✅ Seeded ${ALL_ROLES.length} roles: ${ALL_ROLES.join(", ")}.`);
 
         // 3. Hospital
-        const hospital = await Organization.create({
-            organizationName: "Medistra Hospital",
-            organizationId: "MEDISTRA-MAIN",
-            organizationType: "HOSPITAL",
-            branchType: "MAIN",
-            email: "info@medistra.hospital",
-            phone: "+91 33 2345 6789",
-            address: "12 Medical Enclave, Central Avenue, Kolkata",
-            city: "Kolkata",
-            state: "West Bengal",
-            pincode: "700001",
-            country: "India",
-            capacity: 60,
-            isActive: true
-        });
+        const hospital = await Organization.create(HOSPITAL);
         console.log(`✅ Seeded hospital: ${hospital.organizationName}`);
 
         // 4. Admin user
@@ -111,56 +104,24 @@ async function seedDatabase() {
         console.log(`✅ Seeded admin user: ${adminUser.email}`);
 
         // 5. Departments
-        const departments = [
-            { name: "General Medicine", code: "GMED", location: "Ground Floor", phoneExtension: "101", description: "Adult general health and chronic disease care" },
-            { name: "General Surgery", code: "GSUR", location: "First Floor", phoneExtension: "102", description: "General surgical care" },
-            { name: "Pediatrics", code: "PEDI", location: "Ground Floor", phoneExtension: "103", description: "Child health and vaccinations" },
-            { name: "Obstetrics & Gynecology", code: "OBGY", location: "First Floor", phoneExtension: "104", description: "Maternity and women's health" },
-            { name: "Orthopedics", code: "ORTH", location: "First Floor", phoneExtension: "105", description: "Bones, joints and fractures" },
-            { name: "Casualty", code: "CASU", location: "Ground Floor", phoneExtension: "100", description: "Walk-in emergencies and first aid" },
-            { name: "Pharmacy", code: "PHAR", location: "Ground Floor - Lobby", phoneExtension: "106", description: "Outpatient and inpatient dispensing" }
-        ];
         const deptByCode: Record<string, mongoose.Types.ObjectId> = {};
-        for (const dept of departments) {
+        for (const dept of DEPARTMENTS) {
             const d = await Department.create({ ...dept, organizationId: hospital._id });
             deptByCode[dept.code] = d._id as mongoose.Types.ObjectId;
         }
-        console.log(`✅ Seeded ${departments.length} departments.`);
+        console.log(`✅ Seeded ${DEPARTMENTS.length} departments.`);
 
         // 6. Designations
-        const designations = [
-            { name: "Consultant", code: "CONS", department: "Medical", level: "Senior", description: "Consultant doctor" },
-            { name: "Medical Officer", code: "MO", department: "Medical", level: "Junior", description: "Duty doctor" },
-            { name: "Staff Nurse", code: "NURSE", department: "Nursing", level: "Mid-Level", description: "Ward nurse" },
-            { name: "Pharmacist", code: "PHARM", department: "Pharmacy", level: "Mid-Level", description: "Dispensing pharmacist" },
-            { name: "Receptionist", code: "RECEP", department: "Administration", level: "Junior", description: "Front desk" },
-            { name: "Accountant", code: "ACCT", department: "Finance", level: "Mid-Level", description: "Billing and accounts" }
-        ];
         const desigByCode: Record<string, mongoose.Types.ObjectId> = {};
-        for (const desig of designations) {
+        for (const desig of DESIGNATIONS) {
             const d = await Designation.create(desig);
             desigByCode[desig.code] = d._id as mongoose.Types.ObjectId;
         }
-        console.log(`✅ Seeded ${designations.length} designations.`);
+        console.log(`✅ Seeded ${DESIGNATIONS.length} designations.`);
 
         // 7. Pharmacy catalogue
-        const categories = [
-            { name: "Antibiotics", code: "ABX", description: "Antimicrobials", storageCondition: "COOL_DRY" as const, requiresPrescription: true },
-            { name: "Analgesics & Antipyretics", code: "ANALG", description: "Pain and fever", storageCondition: "ROOM_TEMPERATURE" as const, requiresPrescription: false },
-            { name: "Cardiovascular", code: "CARD", description: "Blood pressure and heart", storageCondition: "ROOM_TEMPERATURE" as const, requiresPrescription: true },
-            { name: "Gastrointestinal", code: "GI", description: "Antacids and PPIs", storageCondition: "ROOM_TEMPERATURE" as const, requiresPrescription: false },
-            { name: "Antidiabetic", code: "DIAB", description: "Oral hypoglycemics and insulin", storageCondition: "ROOM_TEMPERATURE" as const, requiresPrescription: true }
-        ];
-        await MedicineCategory.create(categories);
-
-        const inDays = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-        await Medicine.create([
-            { name: "Paracetamol 500mg", category: "Analgesics & Antipyretics", genericName: "Acetaminophen", dosageForm: "TABLET", manufacturer: "GlaxoSmithKline", batchNumber: "PCM-2026-01", unitPrice: 2.5, stockQuantity: 2500, expiryDate: inDays(365) },
-            { name: "Amoxicillin 500mg", category: "Antibiotics", genericName: "Amoxicillin Trihydrate", dosageForm: "CAPSULE", manufacturer: "Cipla Ltd", batchNumber: "AMX-2026-04", unitPrice: 8.0, stockQuantity: 1200, expiryDate: inDays(300) },
-            { name: "Metformin 500mg", category: "Antidiabetic", genericName: "Metformin Hydrochloride", dosageForm: "TABLET", manufacturer: "Sun Pharma", batchNumber: "MET-2026-02", unitPrice: 4.0, stockQuantity: 1800, expiryDate: inDays(400) },
-            { name: "Atorvastatin 20mg", category: "Cardiovascular", genericName: "Atorvastatin Calcium", dosageForm: "TABLET", manufacturer: "Torrent Pharma", batchNumber: "ATV-2026-07", unitPrice: 12.5, stockQuantity: 950, expiryDate: inDays(350) },
-            { name: "Pantoprazole 40mg", category: "Gastrointestinal", genericName: "Pantoprazole Sodium", dosageForm: "TABLET", manufacturer: "Alkem Labs", batchNumber: "PAN-2026-03", unitPrice: 9.0, stockQuantity: 1400, expiryDate: inDays(380) }
-        ]);
+        await MedicineCategory.create(MEDICINE_CATEGORIES);
+        await Medicine.create(starterMedicines());
         console.log(`✅ Seeded pharmacy catalogue.`);
 
         // 8. Demo logins (opt-in, never runs by default)
