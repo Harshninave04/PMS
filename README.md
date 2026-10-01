@@ -157,8 +157,8 @@ npm run dev         # http://localhost:3000
 Checks before a release:
 
 ```bash
-npx tsc --noEmit    # type check
-npm test            # role, menu and permission tests
+npm run typecheck   # tsc --noEmit
+npm test            # role, menu and permission tests (7 suites)
 npm run build
 ```
 
