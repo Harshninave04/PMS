@@ -5,12 +5,15 @@ import DoctorSchedule from "@/models/doctor-schedule.model";
 import Doctor from "@/models/doctor.model";
 import User from "@/models/user.model";
 import Department from "@/models/department.model";
-import { authorizeRequest } from "@/lib/rbac/guard";
+import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
+  const denied = await requirePermission(request, "admin.schedule:view");
+  if (denied) return denied;
+
   const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DIRECTORY_VIEW);
   if (!authResult.isAuthorized) return authResult.response;
 
@@ -46,6 +49,9 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
 }
 
 export async function PUT(request: NextRequest, { params }: Params): Promise<NextResponse> {
+  const denied = await requirePermission(request, "admin.schedule:update");
+  if (denied) return denied;
+
   const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_UPDATE);
   if (!authResult.isAuthorized) return authResult.response;
 
@@ -88,6 +94,9 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
 }
 
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
+  const denied = await requirePermission(request, "admin.schedule:delete");
+  if (denied) return denied;
+
   const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_UPDATE);
   if (!authResult.isAuthorized) return authResult.response;
 

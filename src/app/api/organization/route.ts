@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import OrganizationController from "@/controllers/organization.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 /**
  * @route POST /api/org
  * @desc Create a new organization
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.hospital:create");
+    if (denied) return denied;
+
     try {
         return OrganizationController.createOrganization(request);
     } catch (e: any) {
@@ -17,6 +21,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+    const denied = await requirePermission(request, null);
+    if (denied) return denied;
+
     try {
         return OrganizationController.getOrganizations(request);
     } catch (e: unknown) {

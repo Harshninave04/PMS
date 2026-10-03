@@ -10,6 +10,11 @@ export interface IManagedRole {
 
 export interface IRole extends Document {
     role: string;
+    /** Sub-item permissions, `module.submodule:action`. */
+    permissions: string[];
+    /** Seeded role: cannot be renamed or deleted. */
+    isSystem: boolean;
+    description: string;
     access: IAccess[];
     managedRoles: IManagedRole[];
 }

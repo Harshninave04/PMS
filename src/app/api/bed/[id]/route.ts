@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import BedController from "@/controllers/bed.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -8,6 +9,9 @@ type Params = { params: Promise<{ id: string }> };
  * @desc Get a bed by ID
  */
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "wards.beds:view");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return await BedController.getBedById(id, request);
@@ -25,6 +29,9 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
  * @desc Update a bed by ID
  */
 export async function PUT(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "wards.beds:update");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return await BedController.updateBed(request, id);
@@ -42,6 +49,9 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
  * @desc Delete a bed by ID
  */
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "wards.beds:delete");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return await BedController.deleteBed(id, request);

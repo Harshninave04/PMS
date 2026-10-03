@@ -3,8 +3,12 @@ import { Types } from "mongoose";
 import storage from "@/lib/storage";
 import patientService from "@/services/patient.service";
 import dbConnect from "@/lib/dbConnect";
+import { requirePermission } from "@/lib/rbac/guard";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+    const denied = await requirePermission(request, "patients.documents:upload");
+    if (denied) return denied;
+
     try {
         await dbConnect();
         const formData = await request.formData();

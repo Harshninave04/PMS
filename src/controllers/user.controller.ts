@@ -137,7 +137,7 @@ export class UserController {
         }
     }
 
-    async getUserById(id: string): Promise<NextResponse> {
+    async getUserById(id: string, request?: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
 
@@ -146,6 +146,19 @@ export class UserController {
                     { success: false, message: "Invalid user ID" },
                     { status: 400 }
                 );
+            }
+
+            if (request) {
+                const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_VIEW, "User");
+                if (!authResult.isAuthorized) return authResult.response;
+
+                const targetUser = await this.userService.getUserById(new Types.ObjectId(id));
+                if (!targetUser) {
+                    return NextResponse.json({ success: false, message: "User not found" }, { status: 404 });
+                }
+                if (isOutsideOrganization(authResult.context, targetUser.organization)) {
+                    return NextResponse.json({ success: false, message: "Cannot view user outside your hospital" }, { status: 403 });
+                }
             }
 
             const user = await this.userService.getUserById(new Types.ObjectId(id));

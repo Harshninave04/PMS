@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
+import { Can } from "@/components/permissions/can";
 import { Users, UserPlus, Search, Pencil, Trash2, Loader2, ToggleLeft, ToggleRight } from "lucide-react";
 import Link from "next/link";
 import { ROLE_LABELS } from "@/lib/rbac/roles";
@@ -115,9 +116,11 @@ export default function ManageUsersPage() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Manage Users</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">Staff logins for this hospital</p>
         </div>
-        <Link href="/admin/users/create">
-          <Button className="gap-2"><UserPlus className="h-4 w-4" />Add New User</Button>
-        </Link>
+        <Can permission="admin.users:create">
+          <Link href="/admin/users/create">
+            <Button className="gap-2"><UserPlus className="h-4 w-4" />Add New User</Button>
+          </Link>
+        </Can>
       </div>
 
       {/* Content Card */}
@@ -153,14 +156,20 @@ export default function ManageUsersPage() {
                     <TableCell className="text-slate-500 text-xs">{user.email}</TableCell>
                     <TableCell><Badge variant="info">{getRoleName(user.role)}</Badge></TableCell>
                     <TableCell>
-                      <button onClick={() => toggleActive(user)} title="Toggle Status">
-                        {user.isActive ? <Badge variant="default" className="cursor-pointer gap-1"><ToggleRight className="h-3 w-3" />Active</Badge> : <Badge variant="destructive" className="cursor-pointer gap-1"><ToggleLeft className="h-3 w-3" />Inactive</Badge>}
-                      </button>
+                      <Can permission="admin.users:update" fallback={<Badge variant="outline" className="gap-1"><ToggleRight className="h-3 w-3" />{user.isActive ? "Active" : "Inactive"}</Badge>}>
+                        <button onClick={() => toggleActive(user)} title="Toggle Status">
+                          {user.isActive ? <Badge variant="default" className="cursor-pointer gap-1"><ToggleRight className="h-3 w-3" />Active</Badge> : <Badge variant="destructive" className="cursor-pointer gap-1"><ToggleLeft className="h-3 w-3" />Inactive</Badge>}
+                        </button>
+                      </Can>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-emerald-600" onClick={() => openEdit(user)}><Pencil className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-red-600" onClick={() => { setDeleteTarget(user); setDeleteOpen(true); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Can permission="admin.users:update">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-emerald-600" onClick={() => openEdit(user)}><Pencil className="h-3.5 w-3.5" /></Button>
+                        </Can>
+                        <Can permission="admin.users:delete">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-red-600" onClick={() => { setDeleteTarget(user); setDeleteOpen(true); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        </Can>
                       </div>
                     </TableCell>
                   </TableRow>

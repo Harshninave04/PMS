@@ -31,6 +31,29 @@ const roleSchema = new Schema<IRole>({
         type: String,
         required: true,
     },
+    /**
+     * Sub-item level access: `module.submodule:action` keys derived from the
+     * sidebar (see `src/lib/rbac/permissions.config.ts`). This is what the
+     * sidebar, the route guards and the permission matrix read.
+     *
+     * `access` below is the older module-keyed data-layer permission list and is
+     * kept so existing records and API guards keep working; `permissions` is the
+     * authoritative navigation/access layer added alongside it.
+     */
+    permissions: {
+        type: [String],
+        default: [],
+    },
+    /** Seeded roles cannot be renamed or deleted at runtime. */
+    isSystem: {
+        type: Boolean,
+        default: false,
+    },
+    description: {
+        type: String,
+        trim: true,
+        default: "",
+    },
     access: {
         type: [accessSchema],
         required: true,

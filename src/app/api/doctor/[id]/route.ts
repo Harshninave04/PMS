@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import DoctorController from "@/controllers/doctor.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -8,6 +9,9 @@ type Params = { params: Promise<{ id: string }> };
  * @desc Get a doctor by ID
  */
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.doctors:view");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return DoctorController.getDoctorById(id, request);
@@ -25,6 +29,9 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
  * @desc Update a doctor by ID
  */
 export async function PUT(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.doctors:update");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return DoctorController.updateDoctor(request, id);
@@ -42,6 +49,9 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
  * @desc Delete a doctor by ID
  */
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.doctors:delete");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return DoctorController.deleteDoctor(id, request);

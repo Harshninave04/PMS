@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import PatientController from "@/controllers/patient.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+    const denied = await requirePermission(request, "patients.register:create");
+    if (denied) return denied;
+
     try {
         return PatientController.createPatient(request);
     } catch (e: any) {
@@ -13,6 +17,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+    const denied = await requirePermission(request, "patients.list:view");
+    if (denied) return denied;
+
     try {
         return PatientController.getPatients(request);
     } catch (e: any) {

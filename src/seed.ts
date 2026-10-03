@@ -11,6 +11,7 @@ import Staff from "./models/staff.model";
 import MedicineCategory from "./models/medicine-category.model";
 import Medicine from "./models/medicine.model";
 import { ADMIN_ROLE, ALL_ROLES, buildRoleAccess } from "./lib/rbac/role-access";
+import { defaultPermissionsFor } from "./lib/rbac/default-permissions";
 import { MENUS, getMenuModuleKey } from "./lib/menu-data";
 import {
     DEPARTMENTS,
@@ -80,9 +81,30 @@ async function seedDatabase() {
         await seedMenus();
 
         // 2. Roles
+        //    Idempotent: a role that already exists is left alone apart from the
+        //    permission list, which is upserted to the shipped defaults. A fresh
+        //    database and a re-run of this script end up in the same state.
         const roleDocs: Record<string, mongoose.Document & { _id: mongoose.Types.ObjectId }> = {};
         for (const roleName of ALL_ROLES) {
-            roleDocs[roleName] = await Role.create({ role: roleName, access: buildRoleAccess(roleName) });
+            const access = buildRoleAccess(roleName);
+            const permissions = defaultPermissionsFor(roleName);
+
+            const existing = await Role.findOne({ role: roleName });
+            if (existing) {
+                existing.access = access;
+                existing.permissions = permissions;
+                existing.isSystem = true;
+                await existing.save();
+                roleDocs[roleName] = existing as unknown as (typeof roleDocs)[string];
+                continue;
+            }
+
+            roleDocs[roleName] = await Role.create({
+                role: roleName,
+                access,
+                permissions,
+                isSystem: true,
+            });
         }
         console.log(`✅ Seeded ${ALL_ROLES.length} roles: ${ALL_ROLES.join(", ")}.`);
 

@@ -1,13 +1,20 @@
 import { NextRequest } from "next/server";
 import { ClinicalController } from "@/controllers/clinical.controller";
 import dbConnect from "@/lib/dbConnect";
+import { requirePermission } from "@/lib/rbac/guard";
 
-export async function GET(req: NextRequest) {
+export async function GET(request: NextRequest) {
+  const denied = await requirePermission(request, "clinical.consultations:view");
+  if (denied) return denied;
+
   await dbConnect();
-  return ClinicalController.getDiagnoses(req);
+  return ClinicalController.getDiagnoses(request);
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
+  const denied = await requirePermission(request, "clinical.consultations:create");
+  if (denied) return denied;
+
   await dbConnect();
-  return ClinicalController.createDiagnosis(req);
+  return ClinicalController.createDiagnosis(request);
 }

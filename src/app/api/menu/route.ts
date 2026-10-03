@@ -26,11 +26,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 /**
  * @route GET /api/menu
- * @desc Get all menus
+ * @desc The sidebar, filtered to the sub-items the caller may open
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
     try {
-        return menuController.getMenus();
+        return await menuController.getMenus(request);
     } catch (e) {
         console.log(e);
         return Response.json({ error: e }, { status: 500 });

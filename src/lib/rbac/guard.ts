@@ -14,6 +14,8 @@ import {
   ScopeFilter
 } from "@/types/rbac";
 import { ScopeResolver } from "@/lib/rbac/scope-resolver";
+import { resolveRolePermissions, type ResolvedRolePermissions } from "@/lib/rbac/role-permissions";
+import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
 
 /**
  * Closed-loop authorization guard for API route controllers.
@@ -166,7 +168,7 @@ export async function authorizeRequest<T = Record<string, unknown>>(
     };
 
     // 6. Super Admin Fast Path
-    if (roleDoc.role === "SYSTEM_SUPER_ADMIN") {
+    if (isSuperAdminRole(roleDoc.role)) {
       const superAdminGrant: IPermissionGrant = {
         permission: requiredPermission,
         orgScope: "GLOBAL",
@@ -238,4 +240,125 @@ export async function authorizeRequest<T = Record<string, unknown>>(
       )
     };
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Sub-item guard                                                             */
+/* -------------------------------------------------------------------------- */
+
+export interface RequestIdentity {
+  userId: string;
+  email: string;
+  name?: string;
+  roleId: string;
+  roleName: string;
+  organizationId?: string;
+  permissions: ResolvedRolePermissions;
+}
+
+function denied(status: 401 | 403, message: string, code: string): NextResponse {
+  return NextResponse.json({ success: false, message, code }, { status });
+}
+
+/**
+ * Resolves who is calling, or `null` when they are not allowed to call at all.
+ *
+ * Always reads the role document from the database, so a permission change made
+ * by an administrator applies to the very next request without the affected user
+ * having to log out. There is no cached permission snapshot on the session.
+ */
+export async function resolveRequestIdentity(): Promise<
+  { identity: RequestIdentity } | { response: NextResponse }
+> {
+  await dbConnect();
+
+  const session = await getServerSession(authOptions);
+  const sessionUserId = session?.user?.id;
+  if (!sessionUserId || !Types.ObjectId.isValid(sessionUserId)) {
+    return {
+      response: denied(401, "Unauthorized: Please log in to proceed", "UNAUTHENTICATED"),
+    };
+  }
+
+  const userDoc = await User.findById(sessionUserId).select("name email role organization isActive").lean();
+  if (!userDoc) {
+    return { response: denied(401, "Unauthorized: Account does not exist", "UNAUTHENTICATED") };
+  }
+  if (userDoc.isActive === false) {
+    return { response: denied(403, "Forbidden: Your account has been deactivated", "INACTIVE_ACCOUNT") };
+  }
+  if (!userDoc.role) {
+    return { response: denied(403, "Forbidden: No role assigned to your account", "NO_ROLE") };
+  }
+
+  const roleDoc = await Role.findById(userDoc.role).lean();
+  if (!roleDoc) {
+    return { response: denied(403, "Forbidden: Role definition not found", "NO_ROLE") };
+  }
+
+  return {
+    identity: {
+      userId: sessionUserId,
+      email: userDoc.email,
+      name: userDoc.name,
+      roleId: String(roleDoc._id),
+      roleName: roleDoc.role,
+      organizationId: userDoc.organization ? String(userDoc.organization) : undefined,
+      permissions: resolveRolePermissions(roleDoc),
+    },
+  };
+}
+
+/**
+ * The single guard every API route uses.
+ *
+ * ```ts
+ * const denied = await requirePermission(request, "patients.list:view");
+ * if (denied) return denied;
+ * ```
+ *
+ * Deny by default: no permission means no access, and nothing is granted just
+ * because a route forgot to ask. Returns the error response to send, or `null`
+ * when the caller may proceed.
+ *
+ * Pass `null` (or omit) for endpoints that only need a valid, active session —
+ * `/api/menu` for the sidebar, `/api/me/permissions`, and the role list the
+ * user and role pickers read from.
+ */
+export async function requirePermission(
+  _request: Request,
+  permission: string | null
+): Promise<NextResponse | null> {
+  const resolved = await resolveRequestIdentity();
+  if ("response" in resolved) return resolved.response;
+  if (!permission) return null;
+
+  const { permissions } = resolved.identity;
+  if (permissions.isSuperAdmin || permissions.all.has(permission.toLowerCase())) return null;
+
+  return denied(
+    403,
+    `Forbidden: you do not have permission (${permission})`,
+    "FORBIDDEN"
+  );
+}
+
+/**
+ * Same contract as `requirePermission`, but satisfied by holding *any* of the
+ * listed permissions. Used where two capabilities legitimately open the same
+ * read — e.g. the role list backs both the Roles screen and the user role picker.
+ */
+export async function requireAnyPermission(
+  _request: Request,
+  alternatives: readonly string[]
+): Promise<NextResponse | null> {
+  const resolved = await resolveRequestIdentity();
+  if ("response" in resolved) return resolved.response;
+  if (!alternatives.length) return null;
+
+  const { permissions } = resolved.identity;
+  if (permissions.isSuperAdmin) return null;
+  if (alternatives.some((permission) => permissions.all.has(permission.toLowerCase()))) return null;
+
+  return denied(403, "Forbidden: you do not have permission to view this", "FORBIDDEN");
 }

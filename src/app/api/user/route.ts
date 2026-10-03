@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import UserController from "@/controllers/user.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 /**
  * @route POST /api/user
  * @desc Create a new user
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.users:create");
+    if (denied) return denied;
+
     try {
         return UserController.createUser(request);
     } catch (e: any) {
@@ -21,6 +25,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
  * @desc Get all users (supports ?organizationId=...)
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.users:view");
+    if (denied) return denied;
+
     try {
         return UserController.getUsers(request);
     } catch (e: any) {

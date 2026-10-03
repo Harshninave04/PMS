@@ -2,116 +2,482 @@ import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultRoleService, { RoleService } from "@/services/role.service";
-import { UpdateRoleDto } from "@/dto/role.dto";
-import { authorizeRequest } from "@/lib/rbac/guard";
-import { PERMISSION_KEYS } from "@/types/rbac";
+import { requirePermission, resolveRequestIdentity } from "@/lib/rbac/guard";
+import { invalidatePermissionCaches, recordRoleChange } from "@/lib/rbac/audit";
+import { isSuperAdminRole, normalizePermissions } from "@/lib/rbac/default-permissions";
+import { grantedSubItems } from "@/lib/rbac/default-permissions";
+import { PERMISSION_MODULES } from "@/lib/rbac/permissions.config";
+import { resolveRolePermissions } from "@/lib/rbac/role-permissions";
 
 /**
- * Roles are a fixed set seeded for the hospital (Admin, Doctor, Nurse,
- * Receptionist, Pharmacist, Accountant). Admins can view them and adjust
- * each role's module permissions; roles are not created or deleted at runtime.
+ * Reads the caller's own effective permissions and refuses to let them grant
+ * anything they do not hold themselves.
+ *
+ * Without this, anyone who can edit roles could edit a role into a super admin
+ * and then log in as one — the permission matrix would happily write whatever it
+ * was asked to write. It is the single most important rule in this file.
  */
-export class RoleController {
-    constructor(private roleService: RoleService = defaultRoleService) { }
+function permissionsBeyondActor(actor: Set<string>, actorIsSuperAdmin: boolean, requested: readonly string[]): string[] {
+    if (actorIsSuperAdmin) return [];
+    return normalizePermissions(requested).filter((permission) => !actor.has(permission));
+}
 
-    async getRoles(request?: NextRequest): Promise<NextResponse> {
+/** `module > sub-item > actions` summary, for the roles table tooltips. */
+function summarise(permissions: readonly string[]) {
+    const bySubItem = grantedSubItems(permissions);
+    const modules = PERMISSION_MODULES.map((module) => ({
+        key: module.key,
+        label: module.label,
+        subItems: module.subItems
+            .map((subItem) => {
+                const actions = bySubItem.get(`${module.key}.${subItem.key}`);
+                if (!actions?.size) return null;
+                return {
+                    key: subItem.key,
+                    label: subItem.label,
+                    route: subItem.route,
+                    actions: [...actions].sort(),
+                };
+            })
+            .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
+    })).filter((module) => module.subItems.length > 0);
+
+    return { modules, permissionCount: permissions.length, moduleCount: modules.length };
+}
+
+export class RoleController {
+    constructor(private roleService: RoleService = defaultRoleService) {}
+
+    /**
+     * GET /api/role
+     *
+     * Reachable by any authenticated user on purpose: the user-management and
+     * user-creation screens both need the role list to populate a `<select>`,
+     * and requiring `admin.roles:view` there would couple two unrelated
+     * capabilities. Only ids, names and counts are returned — never another
+     * role's permission list — so this cannot be used to read the access map.
+     */
+    async getRoles(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
 
-            if (request) {
-                const authResult = await authorizeRequest(request, PERMISSION_KEYS.ROLE_VIEW, "Role");
-                if (!authResult.isAuthorized) return authResult.response;
-            }
+            // Names and counts only — the user forms need to populate a role picker,
+            // so this stays open to any signed-in account, but it never reveals
+            // what a role can do. Permission detail lives behind `admin.roles:view`.
+            const denied = await requirePermission(request, null);
+            if (denied) return denied;
 
             const roles = await this.roleService.getAllRoles();
+            const counts = await this.roleService.userCounts();
 
-            return NextResponse.json(
-                { success: true, count: roles.length, data: roles },
-                { status: 200 }
-            );
+            const data = roles.map((role) => ({
+                _id: String(role._id),
+                role: role.role,
+                description: role.description ?? "",
+                isSystem: Boolean(role.isSystem),
+                isSuperAdmin: isSuperAdminRole(role.role),
+                userCount: counts[String(role._id)] ?? 0,
+            }));
+
+            return NextResponse.json({ success: true, count: data.length, data }, { status: 200 });
         } catch (error: unknown) {
             const err = error as { message?: string };
-            return NextResponse.json(
-                { success: false, message: err?.message || "Failed to fetch roles" },
-                { status: 500 }
-            );
+            return NextResponse.json({ success: false, message: err?.message || "Failed to fetch roles" }, { status: 500 });
         }
     }
 
-    async getRoleById(id: string, request?: NextRequest): Promise<NextResponse> {
+    /** GET /api/role/:id — the full permission list, for the matrix editor. */
+    async getRoleById(request: NextRequest, id: string): Promise<NextResponse> {
         try {
             await dbConnect();
 
-            if (request) {
-                const authResult = await authorizeRequest(request, PERMISSION_KEYS.ROLE_VIEW, "Role");
-                if (!authResult.isAuthorized) return authResult.response;
-            }
+            // The full permission list is role-management data, so it stays behind
+            // `admin.roles:view`. The bare list at `GET /api/role` is what the user
+            // forms use, and it carries names only.
+            const denied = await requirePermission(request, "admin.roles:view");
+            if (denied) return denied;
+
+            const identity = await resolveRequestIdentity();
+            if ("response" in identity) return identity.response;
 
             if (!Types.ObjectId.isValid(id)) {
-                return NextResponse.json(
-                    { success: false, message: "Invalid role ID" },
-                    { status: 400 }
-                );
+                return NextResponse.json({ success: false, message: "Invalid role ID" }, { status: 400 });
             }
 
             const role = await this.roleService.getRoleById(new Types.ObjectId(id));
             if (!role) {
-                return NextResponse.json(
-                    { success: false, message: "Role not found" },
-                    { status: 404 }
-                );
+                return NextResponse.json({ success: false, message: "Role not found" }, { status: 404 });
             }
 
+            const resolved = resolveRolePermissions(role);
+            const isSuperAdmin = isSuperAdminRole(role.role);
+            const mayEdit =
+                !isSuperAdmin &&
+                identity.identity.permissions.all.has("admin.roles:update") &&
+                identity.identity.roleId !== id;
+
             return NextResponse.json(
-                { success: true, data: role },
+                {
+                    success: true,
+                    data: {
+                        _id: String(role._id),
+                        role: role.role,
+                        description: role.description ?? "",
+                        isSystem: Boolean(role.isSystem),
+                        isSuperAdmin,
+                        userCount: (await this.roleService.userCounts())[String(role._id)] ?? 0,
+                        permissions: resolved.subItem,
+                        summary: summarise(resolved.subItem),
+                        canEdit: mayEdit,
+                    },
+                },
                 { status: 200 }
             );
         } catch (error: unknown) {
             const err = error as { message?: string };
+            return NextResponse.json({ success: false, message: err?.message || "Failed to fetch role" }, { status: 500 });
+        }
+    }
+
+    /** POST /api/role — create a custom role. */
+    async createRole(request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+
+            const denied = await requirePermission(request, "admin.roles:update");
+            if (denied) return denied;
+
+            const identity = await resolveRequestIdentity();
+            if ("response" in identity) return identity.response;
+
+            const body = (await request.json().catch(() => ({}))) as {
+                role?: string;
+                permissions?: string[];
+                description?: string;
+            };
+
+            const requested = normalizePermissions(body.permissions);
+            const beyond = permissionsBeyondActor(identity.identity.permissions.all, identity.identity.permissions.isSuperAdmin, requested);
+            if (beyond.length) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        message: `You cannot grant permissions you do not hold: ${beyond.slice(0, 5).join(", ")}`,
+                        code: "PRIVILEGE_ESCALATION",
+                    },
+                    { status: 403 }
+                );
+            }
+
+            const role = await this.roleService.createRole({
+                role: body.role ?? "",
+                permissions: requested,
+                description: body.description,
+            });
+
+            await recordRoleChange({
+                action: "CREATE",
+                role: role.role,
+                roleId: String(role._id),
+                actor: identity.identity,
+                before: [],
+                after: resolveRolePermissions(role).subItem,
+                reason: "custom role created",
+            });
+            invalidatePermissionCaches();
+
             return NextResponse.json(
-                { success: false, message: err?.message || "Failed to fetch role" },
-                { status: 500 }
+                { success: true, message: "Role created", data: { _id: String(role._id), role: role.role } },
+                { status: 201 }
+            );
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            return NextResponse.json(
+                { success: false, message: err?.message || "Failed to create role" },
+                { status: err?.statusCode || 500 }
             );
         }
     }
 
+    /** PUT /api/role/:id */
     async updateRole(request: NextRequest, id: string): Promise<NextResponse> {
         try {
             await dbConnect();
 
-            const authResult = await authorizeRequest(request, PERMISSION_KEYS.ROLE_UPDATE, "Role");
-            if (!authResult.isAuthorized) return authResult.response;
+            const denied = await requirePermission(request, "admin.roles:update");
+            if (denied) return denied;
+
+            const identity = await resolveRequestIdentity();
+            if ("response" in identity) return identity.response;
 
             if (!Types.ObjectId.isValid(id)) {
-                return NextResponse.json(
-                    { success: false, message: "Invalid role ID" },
-                    { status: 400 }
-                );
+                return NextResponse.json({ success: false, message: "Invalid role ID" }, { status: 400 });
             }
 
-            if (authResult.context.roleId.toString() === id) {
+            const roleId = new Types.ObjectId(id);
+            const existing = await this.roleService.getRoleById(roleId);
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Role not found" }, { status: 404 });
+            }
+
+            // Editing the role you administer yourself is how a lock-out starts.
+            if (identity.identity.roleId === id) {
                 return NextResponse.json(
                     { success: false, message: "You cannot change the permissions of your own role" },
                     { status: 403 }
                 );
             }
 
-            const data: UpdateRoleDto = await request.json();
-            const role = await this.roleService.updateRole(new Types.ObjectId(id), data);
+            const before = resolveRolePermissions(existing).subItem;
+            const body = (await request.json().catch(() => ({}))) as {
+                role?: string;
+                permissions?: string[];
+                description?: string;
+            };
+
+            const requested = Array.isArray(body.permissions) ? normalizePermissions(body.permissions) : before;
+            const beyond = permissionsBeyondActor(
+                identity.identity.permissions.all,
+                identity.identity.permissions.isSuperAdmin,
+                requested
+            );
+            if (beyond.length) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        message: `You cannot grant permissions you do not hold: ${beyond.slice(0, 5).join(", ")}`,
+                        code: "PRIVILEGE_ESCALATION",
+                    },
+                    { status: 403 }
+                );
+            }
+
+            // Only re-seed the legacy module access when the caller sent a new
+            // permission list, so a rename or description edit cannot silently
+            // reset the data-layer grants the controllers rely on.
+            const update = {
+                role: body.role,
+                description: body.description,
+                ...(Array.isArray(body.permissions)
+                    ? {
+                          permissions: requested,
+                          access: buildAccessFromPermissions(requested),
+                      }
+                    : {}),
+            };
+
+            const role = await this.roleService.updateRole(roleId, update);
+            const after = resolveRolePermissions(role).subItem;
+
+            await recordRoleChange({
+                action: "UPDATE",
+                role: role?.role ?? existing.role,
+                roleId: id,
+                actor: identity.identity,
+                before,
+                after,
+                reason: "permissions edited",
+            });
+            invalidatePermissionCaches();
 
             return NextResponse.json(
-                { success: true, message: "Role updated successfully", data: role },
+                { success: true, message: "Role updated successfully", data: { _id: id, permissions: after } },
                 { status: 200 }
             );
         } catch (error: unknown) {
             const err = error as { statusCode?: number; message?: string };
-            const statusCode = err?.statusCode || 500;
             return NextResponse.json(
                 { success: false, message: err?.message || "Failed to update role" },
-                { status: statusCode }
+                { status: err?.statusCode || 500 }
             );
         }
     }
+
+    /** DELETE /api/role/:id */
+    async deleteRole(request: NextRequest, id: string): Promise<NextResponse> {
+        try {
+            await dbConnect();
+
+            const denied = await requirePermission(request, "admin.roles:update");
+            if (denied) return denied;
+
+            const identity = await resolveRequestIdentity();
+            if ("response" in identity) return identity.response;
+
+            if (!Types.ObjectId.isValid(id)) {
+                return NextResponse.json({ success: false, message: "Invalid role ID" }, { status: 400 });
+            }
+
+            const roleId = new Types.ObjectId(id);
+            const existing = await this.roleService.getRoleById(roleId);
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Role not found" }, { status: 404 });
+            }
+
+            const before = resolveRolePermissions(existing).subItem;
+            const role = await this.roleService.deleteRole(roleId);
+
+            await recordRoleChange({
+                action: "DELETE",
+                role: existing.role,
+                roleId: id,
+                actor: identity.identity,
+                before,
+                after: [],
+                reason: "role deleted",
+            });
+            invalidatePermissionCaches();
+
+            return NextResponse.json(
+                { success: true, message: `Role '${existing.role}' deleted`, data: { _id: id } },
+                { status: 200 }
+            );
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            return NextResponse.json(
+                { success: false, message: err?.message || "Failed to delete role" },
+                { status: err?.statusCode || 500 }
+            );
+        }
+    }
+
+    /** GET /api/role — admin view: every role with its permission summary. */
+    async getRolesForManagement(request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+
+            const denied = await requirePermission(request, "admin.roles:view");
+            if (denied) return denied;
+
+            const roles = await this.roleService.getAllRoles();
+            const counts = await this.roleService.userCounts();
+
+            const data = roles.map((role) => {
+                const resolved = resolveRolePermissions(role);
+                return {
+                    _id: String(role._id),
+                    role: role.role,
+                    description: role.description ?? "",
+                    isSystem: Boolean(role.isSystem),
+                    isSuperAdmin: isSuperAdminRole(role.role),
+                    userCount: counts[String(role._id)] ?? 0,
+                    permissionCount: resolved.subItem.length,
+                    summary: summarise(resolved.subItem),
+                };
+            });
+
+            return NextResponse.json({ success: true, count: data.length, data }, { status: 200 });
+        } catch (error: unknown) {
+            const err = error as { message?: string };
+            return NextResponse.json({ success: false, message: err?.message || "Failed to fetch roles" }, { status: 500 });
+        }
+    }
+}
+
+/**
+ * Keeps the legacy module-keyed `access` list in step with the sub-item
+ * permissions, so the older data-layer guard keeps working after an edit
+ * instead of silently rejecting every query filter the repositories build.
+ *
+ * This maps backwards — sub-item -> the data-layer keys that back it — using the
+ * same per-module shapes the migration uses forwards.
+ */
+function buildAccessFromPermissions(permissions: readonly string[]) {
+    const bySubItem = grantedSubItems(permissions);
+    const byModule = new Map<string, Set<string>>();
+
+    const LEGACY_FOR: Record<string, Record<string, readonly string[]>> = {
+        patients: {
+            register: ["patient.patient.create"],
+            list: ["patient.patient.view"],
+            profile: ["patient.patient.view"],
+            documents: ["patient.document.upload"],
+        },
+        opd: {
+            book: ["appointment.appointment.create"],
+            queue: ["appointment.appointment.view"],
+            list: ["appointment.appointment.view"],
+        },
+        clinical: {
+            consultations: ["clinical.record.view"],
+            prescriptions: ["clinical.prescription.view"],
+            vitals: ["nursing.vitals.view"],
+            history: ["clinical.record.view"],
+        },
+        admissions: {
+            new: ["admission.admission.create"],
+            current: ["admission.admission.view"],
+            transfer: ["admission.admission.transfer"],
+            discharge: ["admission.admission.discharge"],
+            summary: ["admission.admission.view"],
+            history: ["admission.admission.view"],
+        },
+        wards: {
+            availability: ["ward.ward.view"],
+            list: ["ward.ward.view"],
+            rooms: ["ward.ward.view"],
+            beds: ["ward.ward.view"],
+        },
+        nursing: {
+            patients: ["nursing.task.view"],
+            vitals: ["nursing.vitals.view"],
+            notes: ["nursing.task.create"],
+            medications: ["nursing.task.view"],
+        },
+        pharmacy: {
+            prescriptions: ["pharmacy.prescription.view"],
+            dispensing: ["pharmacy.dispense.create"],
+            medicines: ["pharmacy.stock.view"],
+            categories: ["pharmacy.stock.manage"],
+            stock: ["pharmacy.stock.view"],
+            expiry: ["pharmacy.stock.manage"],
+        },
+        billing: {
+            create: ["billing.invoice.create"],
+            invoices: ["billing.invoice.view"],
+            payments: ["billing.payment.view"],
+            outstanding: ["billing.payment.view"],
+        },
+        reports: {
+            summary: ["reports.clinical.view"],
+            patients: ["reports.clinical.view"],
+            appointments: ["reports.clinical.view"],
+            doctors: ["reports.operational.view"],
+            admissions: ["reports.clinical.view"],
+            pharmacy: ["reports.operational.view"],
+            billing: ["reports.financial.view"],
+        },
+        admin: {
+            hospital: ["organization.organization.view"],
+            users: ["user.user.view"],
+            roles: ["role.role.view"],
+            doctors: ["doctor.doctor.view"],
+            staff: ["staff.staff.view"],
+            departments: ["department.department.view"],
+            schedule: ["staff.staff.view"],
+        },
+        dashboard: { main: ["dashboard.dashboard.view"] },
+    };
+
+    for (const module of PERMISSION_MODULES) {
+        const moduleKeys = LEGACY_FOR[module.key] ?? {};
+        const collected = byModule.get(module.key) ?? new Set<string>();
+        for (const subItem of module.subItems) {
+            const actions = bySubItem.get(`${module.key}.${subItem.key}`);
+            if (!actions?.size) continue;
+            for (const legacy of moduleKeys[subItem.key] ?? []) collected.add(legacy);
+        }
+        if (collected.size) byModule.set(module.key, collected);
+    }
+
+    return [...byModule.entries()].map(([moduleName, keys]) => {
+        const list = [...keys].sort();
+        return {
+            moduleName,
+            permissions: list,
+            grants: list.map((permission) => ({ permission, orgScope: "BRANCH", relScope: "UNRESTRICTED" })),
+        };
+    });
 }
 
 const roleController = new RoleController();

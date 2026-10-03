@@ -6,11 +6,14 @@ import Doctor from "@/models/doctor.model";
 import User from "@/models/user.model";
 import Department from "@/models/department.model";
 import { AppointmentService } from "@/services/appointment.service";
-import { authorizeRequest } from "@/lib/rbac/guard";
+import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
-export async function GET(req: NextRequest) {
-  const authResult = await authorizeRequest(req, PERMISSION_KEYS.APPOINTMENT_VIEW);
+export async function GET(request: NextRequest) {
+  const denied = await requirePermission(request, "opd.queue:view");
+  if (denied) return denied;
+
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.APPOINTMENT_VIEW);
   if (!authResult.isAuthorized) return authResult.response;
 
     try {
@@ -20,7 +23,7 @@ export async function GET(req: NextRequest) {
         if (!User) {}
         if (!Department) {}
 
-        const { searchParams } = new URL(req.url);
+        const { searchParams } = new URL(request.url);
         const doctorId = searchParams.get('doctorId');
 
         const todayStart = new Date();
@@ -70,13 +73,16 @@ export async function GET(req: NextRequest) {
     }
 }
 
-export async function POST(req: NextRequest) {
-  const authResult = await authorizeRequest(req, PERMISSION_KEYS.APPOINTMENT_UPDATE);
+export async function POST(request: NextRequest) {
+  const denied = await requirePermission(request, "opd.queue:update");
+  if (denied) return denied;
+
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.APPOINTMENT_UPDATE);
   if (!authResult.isAuthorized) return authResult.response;
 
     try {
         await dbConnect();
-        const body = await req.json();
+        const body = await request.json();
         const { appointmentId, action } = body;
 
         if (!appointmentId || !action) {

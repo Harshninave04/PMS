@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import WardController from "@/controllers/ward.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 /**
  * @route POST /api/ward
  * @desc Create a new ward
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+    const denied = await requirePermission(request, "wards.list:create");
+    if (denied) return denied;
+
     try {
         return WardController.createWard(request);
     } catch (e: unknown) {
@@ -22,6 +26,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
  * @desc Get all wards (supports ?organizationId=...)
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
+    const denied = await requirePermission(request, null);
+    if (denied) return denied;
+
     try {
         return WardController.getWards(request);
     } catch (e: unknown) {
