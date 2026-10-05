@@ -10,7 +10,7 @@ import {
 import { authOptions } from "@/lib/auth";
 import { resolveRequestIdentity } from "@/lib/rbac/guard";
 import { currentPermissionEpoch } from "@/lib/rbac/audit";
-import { permissionsForPage } from "@/lib/rbac/permissions.config";
+import { isPublicPage, permissionsForPage } from "@/lib/rbac/permissions.config";
 import { PATHNAME_HEADER, canOpenPage } from "@/lib/rbac/page-guard";
 
 /**
@@ -27,6 +27,8 @@ import { PATHNAME_HEADER, canOpenPage } from "@/lib/rbac/page-guard";
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = (await headers()).get(PATHNAME_HEADER) ?? "";
   const required = permissionsForPage(pathname);
+  const publicPage = isPublicPage(pathname);
+  if (!required.length && !publicPage) forbidden();
 
   // The snapshot is resolved on the server so the sidebar and every `<Can>`
   // render with the right permissions on first paint, with no client fetch and
@@ -35,7 +37,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const identity = resolved && "identity" in resolved ? resolved.identity : null;
   const session = identity ? null : await getServerSession(authOptions);
 
-  if (identity && !canOpenPage(required, identity.permissions)) forbidden();
+  if (identity && !canOpenPage(required, identity.permissions, publicPage)) forbidden();
 
   const snapshot: PermissionSnapshot = {
     subItem: identity?.permissions.subItem ?? session?.user?.permissions ?? [],

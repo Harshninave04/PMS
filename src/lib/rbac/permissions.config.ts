@@ -263,9 +263,9 @@ const ROLE_PERMISSIONS_PATH = /^\/admin\/roles\/[^/]+\/permissions\/?$/;
  * not permission-gated.
  *
  * This is the page-side half of `filterMenusByPermissions`: hiding a sidebar
- * link and refusing the URL must agree, and both read this catalogue. An empty
- * result means "no route in the catalogue guards this path" — the caller
- * renders the page rather than locking everybody out of an unlisted route.
+ * link and refusing the URL must agree, and both read this catalogue.
+ * An empty result means either an explicitly public page or an unknown path;
+ * `isPublicPage` distinguishes those cases so unknown pages deny by default.
  */
 export function permissionsForPage(path: string): readonly string[] {
     const normalised = (path || "").split(/[?#]/)[0].replace(/\/+$/, "").toLowerCase() || "/";
@@ -282,6 +282,12 @@ export function permissionsForPage(path: string): readonly string[] {
     // in the table too. Anything left resolves through the sidebar catalogue,
     // which also covers the module landing pages (`/patients`, `/finance`, ...).
     return permissionsForRoute(normalised);
+}
+
+/** Pages deliberately reachable without a permission inside the dashboard layout. */
+export function isPublicPage(path: string): boolean {
+    const normalised = (path || "").split(/[?#]/)[0].replace(/\/+$/, "").toLowerCase() || "/";
+    return ALWAYS_OPEN_PAGES.has(normalised);
 }
 
 /** Grouped `module > sub-item > actions` shape served by `GET /api/permissions`. */

@@ -14,9 +14,9 @@ import {
   ScopeFilter
 } from "@/types/rbac";
 import { ScopeResolver } from "@/lib/rbac/scope-resolver";
-import { resolveRolePermissions, type ResolvedRolePermissions } from "@/lib/rbac/role-permissions";
+import { hasResolvedSubItemPermission, resolveRolePermissions, type ResolvedRolePermissions } from "@/lib/rbac/role-permissions";
 import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
-import { findRouteRule } from "@/lib/rbac/route-permissions";
+import { authorizeRoutePermission, findRouteRule } from "@/lib/rbac/route-permissions";
 
 /**
  * Closed-loop authorization guard for API route controllers.
@@ -187,20 +187,23 @@ export async function authorizeRequest<T = Record<string, unknown>>(
     // 7. Permission Verification
     const resolvedPermissions = resolveRolePermissions(roleDoc);
     const routeRule = findRouteRule(request);
-    const allowed = routeRule
-      ? routeRule.permissions === null ||
-        routeRule.permissions.some((p) => resolvedPermissions.all.has(p.toLowerCase()))
-      : permissionsSet.has(requiredPermission);
+    const allowed = authorizeRoutePermission(
+      routeRule,
+      new Set(resolvedPermissions.subItem),
+      permissionsSet,
+      requiredPermission
+    );
 
     if (!allowed) {
+      const deniedPermission = routeRule?.permission ?? requiredPermission;
       return {
         isAuthorized: false,
         errorCode: "FORBIDDEN",
-        reason: `Forbidden: Missing required permission [${requiredPermission}]`,
+        reason: `Forbidden: Missing required permission [${deniedPermission}]`,
         response: NextResponse.json(
           {
             success: false,
-            message: `Forbidden: You do not have permission to perform this action (${requiredPermission})`
+            message: `Forbidden: You do not have permission to perform this action (${deniedPermission})`
           },
           { status: 403 }
         )
@@ -342,7 +345,7 @@ export async function requirePermission(
   if (!permission) return null;
 
   const { permissions } = resolved.identity;
-  if (permissions.isSuperAdmin || permissions.all.has(permission.toLowerCase())) return null;
+  if (hasResolvedSubItemPermission(permissions, permission)) return null;
 
   return denied(
     403,
@@ -365,8 +368,7 @@ export async function requireAnyPermission(
   if (!alternatives.length) return null;
 
   const { permissions } = resolved.identity;
-  if (permissions.isSuperAdmin) return null;
-  if (alternatives.some((permission) => permissions.all.has(permission.toLowerCase()))) return null;
+  if (permissions.isSuperAdmin || alternatives.some((permission) => hasResolvedSubItemPermission(permissions, permission))) return null;
 
   return denied(403, "Forbidden: you do not have permission to view this", "FORBIDDEN");
 }

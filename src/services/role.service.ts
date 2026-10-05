@@ -38,6 +38,7 @@ export class RoleService {
             // normalizePermissions applies both dependency rules, so a role can
             // never be created in a state the guards would refuse.
             permissions: normalizePermissions(data.permissions),
+            permissionsCustomized: true,
             description: (data.description || "").trim(),
             isSystem: false,
             access: [],
@@ -64,7 +65,7 @@ export class RoleService {
 
     async updateRole(
         id: Types.ObjectId,
-        data: { role?: string; permissions?: string[]; description?: string }
+        data: { role?: string; permissions?: string[]; permissionsCustomized?: boolean; description?: string }
     ): Promise<IRole | null> {
         const role = await this.repository.findById(id);
         if (!role) throw { statusCode: 404, message: "Role not found" };
@@ -81,7 +82,11 @@ export class RoleService {
 
         const update: Record<string, unknown> = {};
         if (typeof data.role === "string" && data.role.trim()) update.role = data.role.trim().toUpperCase();
-        if (Array.isArray(data.permissions)) update.permissions = normalizePermissions(data.permissions);
+        if (Array.isArray(data.permissions)) {
+            update.permissions = normalizePermissions(data.permissions);
+            update.permissionsCustomized = true;
+        }
+        if (data.permissionsCustomized === true) update.permissionsCustomized = true;
         if (typeof data.description === "string") update.description = data.description.trim();
 
         if (update.role) {

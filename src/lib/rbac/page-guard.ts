@@ -21,15 +21,16 @@ export const PATHNAME_HEADER = "x-pathname";
 /**
  * True when the permissions are enough to open the page.
  *
- * An empty requirement means no catalogue entry guards the path, and the page
- * renders — an unknown route is not evidence of a locked page, and locking
- * everything unlisted would lock out pages nobody has thought about yet.
+ * A missing catalogue entry is denied. New dashboard pages must be deliberately
+ * added to the permission catalogue before a non-Super-Admin can open them.
  */
 export function canOpenPage(
   required: readonly string[],
-  permissions: { isSuperAdmin?: boolean; all: ReadonlySet<string> }
+  permissions: { isSuperAdmin?: boolean; all: ReadonlySet<string> },
+  explicitlyPublic = false
 ): boolean {
-  if (!required.length) return true;
   if (permissions.isSuperAdmin) return true;
+  if (explicitlyPublic) return true;
+  if (!required.length) return false;
   return required.some((permission) => permissions.all.has(permission.toLowerCase()));
 }

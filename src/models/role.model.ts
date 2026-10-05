@@ -44,6 +44,11 @@ const roleSchema = new Schema<IRole>({
         type: [String],
         default: [],
     },
+    /** True once an administrator has explicitly saved this role's permission list. */
+    permissionsCustomized: {
+        type: Boolean,
+        default: false,
+    },
     /** Seeded roles cannot be renamed or deleted at runtime. */
     isSystem: {
         type: Boolean,

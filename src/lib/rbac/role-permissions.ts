@@ -22,6 +22,7 @@ export interface StoredRoleLike {
     _id?: unknown;
     role?: string | null;
     permissions?: unknown;
+    permissionsCustomized?: boolean;
     access?: unknown;
 }
 
@@ -86,9 +87,10 @@ export function resolveRolePermissions(role: StoredRoleLike | null | undefined):
     // The legacy translation is still the fallback for a role that has never been
     // through the migration (`permissions` empty), so an installed database that
     // only knows the old keys keeps working instead of resolving to nothing.
+    const hasExplicitPermissionList = role?.permissionsCustomized === true || storedSubItem.length > 0;
     const subItem = isSuperAdmin
         ? [...ALL_SUB_ITEM_PERMISSIONS]
-        : normalizePermissions(storedSubItem.length ? storedSubItem : migratedSubItem);
+        : normalizePermissions(hasExplicitPermissionList ? storedSubItem as string[] : migratedSubItem);
 
     return {
         subItem,
@@ -104,6 +106,13 @@ export function hasResolvedPermission(resolved: ResolvedRolePermissions, permiss
     if (!key) return false;
     if (resolved.isSuperAdmin) return true;
     return resolved.all.has(key);
+}
+
+/** Permission used by sub-item guards; legacy data keys never satisfy it. */
+export function hasResolvedSubItemPermission(resolved: ResolvedRolePermissions, permission: string): boolean {
+    const key = (permission || "").trim().toLowerCase();
+    if (!key) return false;
+    return resolved.isSuperAdmin || resolved.subItem.includes(key);
 }
 
 /** Resolved sub-item keys a user may reach. */

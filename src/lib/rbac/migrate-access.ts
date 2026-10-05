@@ -139,14 +139,6 @@ const LEGACY_TO_SUB_ITEM: Readonly<Record<string, KeyList>> = {
  * dropped during migration and served by the reference-lookup endpoints
  * instead (see `ROUTE_PERMISSIONS` in `rbac/route-permissions.ts`).
  */
-const REFERENCE_LOOKUP_KEYS: ReadonlySet<string> = new Set([
-    "user.directory.view",
-    "organization.organization.view",
-    "department.department.view",
-    "doctor.doctor.view",
-    "ward.ward.view",
-]);
-
 /** Translates one legacy permission key into sub-item permissions. */
 export function translateLegacyPermission(legacyPermission: string): string[] {
     return [...(LEGACY_TO_SUB_ITEM[legacyPermission] ?? [])];

@@ -93,6 +93,7 @@ async function seedDatabase() {
             if (existing) {
                 existing.access = access;
                 existing.permissions = permissions;
+                existing.permissionsCustomized = true;
                 existing.isSystem = true;
                 await existing.save();
                 roleDocs[roleName] = existing as unknown as (typeof roleDocs)[string];
@@ -103,6 +104,7 @@ async function seedDatabase() {
                 role: roleName,
                 access,
                 permissions,
+                permissionsCustomized: true,
                 isSystem: true,
             });
         }

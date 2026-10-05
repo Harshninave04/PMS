@@ -289,6 +289,7 @@ export class RoleController {
             const update = {
                 role: body.role,
                 description: body.description,
+                permissionsCustomized: true,
                 ...(Array.isArray(body.permissions)
                     ? {
                           permissions: requested,

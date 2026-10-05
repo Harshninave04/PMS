@@ -34,6 +34,7 @@ import {
   findSubItem,
   permissionKey,
   permissionsForPage,
+  isPublicPage,
 } from "@/lib/rbac/permissions.config";
 
 /**
@@ -336,9 +337,10 @@ test("The URL guard refuses the pages the sidebar hides", () => {
   assert.equal(canOpenPage(permissionsForPage("/admin/roles"), identity), false, "role management must be 403");
 });
 
-test("A page with no catalogue entry renders rather than locking everybody out", () => {
+test("A page with no catalogue entry is denied by default", () => {
   const identity = { isSuperAdmin: false, all: new Set<string>() };
-  assert.equal(canOpenPage([], identity), true);
+  assert.equal(canOpenPage([], identity), false);
+  assert.equal(canOpenPage([], identity, isPublicPage("/login")), true);
 });
 
 test("Super Admin can open every catalogue page", () => {

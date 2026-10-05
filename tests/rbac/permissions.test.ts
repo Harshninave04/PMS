@@ -10,11 +10,17 @@ import {
   parsePermissionKey,
   permissionKey,
   permissionsForRoute,
+  permissionsForPage,
+  isPublicPage,
 } from "@/lib/rbac/permissions.config";
+import { canOpenPage } from "@/lib/rbac/page-guard";
 import {
   LOOKUP_ENDPOINTS,
   PUBLIC_ENDPOINTS,
   ROUTE_PERMISSIONS,
+  findRouteRule,
+  authorizeRoutePermission,
+  routeRuleAllows,
   resolveRoutePath,
 } from "@/lib/rbac/route-permissions";
 import {
@@ -27,6 +33,7 @@ import {
 import {
   hasResolvedPermission,
   legacyPermissionsOf,
+  hasResolvedSubItemPermission,
   resolveRolePermissions,
 } from "@/lib/rbac/role-permissions";
 import {
@@ -35,6 +42,7 @@ import {
 } from "@/lib/rbac/migrate-access";
 import { ALL_ROLES, ADMIN_ROLE, buildRoleAccess } from "@/lib/rbac/role-access";
 import { MENUS, filterMenusByPermissions } from "@/lib/menu-data";
+import { expectedPermissionsFor } from "@/lib/rbac/canonical-sync";
 
 /** Every `route.ts` under `src/app/api`. */
 function findRouteFiles(root: string): string[] {
@@ -270,6 +278,69 @@ async function runPermissionTests() {
     assert.ok(legacyPermissionsOf(legacyOnly).length > 0, "Legacy keys were dropped");
   });
 
+  test("An explicitly empty permission list survives legacy access and reconciliation", () => {
+    const noAccess = {
+      role: "DOCTOR",
+      permissions: [],
+      permissionsCustomized: true,
+      access: buildRoleAccess("DOCTOR"),
+    };
+    assert.deepEqual(resolveRolePermissions(noAccess).subItem, []);
+    assert.deepEqual(expectedPermissionsFor("DOCTOR", noAccess), []);
+    const rule = findRouteRule(new Request("http://localhost/api/patient", { method: "POST" }))!;
+    assert.equal(routeRuleAllows(rule, new Set(resolveRolePermissions(noAccess).subItem)), false);
+  });
+
+  test("Legacy keys cannot satisfy an authoritative route rule", () => {
+    const rule = findRouteRule(new Request("http://localhost/api/patient", { method: "POST" }))!;
+    assert.equal(routeRuleAllows(rule, new Set(["patient.patient.create"])), false);
+    assert.equal(routeRuleAllows(rule, new Set(["patients.register:create"])), true);
+    const legacyOnly = resolveRolePermissions({
+      role: "RECEPTIONIST",
+      permissionsCustomized: true,
+      permissions: [],
+      access: [{ moduleName: "patient", permissions: ["patients.register:create", "patient.patient.create"] }],
+    });
+    assert.equal(hasResolvedSubItemPermission(legacyOnly, "patients.register:create"), false);
+  });
+
+  test("Default role API flows pass route and controller authorization", () => {
+    const requestRule = (url: string, method: string) =>
+      findRouteRule(new Request(`http://localhost${url}`, { method }))!;
+    const cases: { role: string; url: string; method: string; legacy: string; extra?: string }[] = [
+      { role: "ADMIN", url: "/api/permissions", method: "GET", legacy: "role.role.view" },
+      { role: "DOCTOR", url: "/api/patient", method: "POST", legacy: "patient.patient.create", extra: "patients.register:create" },
+      { role: "RECEPTIONIST", url: "/api/payment", method: "POST", legacy: "billing.payment.create" },
+      { role: "RECEPTIONIST", url: "/api/ward", method: "GET", legacy: "ward.ward.view" },
+      { role: "RECEPTIONIST", url: "/api/room", method: "GET", legacy: "ward.ward.view" },
+      { role: "NURSE", url: "/api/clinical/vitals", method: "POST", legacy: "nursing.vitals.create" },
+      { role: "NURSE", url: "/api/clinical/records", method: "POST", legacy: "nursing.task.create" },
+      { role: "PHARMACIST", url: "/api/pharmacy/dispense", method: "POST", legacy: "pharmacy.dispense.create" },
+      { role: "ACCOUNTANT", url: "/api/invoice", method: "POST", legacy: "billing.invoice.create" },
+    ];
+    for (const flow of cases) {
+      const subItems = new Set(defaultPermissionsFor(flow.role));
+      if (flow.extra) subItems.add(flow.extra);
+      const legacy = new Set([flow.legacy]);
+      const rule = requestRule(flow.url, flow.method);
+      assert.equal(routeRuleAllows(rule, subItems), true, `${flow.role} route guard denied ${flow.method} ${flow.url}`);
+      assert.equal(authorizeRoutePermission(rule, subItems, legacy, flow.legacy), true,
+        `${flow.role} controller guard denied ${flow.method} ${flow.url}`);
+    }
+  });
+
+  test("View-only permissions deny every API write method", () => {
+    const cases = [
+      ["POST", "/api/patient", "patients.register:view"],
+      ["PUT", "/api/patient/65f1c2a3b4c5d6e7f8091234", "patients.profile:view"],
+      ["DELETE", "/api/patient/65f1c2a3b4c5d6e7f8091234", "patients.profile:view"],
+    ] as const;
+    for (const [method, url, permission] of cases) {
+      const rule = findRouteRule(new Request(`http://localhost${url}`, { method }))!;
+      assert.equal(routeRuleAllows(rule, new Set([permission])), false, `${method} ${url} allowed view-only access`);
+    }
+  });
+
   // ------------------------------------------------------------------- routing
 
   test("Dynamic path segments resolve to their route rule", () => {
@@ -413,6 +484,43 @@ async function runPermissionTests() {
     const missing = [...onDisk].filter((routePath) => !declared.has(routePath));
 
     assert.deepEqual(missing.sort(), [], "API paths with no entry in ROUTE_PERMISSIONS");
+  });
+
+  test("Every API handler method has an authoritative route rule", () => {
+    const apiRoot = path.resolve(process.cwd(), "src/app/api");
+    const declared = new Set(ROUTE_PERMISSIONS.map((rule) => `${rule.method} /api${rule.path}`));
+    const missing: string[] = [];
+    for (const file of findRouteFiles(apiRoot)) {
+      const routePath = routeFileToApiPath(apiRoot, file);
+      if (routePath.startsWith("/api/auth")) continue;
+      const source = fs.readFileSync(file, "utf8");
+      for (const [, rawMethod] of source.matchAll(/export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)\b/g)) {
+        const method = rawMethod === "PATCH" ? "PUT" : rawMethod;
+        const key = `${method} ${routePath}`;
+        if (!declared.has(key)) missing.push(`${method} ${routePath}`);
+      }
+    }
+    assert.deepEqual([...new Set(missing)].sort(), [], "API handler methods with no ROUTE_PERMISSIONS entry");
+  });
+
+  test("Every dashboard page is catalogued, and unknown pages deny by default", () => {
+    const appRoot = path.resolve(process.cwd(), "src/app");
+    const pages: string[] = [];
+    const walk = (directory: string) => {
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const full = path.join(directory, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name === "page.tsx") pages.push(full);
+      }
+    };
+    walk(appRoot);
+    const unknown = pages.map((file) => {
+      const segments = path.relative(appRoot, path.dirname(file)).replace(/\\/g, "/").split("/").filter(Boolean);
+      const url = `/${segments.filter((segment) => !segment.startsWith("(")).join("/")}`;
+      return { url, required: permissionsForPage(url), isPublic: isPublicPage(url) };
+    }).filter(({ required, isPublic }) => !required.length && !isPublic);
+    assert.deepEqual(unknown.map(({ url }) => url).sort(), [], "Dashboard pages missing a catalogue permission");
+    assert.equal(canOpenPage([], { all: new Set() }), false, "Uncatalogued page opened for an ordinary role");
   });
 
   test("No handler grants itself an open guard the manifest does not sanction", () => {

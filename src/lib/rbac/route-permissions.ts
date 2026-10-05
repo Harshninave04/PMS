@@ -295,6 +295,7 @@ export const ROUTE_ALTERNATIVES: Readonly<Record<string, readonly string[]>> = {
     "GET /clinical/records": [K("nursing", "notes", "view")],
     "POST /clinical/records": [K("nursing", "notes", "create")],
     "PUT /clinical/records/[id]": [K("nursing", "notes", "update")],
+    "DELETE /clinical/records/[id]": [K("nursing", "notes", "delete")],
     "GET /clinical/vitals": [K("nursing", "vitals", "view")],
     "POST /clinical/vitals": [K("nursing", "vitals", "create")],
     "DELETE /clinical/vitals/[id]": [K("nursing", "vitals", "delete")],
@@ -307,9 +308,9 @@ export const ROUTE_ALTERNATIVES: Readonly<Record<string, readonly string[]>> = {
 /**
  * The rule that governs an incoming API request, or null when the table has
  * none (the caller then falls back to the legacy key).
- * `permissions: null` means any signed-in user (a lookup or open read).
+ * A returned `permission: null` means any signed-in user (a lookup or open read).
  */
-export function findRouteRule(request: Request): { permissions: readonly string[] | null } | null {
+export function findRouteRule(request: Request): { permission: string | null; alternatives: readonly string[] } | null {
     let pathname = "";
     try {
         pathname = new URL(request.url).pathname;
@@ -322,7 +323,26 @@ export function findRouteRule(request: Request): { permissions: readonly string[
 
     const rule = ROUTE_PERMISSIONS.find((r) => r.path === path && r.method === method);
     if (!rule) return null;
-    if (rule.permission === null) return { permissions: null };
+    return { permission: rule.permission, alternatives: ROUTE_ALTERNATIVES[`${method} ${path}`] ?? [] };
+}
 
-    return { permissions: [rule.permission, ...(ROUTE_ALTERNATIVES[`${method} ${path}`] ?? [])] };
+/** Route rules consult only the saved sub-item layer, never legacy data keys. */
+export function routeRuleAllows(
+    rule: { permission: string | null; alternatives: readonly string[] },
+    subItemPermissions: ReadonlySet<string>
+): boolean {
+    return rule.permission === null ||
+        [rule.permission, ...rule.alternatives].some((permission) => subItemPermissions.has(permission.toLowerCase()));
+}
+
+/** The exact permission decision shared by every legacy controller guard. */
+export function authorizeRoutePermission(
+    rule: { permission: string | null; alternatives: readonly string[] } | null,
+    subItemPermissions: ReadonlySet<string>,
+    legacyPermissions: ReadonlySet<string>,
+    requiredPermission: string
+): boolean {
+    return rule
+        ? routeRuleAllows(rule, subItemPermissions)
+        : legacyPermissions.has(requiredPermission);
 }

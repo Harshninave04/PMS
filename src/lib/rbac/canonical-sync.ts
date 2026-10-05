@@ -218,10 +218,12 @@ export function roleAccessSignature(
 export function roleIsCanonical(
     roleName: string,
     access: readonly Partial<ModuleAccess>[] | null | undefined,
-    permissions: readonly string[] | null | undefined = undefined
+    permissions: readonly string[] | null | undefined = undefined,
+    permissionsCustomized = false
 ): boolean {
     const desiredPermissions = expectedPermissionsFor(roleName, {
         permissions: permissions ?? undefined,
+        permissionsCustomized,
         access: access ?? undefined,
     });
 
@@ -250,12 +252,12 @@ export function roleIsCanonical(
  */
 export function expectedPermissionsFor(
     roleName: string,
-    existing?: { permissions?: readonly string[]; access?: readonly Partial<ModuleAccess>[] } | null
+    existing?: { permissions?: readonly string[]; permissionsCustomized?: boolean; access?: readonly Partial<ModuleAccess>[] } | null
 ): string[] {
     const defaults = defaultPermissionsFor(roleName);
     if (!existing) return defaults;
 
-    if (existing.permissions?.length) {
+    if (existing.permissionsCustomized || existing.permissions?.length) {
         return normalizePermissions(existing.permissions);
     }
 
@@ -334,7 +336,7 @@ async function syncRoles(apply: boolean): Promise<{ created: string[]; refreshed
 
         if (!existing) {
             if (apply) {
-                await Role.create({ role: roleName, access, permissions, isSystem: true });
+                await Role.create({ role: roleName, access, permissions, permissionsCustomized: true, isSystem: true });
                 await recordRoleChange({
                     action: "SEED",
                     role: roleName,
@@ -351,20 +353,22 @@ async function syncRoles(apply: boolean): Promise<{ created: string[]; refreshed
         // Preserve anything the database already granted on top of the defaults.
         const desired = expectedPermissionsFor(roleName, {
             permissions: (existing as { permissions?: string[] }).permissions,
+            permissionsCustomized: (existing as { permissionsCustomized?: boolean }).permissionsCustomized,
             access: existing.access as Partial<ModuleAccess>[],
         });
 
         const accessMatches = roleAccessSignature(existing.access, desired) === roleAccessSignature(access, desired);
         const permissionsMatch =
             permissionSignature((existing as { permissions?: string[] }).permissions) === permissionSignature(desired);
-        const flagsMatch = Boolean((existing as { isSystem?: boolean }).isSystem);
+        const flagsMatch = Boolean((existing as { isSystem?: boolean }).isSystem) &&
+            Boolean((existing as { permissionsCustomized?: boolean }).permissionsCustomized);
 
         if (accessMatches && permissionsMatch && flagsMatch) continue;
 
         if (apply) {
             await Role.updateOne(
                 { _id: existing._id },
-                { $set: { access, permissions: desired, isSystem: true } }
+                { $set: { access, permissions: desired, permissionsCustomized: true, isSystem: true } }
             );
             if (!permissionsMatch) {
                 await recordRoleChange({
@@ -400,18 +404,20 @@ async function migrateOtherRoles(apply: boolean): Promise<{ migrated: string[] }
     const others = await Role.find({
         role: { $nin: [...ALL_ROLES, ...OUT_OF_SCOPE_ROLES] },
     })
-        .select("role permissions access")
+        .select("role permissions permissionsCustomized access")
         .lean();
     for (const role of others) {
         const stored = (role as { permissions?: string[] }).permissions ?? [];
         const desired = expectedPermissionsFor(role.role, {
             permissions: stored,
+            permissionsCustomized: (role as { permissionsCustomized?: boolean }).permissionsCustomized,
             access: role.access as Partial<ModuleAccess>[],
         });
-        if (permissionSignature(stored) === permissionSignature(desired)) continue;
+        const customized = Boolean((role as { permissionsCustomized?: boolean }).permissionsCustomized);
+        if (permissionSignature(stored) === permissionSignature(desired) && (!stored.length || customized)) continue;
 
         if (apply) {
-            await Role.updateOne({ _id: role._id }, { $set: { permissions: desired } });
+            await Role.updateOne({ _id: role._id }, { $set: { permissions: desired, permissionsCustomized: true } });
             await recordRoleChange({
                 action: "MIGRATE",
                 role: role.role,
