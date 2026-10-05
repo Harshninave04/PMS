@@ -4,8 +4,10 @@ import dbConnect from "@/lib/dbConnect";
 import defaultUserService, { UserService } from "@/services/user.service";
 import { CreateUserDto, UpdateUserDto } from "@/dto/user.dto";
 import User from "@/models/user.model";
+import Role from "@/models/role.model";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { guardLastSuperAdmin } from "@/lib/rbac/admin-safety";
 
 function normalizeId(value: unknown): string {
     if (!value) return "";
@@ -228,6 +230,40 @@ export class UserController {
                 return NextResponse.json({ success: false, message: "Cannot update user outside your hospital" }, { status: 403 });
             }
 
+            // Changing somebody's role changes their access from that moment on —
+            // the sidebar and every API route re-read the role per request, so no
+            // re-login is involved. Two things are refused outright.
+            if (data.role && normalizeId(data.role) !== normalizeId(targetUser.role)) {
+                if (normalizeId(context.userId) === id) {
+                    return NextResponse.json(
+                        { success: false, message: "You cannot change your own role. Ask another administrator to do it." },
+                        { status: 403 }
+                    );
+                }
+
+                const nextRole = data.role
+                    ? await Role.findById(new Types.ObjectId(String(data.role))).select("role").lean()
+                    : null;
+                if (!nextRole) {
+                    return NextResponse.json({ success: false, message: "That role does not exist" }, { status: 400 });
+                }
+
+                const guard = await guardLastSuperAdmin({ targetUserId: id, nextRoleName: nextRole.role });
+                if (!guard.allowed) {
+                    return NextResponse.json({ success: false, message: guard.message, code: "LAST_SUPER_ADMIN" }, { status: 409 });
+                }
+            }
+
+            // Switching the last administrator off is the same one-way door as
+            // moving them to another role: nobody would be left who can sign in
+            // and manage roles.
+            if (data.isActive === false) {
+                const guard = await guardLastSuperAdmin({ targetUserId: id });
+                if (!guard.allowed) {
+                    return NextResponse.json({ success: false, message: guard.message, code: "LAST_SUPER_ADMIN" }, { status: 409 });
+                }
+            }
+
             const user = await this.userService.updateUser(new Types.ObjectId(id), data);
 
             return NextResponse.json(
@@ -265,6 +301,13 @@ export class UserController {
                 }
                 if (isOutsideOrganization(authResult.context, targetUser.organization)) {
                     return NextResponse.json({ success: false, message: "Cannot delete user outside your hospital" }, { status: 403 });
+                }
+
+                // Deleting the last administrator leaves nobody who can manage
+                // roles and permissions, which is a one-way door.
+                const guard = await guardLastSuperAdmin({ targetUserId: id, nextRoleName: null });
+                if (!guard.allowed) {
+                    return NextResponse.json({ success: false, message: guard.message, code: "LAST_SUPER_ADMIN" }, { status: 409 });
                 }
             }
 

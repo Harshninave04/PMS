@@ -8,6 +8,9 @@ import { isSuperAdminRole, normalizePermissions } from "@/lib/rbac/default-permi
 import { grantedSubItems } from "@/lib/rbac/default-permissions";
 import { PERMISSION_MODULES } from "@/lib/rbac/permissions.config";
 import { resolveRolePermissions } from "@/lib/rbac/role-permissions";
+import { roleLock, type RoleLock } from "@/lib/rbac/role-lock";
+import { roleDescription, roleLabel } from "@/lib/rbac/roles";
+import { catalogueProgress } from "@/lib/rbac/access-levels";
 
 /**
  * Reads the caller's own effective permissions and refuses to let them grant
@@ -49,6 +52,18 @@ export class RoleController {
     constructor(private roleService: RoleService = defaultRoleService) {}
 
     /**
+     * The one place that answers "may this role's permissions be changed?".
+     *
+     * Deliberately NOT keyed on `isSystem`: all six shipped roles are system
+     * roles, and treating that as "read only" left Doctor, Nurse, Receptionist,
+     * Pharmacist and Accountant impossible to adjust. `isSystem` still governs
+     * rename and delete in the service layer, which is all it ever meant.
+     */
+    private lockFor(roleName: string, mayUpdate: boolean, isOwnRole: boolean): RoleLock {
+        return roleLock({ roleName, mayUpdate, isOwnRole });
+    }
+
+    /**
      * GET /api/role
      *
      * Reachable by any authenticated user on purpose: the user-management and
@@ -73,7 +88,8 @@ export class RoleController {
             const data = roles.map((role) => ({
                 _id: String(role._id),
                 role: role.role,
-                description: role.description ?? "",
+                label: roleLabel(role.role),
+                description: roleDescription(role.role, role.description),
                 isSystem: Boolean(role.isSystem),
                 isSuperAdmin: isSuperAdminRole(role.role),
                 userCount: counts[String(role._id)] ?? 0,
@@ -111,10 +127,9 @@ export class RoleController {
 
             const resolved = resolveRolePermissions(role);
             const isSuperAdmin = isSuperAdminRole(role.role);
-            const mayEdit =
-                !isSuperAdmin &&
-                identity.identity.permissions.all.has("admin.roles:update") &&
-                identity.identity.roleId !== id;
+            const mayUpdate = identity.identity.permissions.all.has("admin.roles:update");
+            const lock = this.lockFor(role.role, mayUpdate, identity.identity.roleId === id);
+            const progress = catalogueProgress(new Set(resolved.subItem));
 
             return NextResponse.json(
                 {
@@ -122,13 +137,18 @@ export class RoleController {
                     data: {
                         _id: String(role._id),
                         role: role.role,
-                        description: role.description ?? "",
+                        label: roleLabel(role.role),
+                        description: roleDescription(role.role, role.description),
                         isSystem: Boolean(role.isSystem),
                         isSuperAdmin,
                         userCount: (await this.roleService.userCounts())[String(role._id)] ?? 0,
                         permissions: resolved.subItem,
                         summary: summarise(resolved.subItem),
-                        canEdit: mayEdit,
+                        sectionsAllowed: progress.allowed,
+                        sectionsTotal: progress.total,
+                        canEdit: !lock.locked,
+                        lockReason: lock.reason,
+                        lockMessage: lock.message,
                     },
                 },
                 { status: 200 }
@@ -220,10 +240,21 @@ export class RoleController {
                 return NextResponse.json({ success: false, message: "Role not found" }, { status: 404 });
             }
 
-            // Editing the role you administer yourself is how a lock-out starts.
-            if (identity.identity.roleId === id) {
+            // Editing the role you administer yourself is how a lock-out starts, and the
+            // Super Admin role is the only way back out of one. Both are refused
+            // here rather than in the UI, because the UI is not the boundary.
+            const lock = this.lockFor(
+                existing.role,
+                identity.identity.permissions.all.has("admin.roles:update"),
+                identity.identity.roleId === id
+            );
+            if (lock.locked) {
                 return NextResponse.json(
-                    { success: false, message: "You cannot change the permissions of your own role" },
+                    {
+                        success: false,
+                        message: lock.message,
+                        code: lock.reason,
+                    },
                     { status: 403 }
                 );
             }
@@ -315,7 +346,7 @@ export class RoleController {
             }
 
             const before = resolveRolePermissions(existing).subItem;
-            const role = await this.roleService.deleteRole(roleId);
+            await this.roleService.deleteRole(roleId);
 
             await recordRoleChange({
                 action: "DELETE",
@@ -349,20 +380,31 @@ export class RoleController {
             const denied = await requirePermission(request, "admin.roles:view");
             if (denied) return denied;
 
+            const identity = await resolveRequestIdentity();
+            if ("response" in identity) return identity.response;
+
             const roles = await this.roleService.getAllRoles();
             const counts = await this.roleService.userCounts();
+            const mayUpdate = identity.identity.permissions.all.has("admin.roles:update");
 
             const data = roles.map((role) => {
                 const resolved = resolveRolePermissions(role);
+                const progress = catalogueProgress(new Set(resolved.subItem));
+                const lock = this.lockFor(role.role, mayUpdate, identity.identity.roleId === String(role._id));
                 return {
                     _id: String(role._id),
                     role: role.role,
-                    description: role.description ?? "",
+                    label: roleLabel(role.role),
+                    description: roleDescription(role.role, role.description),
                     isSystem: Boolean(role.isSystem),
                     isSuperAdmin: isSuperAdminRole(role.role),
                     userCount: counts[String(role._id)] ?? 0,
                     permissionCount: resolved.subItem.length,
-                    summary: summarise(resolved.subItem),
+                    sectionsAllowed: progress.allowed,
+                    sectionsTotal: progress.total,
+                    canEdit: !lock.locked,
+                    lockReason: lock.reason,
+                    lockMessage: lock.message,
                 };
             });
 

@@ -74,9 +74,21 @@ export function resolveRolePermissions(role: StoredRoleLike | null | undefined):
     // make every new guard deny — the migration is additive precisely so that
     // never happens.
     const storedSubItem = Array.isArray(role?.permissions) ? (role?.permissions as string[]) : [];
+    const migratedSubItem = migrateLegacyAccess(legacy);
+
+    // A stored sub-item list is what an administrator last saved on the Roles
+    // screen, and it is the layer the sidebar, the page guard and the API routes
+    // read. It therefore has the last word: taking the union with the legacy
+    // `access` list would let a permission the administrator just removed come
+    // straight back through the old keys, which is exactly the "I unticked it and
+    // nothing happened" bug.
+    //
+    // The legacy translation is still the fallback for a role that has never been
+    // through the migration (`permissions` empty), so an installed database that
+    // only knows the old keys keeps working instead of resolving to nothing.
     const subItem = isSuperAdmin
         ? [...ALL_SUB_ITEM_PERMISSIONS]
-        : normalizePermissions([...storedSubItem, ...migrateLegacyAccess(legacy)]);
+        : normalizePermissions(storedSubItem.length ? storedSubItem : migratedSubItem);
 
     return {
         subItem,

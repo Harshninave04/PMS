@@ -235,11 +235,18 @@ export function roleIsCanonical(
 /**
  * What a role should hold after reconciliation.
  *
- * The shipped defaults for the six built-in roles, unioned with everything the
- * database already granted that role (translated out of the legacy module
- * access). The union is the important half: it is what makes the upgrade
- * non-destructive, because a role that had broader access under the old
- * module-keyed model keeps it instead of being silently trimmed to the defaults.
+ * Once a role has its own `permissions` list, that list is the truth. An
+ * administrator who removes a permission from a role means it, and a restart
+ * must not quietly hand the permission back — otherwise "Save" appears to work
+ * and then silently reverts on the next deploy, which is worse than never
+ * offering the control at all.
+ *
+ * The shipped defaults are therefore only used for a role that has never had a
+ * sub-item list. That is the upgrade case: a database written before this model
+ * existed stores only the legacy module access, so its grants are translated and
+ * unioned with the defaults, which is what makes the upgrade non-destructive —
+ * a role that had broader access under the old model keeps it instead of being
+ * silently trimmed to the defaults.
  */
 export function expectedPermissionsFor(
     roleName: string,
@@ -248,10 +255,11 @@ export function expectedPermissionsFor(
     const defaults = defaultPermissionsFor(roleName);
     if (!existing) return defaults;
 
-    const carried = existing.permissions?.length
-        ? normalizePermissions(existing.permissions)
-        : migrateLegacyAccess((existing.access ?? []).flatMap((item) => item?.permissions ?? []));
+    if (existing.permissions?.length) {
+        return normalizePermissions(existing.permissions);
+    }
 
+    const carried = migrateLegacyAccess((existing.access ?? []).flatMap((item) => item?.permissions ?? []));
     return normalizePermissions([...defaults, ...carried]);
 }
 

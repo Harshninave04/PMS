@@ -5,7 +5,16 @@ import User from "@/models/user.model";
 import { normalizePermissions, isSuperAdminRole } from "@/lib/rbac/default-permissions";
 import { ROLES_WITH_DEFAULTS } from "@/lib/rbac/default-permissions";
 
-/** Roles seeded by this build. They cannot be renamed or deleted. */
+/**
+ * Roles this build ships. They cannot be renamed or deleted, because the code
+ * resolves their permissions by name.
+ *
+ * Note what `isSystem` does NOT do: it has never blocked a permission edit.
+ * All six shipped roles are system roles, so a rule that treated that flag as
+ * "read only" would have made Doctor, Nurse, Receptionist, Pharmacist and
+ * Accountant permanently uneditable — which is exactly the bug this service
+ * had. Editing permissions is gated by `src/lib/rbac/role-lock.ts` instead.
+ */
 export const SYSTEM_ROLE_NAMES: readonly string[] = ROLES_WITH_DEFAULTS;
 
 export class RoleService {
@@ -60,6 +69,9 @@ export class RoleService {
         const role = await this.repository.findById(id);
         if (!role) throw { statusCode: 404, message: "Role not found" };
 
+        // The Super Admin is the way back out of a bad permission change, so it
+        // is never narrowed. `isSystem` is deliberately not consulted here: it
+        // only ever blocked a rename.
         if (isSuperAdminRole(role.role)) {
             throw { statusCode: 403, message: "The Administrator role always has full access and cannot be edited" };
         }

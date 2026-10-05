@@ -239,6 +239,51 @@ export function permissionsForRoute(path: string): readonly string[] {
     return [];
 }
 
+/**
+ * Pages that exist in the app but are not a sidebar sub-item, so
+ * `permissionsForRoute` cannot resolve them. Everything here still needs a
+ * permission, or a signed-in user could reach it by typing the URL.
+ */
+const EXTRA_PAGE_PERMISSIONS: Readonly<Record<string, string>> = {
+    "/admin": permissionKey("admin", "users", "view"),
+    "/admin/users": permissionKey("admin", "users", "view"),
+    "/admin/users/create": permissionKey("admin", "users", "create"),
+    "/admin/roles": permissionKey("admin", "roles", "view"),
+    "/dashboard": permissionKey("dashboard", "main", "view"),
+};
+
+/** Pages that must stay reachable whatever the role holds, or nobody can get out. */
+const ALWAYS_OPEN_PAGES: ReadonlySet<string> = new Set(["/forbidden", "/login", "/"]);
+
+/** `/admin/roles/<id>/permissions` — the id is the only variable segment. */
+const ROLE_PERMISSIONS_PATH = /^\/admin\/roles\/[^/]+\/permissions\/?$/;
+
+/**
+ * The permission keys guarding a page route, or an empty list when the route is
+ * not permission-gated.
+ *
+ * This is the page-side half of `filterMenusByPermissions`: hiding a sidebar
+ * link and refusing the URL must agree, and both read this catalogue. An empty
+ * result means "no route in the catalogue guards this path" — the caller
+ * renders the page rather than locking everybody out of an unlisted route.
+ */
+export function permissionsForPage(path: string): readonly string[] {
+    const normalised = (path || "").split(/[?#]/)[0].replace(/\/+$/, "").toLowerCase() || "/";
+    if (ALWAYS_OPEN_PAGES.has(normalised)) return [];
+
+    if (ROLE_PERMISSIONS_PATH.test(normalised)) {
+        return [permissionKey("admin", "roles", "view")];
+    }
+
+    const extra = EXTRA_PAGE_PERMISSIONS[normalised];
+    if (extra) return [extra];
+
+    // `/admin/roles/<id>/permissions` is matched above; the plain roles list is
+    // in the table too. Anything left resolves through the sidebar catalogue,
+    // which also covers the module landing pages (`/patients`, `/finance`, ...).
+    return permissionsForRoute(normalised);
+}
+
 /** Grouped `module > sub-item > actions` shape served by `GET /api/permissions`. */
 export interface PermissionCatalogueModule {
     key: string;
