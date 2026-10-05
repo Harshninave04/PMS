@@ -10,6 +10,13 @@ export interface IManagedRole {
 
 export interface IRole extends Document {
     role: string;
+    /** Sub-item permissions, `module.submodule:action`. */
+    permissions: string[];
+    /** True once an administrator has explicitly saved the list, including an empty list. */
+    permissionsCustomized: boolean;
+    /** Seeded role: cannot be renamed or deleted. */
+    isSystem: boolean;
+    description: string;
     access: IAccess[];
     managedRoles: IManagedRole[];
 }
@@ -18,4 +25,4 @@ export interface IAccess {
     moduleName: string;
     permissions: string[];
     grants?: IPermissionGrant[];
-}
+}

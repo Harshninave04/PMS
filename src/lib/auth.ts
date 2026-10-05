@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import dbConnect from "@/lib/dbConnect";
 import userRepository from "@/repositories/user.repository";
 import Role from "@/models/role.model";
+import { resolveRolePermissions } from "@/lib/rbac/role-permissions";
 
 /** Normalise a mongoose ObjectId / populated id into a plain string for the JWT */
 function toIdString(value: unknown): string | null {
@@ -52,7 +53,7 @@ export const authOptions: AuthOptions = {
         // be a plain string. Resolve the role *name* alongside the role id so the
         // client can render role-aware UI (dashboards, widgets, badges).
         const roleId = toIdString(user.role);
-        const roleDoc = roleId ? await Role.findById(roleId).select("role").lean() : null;
+        const roleDoc = roleId ? await Role.findById(roleId).select("role permissions access").lean() : null;
 
         return {
           id: user._id.toString(),
@@ -60,6 +61,11 @@ export const authOptions: AuthOptions = {
           email: user.email,
           role: roleId,
           roleName: roleDoc?.role ?? null,
+          // Permissions are resolved from the database on every guarded request
+          // rather than frozen into the JWT, so an administrator's edit applies
+          // immediately. The copy here only avoids a second round trip for the
+          // first paint of the sidebar.
+          permissions: resolveRolePermissions(roleDoc as never).subItem,
           organization: toIdString(user.organization),
           branch: toIdString(user.branch),
         };
@@ -72,6 +78,7 @@ export const authOptions: AuthOptions = {
         token.id = user.id;
         token.role = user.role;
         token.roleName = user.roleName ?? null;
+        token.permissions = user.permissions ?? [];
         token.organization = user.organization;
         token.branch = user.branch;
       }
@@ -82,6 +89,7 @@ export const authOptions: AuthOptions = {
         session.user.id = token.id as string;
         session.user.role = token.role;
         session.user.roleName = token.roleName ?? null;
+        session.user.permissions = token.permissions ?? [];
         session.user.organization = token.organization;
         session.user.branch = token.branch;
       }

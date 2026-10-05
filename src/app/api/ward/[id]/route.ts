@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import WardController from "@/controllers/ward.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -8,6 +9,9 @@ type Params = { params: Promise<{ id: string }> };
  * @desc Get a ward by ID
  */
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "wards.list:view");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return WardController.getWardById(id, request);
@@ -25,6 +29,9 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
  * @desc Update a ward by ID
  */
 export async function PUT(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "wards.list:update");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return WardController.updateWard(request, id);
@@ -42,6 +49,9 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
  * @desc Delete a ward by ID
  */
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "wards.list:delete");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return WardController.deleteWard(id, request);

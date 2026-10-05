@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import AdmissionController from "@/controllers/admission.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admissions.current:view");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return AdmissionController.getAdmissionById(id, request);
@@ -17,6 +21,9 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
 }
 
 export async function PUT(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admissions.current:update");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return AdmissionController.updateAdmission(request, id);
@@ -30,6 +37,9 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
 }
 
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admissions.current:delete");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return AdmissionController.deleteAdmission(id, request);

@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import DepartmentController from "@/controllers/department.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 /**
  * @route POST /api/department
  * @desc Create a new department
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.departments:create");
+    if (denied) return denied;
+
     try {
         return DepartmentController.createDepartment(request);
     } catch (e: any) {
@@ -21,6 +25,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
  * @desc Get all departments (supports ?organizationId=...)
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
+    const denied = await requirePermission(request, null);
+    if (denied) return denied;
+
     try {
         return DepartmentController.getDepartments(request);
     } catch (e: any) {

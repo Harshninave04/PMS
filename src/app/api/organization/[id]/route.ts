@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import OrganizationController from "@/controllers/organization.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 /**
  * @route PUT /api/org/[id]
  * @desc Update an organization
  */
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.hospital:update");
+    if (denied) return denied;
+
     try {
         return OrganizationController.updateOrganization(request, { params });
     } catch (e: any) {
@@ -21,6 +25,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
  * @desc Delete an organization
  */
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.hospital:delete");
+    if (denied) return denied;
+
     try {
         return OrganizationController.deleteOrganization(request, { params });
     } catch (e: any) {

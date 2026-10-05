@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import dbConnect from "@/lib/dbConnect";
 import { MedicineService } from "@/services/medicine.service";
 import PharmacyController from "@/controllers/pharmacy.controller";
-import { authorizeRequest } from "@/lib/rbac/guard";
+import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
-export async function GET(req: NextRequest) {
+export async function GET(request: NextRequest) {
+    const denied = await requirePermission(request, "pharmacy.stock:view");
+    if (denied) return denied;
+
     await dbConnect();
-    const auth = await authorizeRequest(req, PERMISSION_KEYS.PHARMACY_STOCK_VIEW, "Medicine");
+    const auth = await authorizeRequest(request, PERMISSION_KEYS.PHARMACY_STOCK_VIEW, "Medicine");
     if (!auth.isAuthorized) return auth.response;
 
     try {
@@ -19,7 +22,10 @@ export async function GET(req: NextRequest) {
     }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
+    const denied = await requirePermission(request, "pharmacy.stock:update");
+    if (denied) return denied;
+
     await dbConnect();
-    return PharmacyController.adjustStock(req);
+    return PharmacyController.adjustStock(request);
 }

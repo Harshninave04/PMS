@@ -3,7 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { listRoleProfileAssignments, resolveDashboardProfile } from "@/lib/rbac/dashboard-profiles";
 import { ADMIN_ROLE, ALL_ROLES, buildRoleAccess, withBaselineAccess } from "@/lib/rbac/role-access";
-import { MENUS, filterMenusForAccess, getMenuModuleKey } from "@/lib/menu-data";
+import { MENUS, filterMenusByPermissions, getMenuModuleKey } from "@/lib/menu-data";
+import { defaultPermissionsFor } from "@/lib/rbac/default-permissions";
+import { permissionsForRoute } from "@/lib/rbac/permissions.config";
 import { BASELINE_REFERENCE_PERMISSIONS, PERMISSION_KEYS, REFERENCE_DATA_MODULE } from "@/types/rbac";
 import { DEMO_USERS, demoEmail } from "@/seed";
 
@@ -15,14 +17,26 @@ function pageExists(route: string): boolean {
 }
 
 function visibleMenuNames(roleName: string): string[] {
-  return filterMenusForAccess(MENUS, buildRoleAccess(roleName)).map((m) => m.name);
+  return filterMenusByPermissions(MENUS, defaultPermissionsFor(roleName)).map((m) => m.name);
 }
 
-/** Module keys a role can open, as the sidebar computes them. */
-function accessibleModules(roleName: string): Set<string> {
-  const modules = new Set(buildRoleAccess(roleName).map((a) => a.moduleName));
-  if (modules.has("user") || modules.has("role")) modules.add("admin");
-  return modules;
+/** Routes the role's permissions let it open, as the sidebar and dashboards compute them. */
+function accessibleRoutes(roleName: string): Set<string> {
+  const granted = defaultPermissionsFor(roleName);
+  const routes = new Set<string>();
+  for (const menu of MENUS) {
+    // A module route resolves to every sub-item it contains, so it opens as soon
+    // as one child does — the same rule `permissionsForRoute` applies.
+    if (permissionsForRoute(menu.path).some((key) => granted.includes(key))) {
+      routes.add(menu.path);
+    }
+    for (const child of menu.children ?? []) {
+      if (permissionsForRoute(child.path).some((key) => granted.includes(key))) {
+        routes.add(child.path);
+      }
+    }
+  }
+  return routes;
 }
 
 /**
@@ -67,13 +81,33 @@ async function runMenuTests() {
     assert.deepEqual(visibleMenuNames(ADMIN_ROLE), MENUS.map((m) => m.name));
   });
 
-  test("Each role sees only its own sections", () => {
+  test("Admin may open every sub-item", () => {
+    const routes = accessibleRoutes(ADMIN_ROLE);
+    // `/reports` is both the module path and its Summary child, so dedupe.
+    const everyRoute = new Set([
+      ...MENUS.map((m) => m.path),
+      ...MENUS.flatMap((m) => (m.children ?? []).map((c) => c.path)),
+    ]);
+    assert.deepEqual([...routes].sort(), [...everyRoute].sort(), "Admin cannot open every route");
+  });
+
+  test("Every role sees its own dashboard", () => {
+    for (const role of ALL_ROLES) {
+      assert.ok(
+        visibleMenuNames(role).includes("Dashboard"),
+        `${role} must see the Dashboard section`
+      );
+      assert.ok(accessibleRoutes(role).has("/dashboard/main"), `${role} cannot open /dashboard/main`);
+    }
+  });
+
+  test("Each role sees only the modules its permissions grant", () => {
     const expected: Record<string, string[]> = {
-      DOCTOR: ["Dashboard", "Patients", "OPD", "Consultation", "IPD / Admissions"],
-      NURSE: ["Dashboard", "Patients", "IPD / Admissions", "Wards & Beds", "Nursing"],
+      DOCTOR: ["Dashboard", "Patients", "OPD", "Consultation", "IPD / Admissions", "Wards & Beds"],
+      NURSE: ["Dashboard", "Patients", "Consultation", "IPD / Admissions", "Wards & Beds", "Nursing"],
       RECEPTIONIST: ["Dashboard", "Patients", "OPD", "IPD / Admissions", "Wards & Beds", "Billing"],
-      PHARMACIST: ["Dashboard", "Patients", "Pharmacy"],
-      ACCOUNTANT: ["Dashboard", "Patients", "Billing", "Reports"],
+      PHARMACIST: ["Dashboard", "Patients", "Consultation", "Pharmacy", "Reports"],
+      ACCOUNTANT: ["Dashboard", "Patients", "IPD / Admissions", "Billing", "Reports"],
     };
     for (const [role, menus] of Object.entries(expected)) {
       assert.deepEqual(visibleMenuNames(role), menus, `Unexpected sidebar for ${role}`);
@@ -91,7 +125,7 @@ async function runMenuTests() {
     for (const perm of [PERMISSION_KEYS.DASHBOARD_VIEW, ...BASELINE_REFERENCE_PERMISSIONS]) {
       assert.ok(granted.includes(perm), `withBaselineAccess() must grant ${perm}`);
     }
-    const lookupMenus = filterMenusForAccess(MENUS, [{ moduleName: REFERENCE_DATA_MODULE }]);
+    const lookupMenus = filterMenusByPermissions(MENUS, []);
     assert.deepEqual(lookupMenus, [], "Reference lookups must not unlock any menu");
   });
 
@@ -112,12 +146,12 @@ async function runMenuTests() {
 
   test("Dashboard quick actions open pages the role is allowed to see", () => {
     for (const role of ALL_ROLES) {
-      const modules = accessibleModules(role);
+      const routes = accessibleRoutes(role);
       const profile = resolveDashboardProfile(role);
       const links = [...profile.quickActions.map((a) => a.href), ...(profile.moduleDashboard ? [profile.moduleDashboard] : [])];
       for (const href of links) {
         assert.ok(pageExists(href), `${role} dashboard links to missing page ${href}`);
-        assert.ok(modules.has(getMenuModuleKey({ path: href })), `${role} dashboard links to ${href} outside its access`);
+        assert.ok(routes.has(href), `${role} dashboard links to ${href} outside its permissions`);
       }
     }
   });

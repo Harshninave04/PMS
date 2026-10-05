@@ -5,10 +5,13 @@ import DoctorSchedule from "@/models/doctor-schedule.model";
 import Doctor from "@/models/doctor.model";
 import User from "@/models/user.model";
 import Department from "@/models/department.model";
-import { authorizeRequest } from "@/lib/rbac/guard";
+import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  const denied = await requirePermission(request, "admin.schedule:view");
+  if (denied) return denied;
+
   const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DIRECTORY_VIEW);
   if (!authResult.isAuthorized) return authResult.response;
 
@@ -73,6 +76,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const denied = await requirePermission(request, "admin.schedule:create");
+  if (denied) return denied;
+
   const authResult = await authorizeRequest(request, PERMISSION_KEYS.STAFF_UPDATE);
   if (!authResult.isAuthorized) return authResult.response;
 

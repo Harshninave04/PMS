@@ -1,105 +1,220 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
-import { useToast } from "@/components/ui/toast";
-import { Shield, Pencil, Check } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ADMIN_ROLE, ROLE_LABELS } from "@/lib/rbac/roles";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
+import { usePermissions } from "@/components/permissions/permission-context";
+import { Lock, Pencil, Search, Shield, Users } from "lucide-react";
+import { ALL_ROLES } from "@/lib/rbac/roles";
 
-interface ModuleAccess {
-  moduleName: string;
-  permissions: string[];
-}
+/**
+ * Settings -> Roles & Permissions.
+ *
+ * One card per role, and nothing else. An administrator opening this page wants
+ * to answer two questions — "who can do what?" and "who do I change to widen
+ * it?" — so each card carries the role name, one sentence in plain words, how
+ * many people hold it, and how much of the system that role can reach.
+ *
+ * Only the six roles this system ships are listed. The lock badge appears on
+ * the Super Admin and nowhere else: every other role, however it was created,
+ * is editable by an administrator.
+ */
 
-interface RoleItem {
+const UPDATE_PERMISSION = "admin.roles:update";
+
+interface RoleCard {
   _id: string;
   role: string;
-  access: ModuleAccess[];
+  label?: string;
+  description?: string;
+  isSuperAdmin?: boolean;
+  canEdit?: boolean;
+  lockReason?: string;
+  lockMessage?: string;
+  userCount: number;
+  sectionsAllowed: number;
+  sectionsTotal: number;
 }
 
-/** Modules that are pure data lookups and never shown as a menu. */
-const HIDDEN_MODULES = new Set(["reference-data", "dashboard"]);
+function ProgressBar({ allowed, total }: { allowed: number; total: number }) {
+  const pct = total > 0 ? Math.round((allowed / total) * 100) : 0;
+  return (
+    <div
+      className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"
+      role="progressbar"
+      aria-valuenow={allowed}
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-label={`${allowed} of ${total} sections allowed`}
+    >
+      <div
+        className={`h-full rounded-full transition-all ${allowed === 0 ? "bg-slate-300 dark:bg-slate-700" : "bg-emerald-500"}`}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
 
 export default function ManageRolesPage() {
   const { toast } = useToast();
-  const [roles, setRoles] = useState<RoleItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { can } = usePermissions();
 
-  const fetchRoles = useCallback(async () => {
-    try {
-      const res = await fetch("/api/role");
-      const json = await res.json();
-      if (json.success) setRoles(json.data || []);
-    } catch { toast("Failed to load roles", "error"); } finally { setLoading(false); }
+  const [roles, setRoles] = useState<RoleCard[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+
+  const mayUpdate = can(UPDATE_PERMISSION);
+
+  useEffect(() => {
+    // State is set from the response, not from the effect body, so a slow request
+    // cannot paint over a newer one.
+    let current = true;
+
+    fetch("/api/role/admin")
+      .then((res) => res.json())
+      .then((json: { success?: boolean; message?: string; data?: RoleCard[] }) => {
+        if (!current) return;
+        if (json.success) setRoles(json.data || []);
+        else toast(json.message || "Could not load roles", "error");
+      })
+      .catch(() => {
+        if (current) toast("Could not load roles", "error");
+      })
+      .finally(() => {
+        if (current) setLoading(false);
+      });
+
+    return () => {
+      current = false;
+    };
   }, [toast]);
 
-  useEffect(() => { fetchRoles(); }, [fetchRoles]);
+  const visible = useMemo(() => {
+    const scoped = roles.filter((role) => ALL_ROLES.includes(role.role));
+    const needle = search.trim().toLowerCase();
+    if (!needle) return scoped;
+    return scoped.filter(
+      (role) =>
+        role.role.toLowerCase().includes(needle) ||
+        (role.label ?? "").toLowerCase().includes(needle) ||
+        (role.description ?? "").toLowerCase().includes(needle)
+    );
+  }, [roles, search]);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Roles & Permissions</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Each staff login has one of these roles. Edit a role to change what it can access.</p>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+          Roles &amp; Permissions
+        </h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Choose what each job in the hospital can see and do. Changes apply as soon as you
+          save them — nobody has to log out.
+        </p>
       </div>
 
-      <Card className="border-slate-200/80 dark:border-slate-800 shadow-xl">
-        <CardHeader className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"><Shield className="h-5 w-5" /></div>
-            <div><CardTitle className="text-base">Roles</CardTitle><CardDescription>{roles.length} role{roles.length !== 1 ? "s" : ""}</CardDescription></div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-8 space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-12 rounded-lg bg-slate-100 dark:bg-slate-800/50 animate-pulse" />)}</div>
-          ) : roles.length === 0 ? (
-            <div className="p-12 text-center"><Shield className="h-10 w-10 mx-auto text-slate-300 dark:text-slate-600 mb-3" /><p className="text-sm text-slate-500">No roles found</p></div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Can Access</TableHead>
-                  <TableHead className="text-right">Edit</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {roles.map((role) => {
-                  const isAdmin = role.role === ADMIN_ROLE;
-                  const modules = (role.access ?? []).filter(a => !HIDDEN_MODULES.has(a.moduleName));
-                  return (
-                    <TableRow key={role._id}>
-                      <TableCell className="font-semibold text-slate-900 dark:text-white">{ROLE_LABELS[role.role] ?? role.role}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {isAdmin ? (
-                            <Badge variant="default" className="text-[10px]"><Check className="h-3 w-3 mr-1" />Everything</Badge>
-                          ) : (
-                            modules.map((a) => (
-                              <Badge key={a.moduleName} variant="outline" className="text-[10px] bg-slate-50 dark:bg-slate-900">{a.moduleName}</Badge>
-                            ))
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {!isAdmin && (
-                          <Link href={`/admin/roles/${role._id}/permissions`}>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-emerald-600" title="Edit Permissions"><Pencil className="h-3.5 w-3.5" /></Button>
-                          </Link>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      <div className="relative max-w-sm">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search roles"
+          aria-label="Search roles"
+          className="h-10 pl-9"
+        />
+      </div>
+
+      {loading ? (
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5, 6].map((index) => (
+            <div
+              key={index}
+              className="h-24 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800/50"
+            />
+          ))}
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 py-16 text-center dark:border-slate-800">
+          <Shield className="mx-auto mb-3 h-10 w-10 text-slate-300 dark:text-slate-600" />
+          <p className="text-sm text-slate-500">No role matches that search.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {visible.map((role) => {
+            const locked = role.isSuperAdmin === true || role.canEdit === false;
+            const selfLocked = locked && role.lockReason === "OWN_ROLE";
+            const accessLabel = `${
+              role.sectionsAllowed
+            } of ${role.sectionsTotal} section${role.sectionsTotal === 1 ? "" : "s"} allowed`;
+
+            return (
+              <div
+                key={role._id}
+                className="rounded-xl border border-slate-200 bg-white p-4 transition-shadow hover:shadow-sm dark:border-slate-800 dark:bg-slate-950"
+              >
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                        {role.label ?? role.role}
+                      </h2>
+                      {role.isSuperAdmin ? (
+                        <Badge variant="outline" className="gap-1">
+                          <Lock className="h-3 w-3" /> Always full access
+                        </Badge>
+                      ) : null}
+                      {selfLocked ? (
+                        // Not a lock: this role is editable, just not by you.
+                        <Badge variant="outline">Your role</Badge>
+                      ) : null}
+                    </div>
+
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                      {role.description}
+                    </p>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                      <span className="inline-flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                        <Users className="h-4 w-4 text-slate-400" />
+                        {role.userCount} user{role.userCount === 1 ? "" : "s"}
+                      </span>
+                      <span className="min-w-[10rem] flex-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                        {accessLabel}
+                        <span className="mt-1.5 block">
+                          <ProgressBar allowed={role.sectionsAllowed} total={role.sectionsTotal} />
+                        </span>
+                      </span>
+                    </div>
+
+                    {locked && role.lockMessage ? (
+                      <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                        {role.lockMessage}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="shrink-0">
+                    {role.isSuperAdmin ? (
+                      <span className="text-xs text-slate-400">
+                        Cannot be changed
+                      </span>
+                    ) : mayUpdate && !selfLocked ? (
+                      <Link href={`/admin/roles/${role._id}/permissions`}>
+                        <Button className="gap-2">
+                          <Pencil className="h-4 w-4" /> Edit access
+                        </Button>
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
+import { Can } from "@/components/permissions/can";
 
 export default function AdminHubPage() {
   const { toast } = useToast();
@@ -44,11 +45,14 @@ export default function AdminHubPage() {
     fetchStats();
   }, []);
 
+  // Each card is gated on the sub-item permission that guards its page, so an
+  // administrator without (say) hospital-profile access never sees the card.
   const adminModules = [
     {
       title: "Users",
       path: "/admin/users",
       icon: Users,
+      permission: "admin.users:view",
       desc: "Staff login accounts. Activate, deactivate or change a user's role.",
       badge: `${stats?.totalUsers || 0} Accounts`,
       badgeColor: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -57,6 +61,7 @@ export default function AdminHubPage() {
       title: "Add New User",
       path: "/admin/users/create",
       icon: UserPlus,
+      permission: "admin.users:create",
       desc: "Create a login for a doctor, nurse, receptionist, pharmacist or accountant.",
       badge: "Onboarding",
       badgeColor: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
@@ -65,6 +70,7 @@ export default function AdminHubPage() {
       title: "Roles & Permissions",
       path: "/admin/roles",
       icon: Shield,
+      permission: "admin.roles:view",
       desc: "See what each role can access and adjust its permissions.",
       badge: `${stats?.totalRoles || 0} Roles`,
       badgeColor: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
@@ -73,6 +79,7 @@ export default function AdminHubPage() {
       title: "Hospital Profile",
       path: "/organization/details",
       icon: Building2,
+      permission: "admin.hospital:view",
       desc: "Hospital name, address, contact details, GSTIN and letterhead.",
       badge: "Settings",
       badgeColor: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
@@ -104,12 +111,14 @@ export default function AdminHubPage() {
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Link href="/admin/users/create">
-            <Button size="sm" className="shadow-sm">
-              <UserPlus className="w-4 h-4 mr-2" />
-              Add User
-            </Button>
-          </Link>
+          <Can permission="admin.users:create">
+            <Link href="/admin/users/create">
+              <Button size="sm" className="shadow-sm">
+                <UserPlus className="w-4 h-4 mr-2" />
+                Add User
+              </Button>
+            </Link>
+          </Can>
         </div>
       </div>
 
@@ -158,27 +167,29 @@ export default function AdminHubPage() {
           {adminModules.map((m) => {
             const Icon = m.icon;
             return (
-              <Link key={m.path} href={m.path} className="group">
-                <Card className="h-full hover:border-primary/50 transition-all duration-200 hover:shadow-md cursor-pointer border">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="p-2 bg-primary/10 rounded-lg text-primary group-hover:scale-105 transition-transform">
-                        <Icon className="w-5 h-5" />
+              <Can key={m.path} permission={m.permission}>
+                <Link href={m.path} className="group">
+                  <Card className="h-full hover:border-primary/50 transition-all duration-200 hover:shadow-md cursor-pointer border">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="p-2 bg-primary/10 rounded-lg text-primary group-hover:scale-105 transition-transform">
+                          <Icon className="w-5 h-5" />
+                        </div>
+                        <Badge className={m.badgeColor} variant="outline">
+                          {m.badge}
+                        </Badge>
                       </div>
-                      <Badge className={m.badgeColor} variant="outline">
-                        {m.badge}
-                      </Badge>
-                    </div>
-                    <CardTitle className="text-base font-semibold pt-2 flex items-center justify-between">
-                      {m.title}
-                      <ArrowUpRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity text-primary" />
-                    </CardTitle>
-                    <CardDescription className="text-xs line-clamp-2">
-                      {m.desc}
-                    </CardDescription>
-                  </CardHeader>
-                </Card>
-              </Link>
+                      <CardTitle className="text-base font-semibold pt-2 flex items-center justify-between">
+                        {m.title}
+                        <ArrowUpRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity text-primary" />
+                      </CardTitle>
+                      <CardDescription className="text-xs line-clamp-2">
+                        {m.desc}
+                      </CardDescription>
+                    </CardHeader>
+                  </Card>
+                </Link>
+              </Can>
             );
           })}
         </div>

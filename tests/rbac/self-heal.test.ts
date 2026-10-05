@@ -4,11 +4,13 @@ import {
     CANONICAL_MENU_PATHS,
     restrictToCanonicalMenus,
     getMenuModuleKey,
-    filterMenusForAccess,
+    filterMenusByPermissions,
 } from "@/lib/menu-data";
 import { ALL_ROLES, buildRoleAccess } from "@/lib/rbac/role-access";
+import { defaultPermissionsFor } from "@/lib/rbac/default-permissions";
 import {
     LEGACY_ROLE_MAP,
+    OUT_OF_SCOPE_ROLES,
     actualMenuTree,
     expectedMenuTree,
     menusAreCanonical,
@@ -208,7 +210,7 @@ async function runSelfHealTests() {
             "A stale row must not appear even though the reconciler never ran"
         );
 
-        const menus = filterMenusForAccess(visible, buildRoleAccess("ADMIN"));
+        const menus = filterMenusByPermissions(visible, defaultPermissionsFor("ADMIN"));
 
         // The API returns every document; the sidebar keeps only the documents
         // no other menu claims as a child.
@@ -247,12 +249,14 @@ async function runSelfHealTests() {
         assert.equal(roleIsCanonical("DOCTOR", null), false);
     });
 
-    test("Duplicate permissions do not make an access list differ", () => {
-        const stored = buildRoleAccess("ACCOUNTANT").map((item) => ({
-            ...item,
-            permissions: [...item.permissions, ...item.permissions],
-        }));
-        assert.equal(roleAccessSignature(stored), roleAccessSignature(buildRoleAccess("ACCOUNTANT")));
+test("Duplicate permissions do not make an access list differ", () => {
+      const access = buildRoleAccess("ACCOUNTANT");
+      const permissions = defaultPermissionsFor("ACCOUNTANT");
+      const stored = access.map((item) => ({
+        ...item,
+        permissions: [...item.permissions, ...item.permissions],
+      }));
+      assert.equal(roleAccessSignature(stored, permissions), roleAccessSignature(access, permissions));
     });
 
     test("Every legacy role maps onto a role that exists", () => {
@@ -284,6 +288,24 @@ async function runSelfHealTests() {
         assert.equal(new Set(ALL_ROLES).size, ALL_ROLES.length, "Duplicate role name");
         for (const role of ALL_ROLES) {
             assert.ok(role.length > 0);
+        }
+    });
+
+    test("Out-of-scope roles are never remapped or seeded", () => {
+        // The reconciler rewrites any role it recognises. Roles belonging to
+        // modules this system dropped must not be in either list, or the operator's
+        // database row would change behind their back.
+        for (const role of OUT_OF_SCOPE_ROLES) {
+            assert.ok(!ALL_ROLES.includes(role), `${role} must not be one of the six`);
+            assert.equal(LEGACY_ROLE_MAP[role], undefined, `${role} must not be auto-migrated`);
+        }
+    });
+
+    test("Out-of-scope roles get no permissions of their own", () => {
+        // `defaultPermissionsFor` falls back to the caller's stored list for an
+        // unknown role, so an out-of-scope role stays exactly as stored.
+        for (const role of OUT_OF_SCOPE_ROLES) {
+            assert.equal(defaultPermissionsFor(role).length, 0, `${role} must not gain permissions`);
         }
     });
 

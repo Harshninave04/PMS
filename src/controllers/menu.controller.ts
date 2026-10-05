@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import dbConnect from "@/lib/dbConnect";
 import defaultMenuService, { MenuService } from "@/services/menu.service";
-import { getServerSession } from "next-auth";
-import authOptions from "@/lib/auth";
-import Role from "@/models/role.model";
+import { requirePermission, resolveRequestIdentity } from "@/lib/rbac/guard";
 import { IMenu } from "@/interfaces/menu.interface";
-import { filterMenusForAccess, restrictToCanonicalMenus, type MenuNode } from "@/lib/menu-data";
+import { filterMenusByPermissions, restrictToCanonicalMenus, type MenuNode } from "@/lib/menu-data";
+import { resolveRolePermissions } from "@/lib/rbac/role-permissions";
 
 export class MenuController {
     constructor(private service: MenuService = defaultMenuService) { }
@@ -13,6 +12,12 @@ export class MenuController {
     async createMenu(request: NextRequest) {
         try {
             await dbConnect();
+
+            // Menus define what every user's sidebar contains, so writing one is
+            // an access-control change and needs the access-control permission.
+            const denied = await requirePermission(request, "admin.roles:update");
+            if (denied) return denied;
+
             const body = await request.json();
             const existingMenu = await this.service.findByName(body.name);
 
@@ -44,43 +49,37 @@ export class MenuController {
         }
     }
 
-    async getMenus(): Promise<NextResponse> {
+    async getMenus(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            // An authenticated, active session is all this needs: the sidebar is
+            // the one thing every signed-in user is entitled to ask for, and it
+            // is filtered below to whatever they may actually reach. A missing or
+            // inactive session is a 401, never an empty list.
+            const identity = await resolveRequestIdentity();
+            if ("response" in identity) return identity.response;
+
             // Drop rows for modules this build does not ship before anything can
             // see them. The reconciler removes them from the database, but the
             // sidebar must stay correct even if that never ran.
-            let menus = restrictToCanonicalMenus(
-                (await this.service.getAllMenus()) as unknown as MenuNode[]
-            ) as unknown as IMenu[];
+            const stored = (await this.service.getAllMenus()) as unknown as MenuNode[];
+            const canonical = restrictToCanonicalMenus(stored).map((menu) =>
+                typeof (menu as { toObject?: () => MenuNode }).toObject === "function"
+                    ? (menu as unknown as { toObject: () => MenuNode }).toObject()
+                    : menu
+            );
 
-            // Filter menus based on user role access
-            const session = await getServerSession(authOptions);
-            if (!session || !session.user) {
-                return NextResponse.json(
-                    { success: true, count: 0, data: [] },
-                    { status: 200 }
-                );
-            }
-
-            const currentUser = session.user as { role?: string };
-            if (currentUser.role) {
-                const roleDoc = await Role.findById(currentUser.role).lean();
-                if (roleDoc) {
-                    const plainMenus = (menus as unknown as MenuNode[]).map((menu) =>
-                        typeof (menu as { toObject?: () => MenuNode }).toObject === "function"
-                            ? (menu as unknown as { toObject: () => MenuNode }).toObject()
-                            : menu
-                    );
-                    menus = filterMenusForAccess(plainMenus, roleDoc.access ?? []) as unknown as IMenu[];
-                }
-            }
+            // Sub-item filtering, from the same helper the client uses. The
+            // sidebar re-applies it locally so a permission change shows up
+            // without another round trip.
+            const menus = filterMenusByPermissions(canonical, identity.identity.permissions.subItem);
 
             return NextResponse.json(
                 {
                     success: true,
                     count: menus.length,
-                    data: menus
+                    data: menus as unknown as IMenu[]
                 },
                 { status: 200 }
             );

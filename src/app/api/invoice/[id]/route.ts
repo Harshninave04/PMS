@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import InvoiceController from "@/controllers/invoice.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "billing.invoices:view");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return await InvoiceController.getInvoiceById(id, request);
@@ -17,6 +21,9 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
 }
 
 export async function PUT(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "billing.invoices:update");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return await InvoiceController.updateInvoice(request, id);
@@ -30,6 +37,9 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
 }
 
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "billing.invoices:delete");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return await InvoiceController.deleteInvoice(id, request);

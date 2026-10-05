@@ -1,5 +1,6 @@
 import { DefaultSession } from "next-auth";
 
+/** Sub-item permissions resolved at sign-in, `module.submodule:action`. */
 declare module "next-auth" {
   interface Session {
     user: {
@@ -8,6 +9,8 @@ declare module "next-auth" {
       role?: string | null;
       /** Resolved role name, e.g. "DOCTOR" */
       roleName?: string | null;
+      /** Snapshot taken at sign-in; `/api/me/permissions` is the live source. */
+      permissions?: string[];
       organization?: any;
       branch?: any;
     } & DefaultSession["user"];
@@ -19,6 +22,7 @@ declare module "next-auth" {
     role?: string | null;
     /** Resolved role name, e.g. "DOCTOR" */
     roleName?: string | null;
+    permissions?: string[];
     organization?: any;
     branch?: any;
   }
@@ -31,6 +35,7 @@ declare module "next-auth/jwt" {
     role?: string | null;
     /** Resolved role name, e.g. "DOCTOR" */
     roleName?: string | null;
+    permissions?: string[];
     organization?: any;
     branch?: any;
   }

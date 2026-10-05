@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { OrganizationMgmtService } from "@/services/organization-mgmt.service";
-import { authorizeRequest } from "@/lib/rbac/guard";
+import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
 export async function GET(request: Request) {
+  const denied = await requirePermission(request, "admin.hospital:view");
+  if (denied) return denied;
+
   const authResult = await authorizeRequest(request, PERMISSION_KEYS.ORGANIZATION_VIEW);
   if (!authResult.isAuthorized) return authResult.response;
 
@@ -15,12 +18,15 @@ export async function GET(request: Request) {
   }
 }
 
-export async function PUT(req: Request) {
-  const authResult = await authorizeRequest(req, PERMISSION_KEYS.ORGANIZATION_UPDATE);
+export async function PUT(request: Request) {
+  const denied = await requirePermission(request, "admin.hospital:update");
+  if (denied) return denied;
+
+  const authResult = await authorizeRequest(request, PERMISSION_KEYS.ORGANIZATION_UPDATE);
   if (!authResult.isAuthorized) return authResult.response;
 
   try {
-    const body = await req.json();
+    const body = await request.json();
     const updated = await OrganizationMgmtService.updateOrgSettings(body);
     return NextResponse.json({
       success: true,

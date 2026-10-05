@@ -6,6 +6,9 @@ import { PERMISSION_KEYS as P } from "./permissions";
  */
 export const ADMIN_ROLE = "ADMIN";
 
+/**
+ * The name a hospital administrator recognises. Never the raw `ADMIN` key.
+ */
 export const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Administrator",
   DOCTOR: "Doctor",
@@ -14,6 +17,35 @@ export const ROLE_LABELS: Record<string, string> = {
   PHARMACIST: "Pharmacist",
   ACCOUNTANT: "Accountant",
 };
+
+/** The name used for the one role that is never restricted. */
+export const SUPER_ADMIN_LABEL = "Super Admin";
+
+/**
+ * One plain sentence per role, for the roles list. Written for a hospital
+ * administrator, not for a developer: it says what the person does all day.
+ */
+export const ROLE_DESCRIPTIONS: Record<string, string> = {
+  ADMIN: "Runs the hospital. Can do everything and is the only role that can change other roles.",
+  DOCTOR: "Sees patients, writes consultations and prescriptions, and records their medical history.",
+  NURSE: "Looks after inpatients: vital signs, nursing notes and medication rounds.",
+  RECEPTIONIST: "Registers patients, books appointments, admits them and collects fees at the desk.",
+  PHARMACIST: "Dispenses medicines and keeps the pharmacy stock and expiry dates.",
+  ACCOUNTANT: "Raises bills, records payments and chases outstanding dues.",
+};
+
+/** Falls back to the shipped description, then to a neutral line. */
+export function roleDescription(roleName: string, stored?: string | null): string {
+  const trimmed = (stored || "").trim();
+  if (trimmed) return trimmed;
+  return ROLE_DESCRIPTIONS[roleName] ?? `Access for the ${ROLE_LABELS[roleName] ?? roleName} role.`;
+}
+
+/** Display name, preferring the friendly label over the stored key. */
+export function roleLabel(roleName: string): string {
+  if (roleName === ADMIN_ROLE) return SUPER_ADMIN_LABEL;
+  return ROLE_LABELS[roleName] ?? roleName;
+}
 
 export interface ModuleAccess {
   moduleName: string;

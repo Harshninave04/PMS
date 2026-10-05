@@ -1,167 +1,16 @@
 /**
  * Sidebar navigation for the simplified hospital system.
- * Seeded into the Menu collection; each role only sees the menus whose
- * module appears in its access list (see src/lib/rbac/roles.ts).
+ *
+ * The literal tree lives in `src/lib/menu-seed.ts`, which has no imports and is
+ * therefore safe for `rbac/permissions.config.ts` to read while it derives the
+ * permission catalogue. Keeping it separate is what stops the seed and the
+ * permission catalogue from importing each other in a cycle.
  */
-export interface MenuSeed {
-    name: string;
-    path: string;
-    icon?: string;
-    children?: { name: string; path: string }[];
-}
+import { MENUS } from "./menu-seed";
+import { permissionsForRoute } from "./rbac/permissions.config";
 
-export const MENUS: MenuSeed[] = [
-    {
-        name: "Dashboard",
-        path: "/dashboard",
-        icon: "LayoutDashboard",
-        children: [{ name: "Dashboard", path: "/dashboard/main" }]
-    },
-    {
-        name: "Patients",
-        path: "/patients",
-        icon: "Users",
-        children: [
-            { name: "Register Patient", path: "/patients/register" },
-            { name: "All Patients", path: "/patients/list" },
-            { name: "Patient Profile", path: "/patients/profile" },
-            { name: "Documents", path: "/patients/documents" }
-        ]
-    },
-    {
-        name: "OPD",
-        path: "/appointments",
-        icon: "Calendar",
-        children: [
-            { name: "Book Appointment", path: "/appointments/book" },
-            { name: "Today's Queue", path: "/appointments/queue" },
-            { name: "All Appointments", path: "/appointments/list" }
-        ]
-    },
-    {
-        name: "Consultation",
-        path: "/clinical",
-        icon: "Stethoscope",
-        children: [
-            { name: "Consultations", path: "/clinical/consultations" },
-            { name: "Prescriptions", path: "/clinical/prescriptions" },
-            { name: "Vital Signs", path: "/clinical/vitals" },
-            { name: "Medical History", path: "/clinical/history" }
-        ]
-    },
-    {
-        name: "IPD / Admissions",
-        path: "/admissions",
-        icon: "Bed",
-        children: [
-            { name: "New Admission", path: "/admissions/new" },
-            { name: "Admitted Patients", path: "/admissions/current" },
-            { name: "Transfer Bed", path: "/admissions/transfer" },
-            { name: "Discharge", path: "/admissions/discharge" },
-            { name: "Discharge Summary", path: "/admissions/summary" },
-            { name: "Admission History", path: "/admissions/history" }
-        ]
-    },
-    {
-        name: "Wards & Beds",
-        path: "/wards",
-        icon: "Building",
-        children: [
-            { name: "Bed Availability", path: "/wards/availability" },
-            { name: "Wards", path: "/wards/list" },
-            { name: "Rooms", path: "/wards/rooms" },
-            { name: "Beds", path: "/wards/beds" }
-        ]
-    },
-    {
-        name: "Nursing",
-        path: "/nursing",
-        icon: "HeartPulse",
-        children: [
-            { name: "Admitted Patients", path: "/nursing/patients" },
-            { name: "Vital Signs", path: "/nursing/vitals" },
-            { name: "Nursing Notes", path: "/nursing/notes" },
-            { name: "Medication Rounds", path: "/nursing/medications" }
-        ]
-    },
-    {
-        name: "Pharmacy",
-        path: "/pharmacy",
-        icon: "Pill",
-        children: [
-            { name: "Prescriptions", path: "/pharmacy/prescriptions" },
-            { name: "Dispense Medicines", path: "/pharmacy/dispensing" },
-            { name: "Medicines", path: "/pharmacy/medicines" },
-            { name: "Categories", path: "/pharmacy/categories" },
-            { name: "Stock", path: "/pharmacy/stock" },
-            { name: "Expiry", path: "/pharmacy/expiry" }
-        ]
-    },
-    {
-        name: "Billing",
-        path: "/finance",
-        icon: "Banknote",
-        children: [
-            { name: "Create Bill", path: "/finance/invoice/create" },
-            { name: "Bills", path: "/finance/invoices" },
-            { name: "Payments", path: "/finance/payments" },
-            { name: "Outstanding Dues", path: "/finance/outstanding" }
-        ]
-    },
-    {
-        name: "Reports",
-        path: "/reports",
-        icon: "BarChart3",
-        children: [
-            { name: "Summary", path: "/reports" },
-            { name: "Patients", path: "/reports/patients" },
-            { name: "Appointments", path: "/reports/appointments" },
-            { name: "Doctors", path: "/reports/doctors" },
-            { name: "Admissions", path: "/reports/admissions" },
-            { name: "Pharmacy", path: "/reports/pharmacy" },
-            { name: "Billing", path: "/reports/billing" }
-        ]
-    },
-    {
-        name: "Settings",
-        path: "/admin",
-        icon: "Settings",
-        children: [
-            { name: "Hospital Profile", path: "/organization/details" },
-            { name: "Users", path: "/admin/users" },
-            { name: "Roles & Permissions", path: "/admin/roles" },
-            { name: "Doctors", path: "/staff/doctors" },
-            { name: "Staff", path: "/staff/list" },
-            { name: "Departments", path: "/staff/departments" },
-            { name: "Doctor Schedule", path: "/staff/schedule" }
-        ]
-    }
-];
-
-/** Maps a menu path to the role-access module that unlocks it. */
-export function getMenuModuleKey(menu: { moduleKey?: string; path?: string; name?: string }): string {
-    if (menu.moduleKey && menu.moduleKey.trim()) {
-        return menu.moduleKey.toLowerCase().trim();
-    }
-    const path = (menu.path || "").toLowerCase().trim();
-    const prefixes: [string, string][] = [
-        ["/dashboard", "dashboard"],
-        ["/patients", "patient"],
-        ["/appointments", "appointment"],
-        ["/admissions", "admission"],
-        ["/wards", "ward"],
-        ["/clinical", "clinical"],
-        ["/nursing", "nursing"],
-        ["/pharmacy", "pharmacy"],
-        ["/finance", "billing"],
-        ["/reports", "reports"],
-        ["/staff", "staff"],
-        ["/admin", "admin"],
-        ["/organization", "organization"],
-    ];
-    const match = prefixes.find(([prefix]) => path.startsWith(prefix));
-    return match ? match[1] : (menu.name || "").toLowerCase().trim();
-}
+export { MENUS, getMenuModuleKey } from "./menu-seed";
+export type { MenuSeed } from "./menu-seed";
 
 export interface MenuNode {
     moduleKey?: string;
@@ -203,25 +52,41 @@ export function restrictToCanonicalMenus<T extends MenuNode>(menus: readonly T[]
 }
 
 /**
- * Keeps only the menus a role may open. Visibility comes exclusively from the
- * role's own module grants; nothing is blanket-granted, otherwise every role
- * would end up with an identical sidebar.
+ * Keeps only the sub-items a user may actually open, and only the groups that
+ * still have something left in them.
+ *
+ * This is sub-item level: the caller passes the user's resolved permission set
+ * (`module.submodule:action` keys, see `src/lib/rbac/permissions.config.ts`),
+ * not a module list. A Receptionist holding only `patients.register:create`
+ * sees "Register Patient" and nothing else under Patients, where the old
+ * module-keyed filter would have handed them the whole module.
+ *
+ * A sub-item is visible when the user holds its `view` OR its `create` action —
+ * a page you may only create into still has to be reachable in order to create.
  */
-export function filterMenusForAccess<T extends MenuNode>(menus: readonly T[], access: readonly { moduleName?: string }[]): T[] {
-    const modules = new Set<string>();
-    for (const item of access) {
-        const mod = (item.moduleName || "").toLowerCase().trim();
-        if (!mod) continue;
-        modules.add(mod);
-        if (mod === "user" || mod === "role") modules.add("admin");
+export function filterMenusByPermissions<T extends MenuNode>(
+    menus: readonly T[],
+    permissions: Iterable<string> | null | undefined
+): T[] {
+    const granted = new Set<string>();
+    for (const permission of permissions ?? []) {
+        const key = (permission || "").trim().toLowerCase();
+        if (key) granted.add(key);
     }
+
+    const canOpen = (path: string): boolean => {
+        const keys = permissionsForRoute(path);
+        if (keys.length === 0) return false;
+        return keys.some((key) => granted.has(key));
+    };
 
     return menus
         .map((menu) => ({
             ...menu,
-            children: Array.isArray(menu.children)
-                ? menu.children.filter((child) => modules.has(getMenuModuleKey(child)))
-                : menu.children,
+            children: Array.isArray(menu.children) ? menu.children.filter((child) => canOpen(child.path ?? "")) : menu.children,
         }))
-        .filter((menu) => modules.has(getMenuModuleKey(menu)) || (menu.children?.length ?? 0) > 0);
+        .filter((menu) => {
+            if (!Array.isArray(menu.children)) return canOpen(menu.path ?? "");
+            return menu.children.length > 0;
+        });
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import UserController from "@/controllers/user.controller";
+import { requirePermission } from "@/lib/rbac/guard";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -8,9 +9,12 @@ type Params = { params: Promise<{ id: string }> };
  * @desc Get a user by ID
  */
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.users:view");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
-        return UserController.getUserById(id);
+        return UserController.getUserById(id, request);
     } catch (e: any) {
         return NextResponse.json({
             success: false,
@@ -24,6 +28,9 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
  * @desc Update a user by ID
  */
 export async function PUT(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.users:update");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return UserController.updateUser(request, id);
@@ -40,6 +47,9 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
  * @desc Delete a user by ID
  */
 export async function DELETE(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    const denied = await requirePermission(request, "admin.users:delete");
+    if (denied) return denied;
+
     try {
         const { id } = await params;
         return UserController.deleteUser(id, request);
