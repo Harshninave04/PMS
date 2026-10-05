@@ -16,6 +16,7 @@ import {
 import { ScopeResolver } from "@/lib/rbac/scope-resolver";
 import { resolveRolePermissions, type ResolvedRolePermissions } from "@/lib/rbac/role-permissions";
 import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
+import { findRouteRule } from "@/lib/rbac/route-permissions";
 
 /**
  * Closed-loop authorization guard for API route controllers.
@@ -25,7 +26,7 @@ import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
  * The engine resolves identity, verifies permissions, and computes the exact immutable scope filter.
  */
 export async function authorizeRequest<T = Record<string, unknown>>(
-  _request: Request,
+  request: Request,
   requiredPermission: string,
   targetModelOrName?: Model<T> | string
 ): Promise<AuthorizationResult<T>> {
@@ -184,7 +185,14 @@ export async function authorizeRequest<T = Record<string, unknown>>(
     }
 
     // 7. Permission Verification
-    if (!permissionsSet.has(requiredPermission)) {
+    const resolvedPermissions = resolveRolePermissions(roleDoc);
+    const routeRule = findRouteRule(request);
+    const allowed = routeRule
+      ? routeRule.permissions === null ||
+        routeRule.permissions.some((p) => resolvedPermissions.all.has(p.toLowerCase()))
+      : permissionsSet.has(requiredPermission);
+
+    if (!allowed) {
       return {
         isAuthorized: false,
         errorCode: "FORBIDDEN",

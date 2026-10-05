@@ -117,6 +117,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]
 
         ...crud("pharmacy", "prescriptions"),
         ...crud("pharmacy", "dispensing"),
+        ...act("pharmacy", "dispensing", "dispense"),
         ...crud("pharmacy", "medicines"),
         ...crud("pharmacy", "categories"),
         ...crud("pharmacy", "stock"),

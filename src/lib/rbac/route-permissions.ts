@@ -285,3 +285,44 @@ export function resolveRoutePath(pathname: string): string {
         .map((segment) => (/^\[.+\]$/.test(segment) ? segment : OBJECT_ID_LIKE.test(segment) ? "[id]" : segment))
         .join("/")}`;
 }
+
+/**
+ * Extra sub-item permissions that also open a route, for screens that share an
+ * API with another section (Nursing notes/vitals use the clinical APIs, and the
+ * admission forms read the ward/room lists).
+ */
+export const ROUTE_ALTERNATIVES: Readonly<Record<string, readonly string[]>> = {
+    "GET /clinical/records": [K("nursing", "notes", "view")],
+    "POST /clinical/records": [K("nursing", "notes", "create")],
+    "PUT /clinical/records/[id]": [K("nursing", "notes", "update")],
+    "GET /clinical/vitals": [K("nursing", "vitals", "view")],
+    "POST /clinical/vitals": [K("nursing", "vitals", "create")],
+    "DELETE /clinical/vitals/[id]": [K("nursing", "vitals", "delete")],
+    "GET /ward": [K("wards", "availability", "view"), K("admissions", "new", "view")],
+    "GET /ward/[id]": [K("wards", "availability", "view"), K("admissions", "new", "view")],
+    "GET /room": [K("wards", "availability", "view"), K("admissions", "new", "view")],
+    "GET /room/[id]": [K("wards", "availability", "view"), K("admissions", "new", "view")],
+};
+
+/**
+ * The rule that governs an incoming API request, or null when the table has
+ * none (the caller then falls back to the legacy key).
+ * `permissions: null` means any signed-in user (a lookup or open read).
+ */
+export function findRouteRule(request: Request): { permissions: readonly string[] | null } | null {
+    let pathname = "";
+    try {
+        pathname = new URL(request.url).pathname;
+    } catch {
+        return null;
+    }
+    const raw = request.method.toUpperCase();
+    const method = raw === "PATCH" ? "PUT" : raw;
+    const path = resolveRoutePath(pathname);
+
+    const rule = ROUTE_PERMISSIONS.find((r) => r.path === path && r.method === method);
+    if (!rule) return null;
+    if (rule.permission === null) return { permissions: null };
+
+    return { permissions: [rule.permission, ...(ROUTE_ALTERNATIVES[`${method} ${path}`] ?? [])] };
+}
