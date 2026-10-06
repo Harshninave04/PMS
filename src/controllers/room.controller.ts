@@ -83,13 +83,11 @@ export class RoomController {
         }
     }
 
-    async getRoomById(id: string, request?: NextRequest): Promise<NextResponse> {
+    async getRoomById(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_VIEW, "Room");
-                if (!auth.isAuthorized) return auth.response;
-            }
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_VIEW, "Room");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -157,13 +155,11 @@ export class RoomController {
         }
     }
 
-    async deleteRoom(id: string, request?: NextRequest): Promise<NextResponse> {
+    async deleteRoom(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Room");
-                if (!auth.isAuthorized) return auth.response;
-            }
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Room");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(

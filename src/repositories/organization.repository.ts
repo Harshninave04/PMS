@@ -23,7 +23,7 @@ export class OrganizationRepository {
     }
 
     async update(id: Types.ObjectId, data: { organizationName?: string; organizationId?: string; organizationType?: string; headQuarter?: Types.ObjectId; branchType?: string; email?: string; phone?: string; address?: string; logo?: string; }): Promise<IOrganization | null> {
-        return await Organization.findByIdAndUpdate(id, data, { new: true }).lean();
+        return await Organization.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
     }
 
     async delete(id: Types.ObjectId): Promise<IOrganization | null> {

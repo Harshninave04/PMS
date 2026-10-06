@@ -113,7 +113,7 @@ export async function authorizeRequest<T = Record<string, unknown>>(
     const userObjectId = new Types.ObjectId(userDoc._id.toString());
     const [doctorProfile, staffProfile] = await Promise.all([
       Doctor.findOne({ userId: userObjectId }).select("_id departmentId").lean(),
-      Staff.findOne({ userId: userObjectId }).select("_id departmentId").lean()
+      Staff.findOne({ userId: userObjectId }).select("_id departmentId assignedWards").lean()
     ]);
 
     const resolvedDoctorProfileId = doctorProfile ? new Types.ObjectId(doctorProfile._id.toString()) : undefined;
@@ -122,29 +122,41 @@ export async function authorizeRequest<T = Record<string, unknown>>(
       ? new Types.ObjectId((doctorProfile?.departmentId || staffProfile?.departmentId).toString())
       : undefined;
 
+    // Wards the staff member is rostered to. Populated from the profile so the
+    // WARD orgScope is actually evaluable rather than hardcoded to empty.
+    const resolvedWardIds = ((staffProfile?.assignedWards ?? []) as unknown[])
+      .map((wardId) => String(wardId))
+      .filter((wardId) => Types.ObjectId.isValid(wardId))
+      .map((wardId) => new Types.ObjectId(wardId));
+
     // 5. Index Permissions and Grants
     const permissionsSet = new Set<string>();
     const grantsMap = new Map<string, IPermissionGrant>();
 
     if (Array.isArray(roleDoc.access)) {
       for (const moduleAccess of roleDoc.access) {
-        // Collect flat permissions
+        // `permissions` is the authoritative list. `grants` is derived from it
+        // (see buildGrant) and only ever carries scope metadata, so a stale
+        // grant must never be able to re-add a permission an administrator has
+        // since revoked through the permissions editor.
         if (Array.isArray(moduleAccess.permissions)) {
           for (const perm of moduleAccess.permissions) {
             permissionsSet.add(perm);
           }
         }
+      }
 
-        // Collect structured grants if present
-        if (Array.isArray(moduleAccess.grants)) {
-          for (const grant of moduleAccess.grants) {
-            permissionsSet.add(grant.permission);
-            grantsMap.set(grant.permission, {
-              permission: grant.permission,
-              orgScope: grant.orgScope || "BRANCH",
-              relScope: grant.relScope || "UNRESTRICTED"
-            });
-          }
+      for (const moduleAccess of roleDoc.access) {
+        if (!Array.isArray(moduleAccess.grants)) continue;
+
+        for (const grant of moduleAccess.grants) {
+          if (!permissionsSet.has(grant.permission)) continue;
+
+          grantsMap.set(grant.permission, {
+            permission: grant.permission,
+            orgScope: grant.orgScope || "BRANCH",
+            relScope: grant.relScope || "UNRESTRICTED"
+          });
         }
       }
     }
@@ -160,7 +172,7 @@ export async function authorizeRequest<T = Record<string, unknown>>(
       departmentId: resolvedDepartmentId,
       doctorProfileId: resolvedDoctorProfileId,
       staffProfileId: resolvedStaffProfileId,
-      assignedWardIds: [],
+      assignedWardIds: resolvedWardIds,
       permissions: permissionsSet,
       grants: grantsMap
     };

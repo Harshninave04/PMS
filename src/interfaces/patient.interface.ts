@@ -37,6 +37,10 @@ export interface IPatient extends Document {
     mergedWith?: Types.ObjectId;
     mergeReason?: string;
     isActive: boolean;
+    isDeleted?: boolean;
+    deletedAt?: Date;
+    deletedBy?: Types.ObjectId;
+    deleteReason?: string;
     createdAt?: Date;
     updatedAt?: Date;
 }

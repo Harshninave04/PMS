@@ -30,6 +30,16 @@ const roleSchema = new Schema<IRole>({
     role: {
         type: String,
         required: true,
+        unique: true,
+    },
+    /**
+     * "code"    -> permissions are owned by buildRoleAccess() and reconciled on boot
+     * "admin"   -> an administrator edited the permissions; boot must not revert them
+     */
+    managedBy: {
+        type: String,
+        enum: ["code", "admin"],
+        default: "code",
     },
     access: {
         type: [accessSchema],

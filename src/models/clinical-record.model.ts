@@ -3,6 +3,8 @@ import mongoose, { Schema, Document } from "mongoose";
 export interface IClinicalRecord extends Document {
   patient: mongoose.Types.ObjectId;
   doctor?: mongoose.Types.ObjectId;
+  /** Copied from the patient's branch at creation so BRANCH-scoped reads are enforceable. */
+  branchId?: mongoose.Types.ObjectId;
   recordType: string; // e.g., "Consultation", "Progress Note", "Clinical Note", "Treatment Plan", "Medical History", "Allergy", "Clinical Order", "Referral", "Follow-Up", "Patient Problem"
   title?: string;
   category?: string;
@@ -29,6 +31,7 @@ const ClinicalRecordSchema: Schema = new Schema(
   {
     patient: { type: Schema.Types.ObjectId, ref: "Patient", required: true },
     doctor: { type: Schema.Types.ObjectId, ref: "User" },
+    branchId: { type: Schema.Types.ObjectId, ref: "Organization", index: true },
     recordType: { type: String, required: true, default: "Consultation" },
     title: { type: String },
     category: { type: String },

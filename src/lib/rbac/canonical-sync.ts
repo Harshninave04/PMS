@@ -250,10 +250,15 @@ async function syncRoles(apply: boolean): Promise<{ created: string[]; refreshed
         const existing = await Role.findOne({ role: roleName }).lean();
 
         if (!existing) {
-            if (apply) await Role.create({ role: roleName, access });
+            if (apply) await Role.create({ role: roleName, access, managedBy: "code" });
             created.push(roleName);
             continue;
         }
+
+        // A role an administrator has edited is theirs. Overwriting `access`
+        // here on every boot is what made the permissions screen a no-op.
+        if (existing.managedBy === "admin") continue;
+
         if (roleIsCanonical(roleName, existing.access)) continue;
         if (apply) await Role.updateOne({ _id: existing._id }, { $set: { access } });
         refreshed.push(roleName);
@@ -269,7 +274,10 @@ async function syncLegacyRoles(
     const kept: { role: string; users: number }[] = [];
     let usersMoved = 0;
 
-    const legacyRoles = await Role.find({ role: { $nin: [...ALL_ROLES] } }).lean();
+    const legacyRoles = await Role.find({
+        role: { $nin: [...ALL_ROLES] },
+        managedBy: { $ne: "admin" }
+    }).lean();
     for (const legacy of legacyRoles) {
         const holders = await User.countDocuments({ role: legacy._id });
         const target = LEGACY_ROLE_MAP[legacy.role];

@@ -91,13 +91,11 @@ export class WardController {
         }
     }
 
-    async getWardById(id: string, request?: NextRequest): Promise<NextResponse> {
+    async getWardById(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_VIEW, "Ward");
-                if (!auth.isAuthorized) return auth.response;
-            }
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_VIEW, "Ward");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -164,13 +162,11 @@ export class WardController {
         }
     }
 
-    async deleteWard(id: string, request?: NextRequest): Promise<NextResponse> {
+    async deleteWard(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Ward");
-                if (!auth.isAuthorized) return auth.response;
-            }
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Ward");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(

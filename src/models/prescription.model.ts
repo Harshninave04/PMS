@@ -15,7 +15,7 @@ const prescriptionSchema = new Schema<IPrescription>(
         },
         branchId: {
             type: Types.ObjectId,
-            ref: 'Branch',
+            ref: 'Organization',
             required: false
         },
         appointmentId: {

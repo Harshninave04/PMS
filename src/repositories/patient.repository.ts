@@ -9,27 +9,66 @@ export class PatientRepository {
     }
 
     async findAll(filter: any = {}): Promise<IPatient[]> {
-        return await Patient.find(filter)
+        // Soft-deleted patients stay in the database for retention and audit but
+        // are excluded from day-to-day listings.
+        return await Patient.find({ isDeleted: { $ne: true }, ...filter })
             .populate("branchId")
             .sort({ createdAt: -1 })
             .lean();
     }
 
-    async findById(id: Types.ObjectId): Promise<IPatient | null> {
-        return await Patient.findById(id)
+    async findById(id: Types.ObjectId, includeDeleted = false): Promise<IPatient | null> {
+        return await Patient.findOne({ _id: id, ...(includeDeleted ? {} : { isDeleted: { $ne: true } }) })
             .populate("branchId")
             .populate("mergedWith", "name uhid contact")
             .lean();
     }
 
-    async findByUhid(uhid: string): Promise<IPatient | null> {
-        return await Patient.findOne({ uhid })
+    /**
+     * Reads a patient only if it falls inside the caller's boundary.
+     * Used to reject out-of-scope work before it has side effects, rather than
+     * after - checking scope once the file is already stored leaves an orphan.
+     */
+    async findByIdScoped(
+        id: Types.ObjectId,
+        scopeFilter: Record<string, unknown> = {}
+    ): Promise<IPatient | null> {
+        return await Patient.findOne({ _id: id, isDeleted: { $ne: true }, ...scopeFilter })
             .populate("branchId")
             .lean();
     }
 
+    async findDeleted(filter: any = {}): Promise<IPatient[]> {
+        return await Patient.find({ isDeleted: true, ...filter })
+            .populate("branchId")
+            .sort({ deletedAt: -1 })
+            .lean();
+    }
+
+    async findByUhid(uhid: string): Promise<IPatient | null> {
+        return await Patient.findOne({ uhid, isDeleted: { $ne: true } })
+            .populate("branchId")
+            .lean();
+    }
+
+    /**
+     * Checks a UHID against every patient, archived ones included.
+     * `uhid` carries a unique index, so an archived record keeps holding its
+     * identifier: registering a replacement under the same UHID would collide
+     * and make the archived chart impossible to restore.
+     */
+    async uhidExists(uhid: string, excludeId?: Types.ObjectId): Promise<boolean> {
+        const filter: Record<string, unknown> = { uhid };
+        if (excludeId) filter._id = { $ne: excludeId };
+        return (await Patient.exists(filter)) !== null;
+    }
+
     async findByBranchId(branchId: Types.ObjectId): Promise<IPatient[]> {
-        return await Patient.find({ branchId, isMerged: { $ne: true } })
+        return await Patient.find({
+            branchId,
+            isDeleted: { $ne: true },
+            isMerged: { $ne: true }
+        })
             .populate("branchId")
             .sort({ createdAt: -1 })
             .lean();
@@ -41,7 +80,7 @@ export class PatientRepository {
         status?: string;
         bloodGroup?: string;
     }): Promise<IPatient[]> {
-        const filter: any = {};
+        const filter: any = { isDeleted: { $ne: true } };
 
         if (params.query && params.query.trim()) {
             const regex = new RegExp(params.query.trim(), "i");
@@ -79,18 +118,60 @@ export class PatientRepository {
     }
 
     async update(id: Types.ObjectId, data: UpdatePatientDto): Promise<IPatient | null> {
-        return await Patient.findByIdAndUpdate(id, data, { new: true })
+        return await Patient.findByIdAndUpdate(id, data, { new: true, runValidators: true })
             .populate("branchId")
             .lean();
     }
 
-    async delete(id: Types.ObjectId): Promise<IPatient | null> {
-        return await Patient.findByIdAndDelete(id).lean();
+    /**
+     * Soft delete. A patient record is a legal document, so the row is
+     * retained and flagged rather than removed.
+     */
+    async softDelete(
+        id: Types.ObjectId,
+        deletedBy: Types.ObjectId,
+        reason?: string,
+        scopeFilter: Record<string, unknown> = {}
+    ): Promise<IPatient | null> {
+        return await Patient.findOneAndUpdate(
+            { _id: id, isDeleted: { $ne: true }, ...scopeFilter },
+            {
+                $set: {
+                    isDeleted: true,
+                    isActive: false,
+                    deletedAt: new Date(),
+                    deletedBy,
+                    deleteReason: reason ?? null,
+                },
+            },
+            { new: true, runValidators: true }
+        )
+            .populate("branchId")
+            .lean();
     }
 
-    async addDocument(id: Types.ObjectId, document: AddPatientDocumentDto): Promise<IPatient | null> {
-        return await Patient.findByIdAndUpdate(
-            id,
+    /** Reverses a soft delete. */
+    async restore(id: Types.ObjectId, scopeFilter: Record<string, unknown> = {}): Promise<IPatient | null> {
+        return await Patient.findOneAndUpdate(
+            { _id: id, isDeleted: true, ...scopeFilter },
+            {
+                $set: {
+                    isDeleted: false,
+                    isActive: true,
+                    deletedAt: null,
+                    deletedBy: null,
+                    deleteReason: null,
+                },
+            },
+            { new: true, runValidators: true }
+        )
+            .populate("branchId")
+            .lean();
+    }
+
+async addDocument(id: Types.ObjectId, document: AddPatientDocumentDto, scopeFilter: Record<string, unknown> = {}): Promise<IPatient | null> {
+        return await Patient.findOneAndUpdate(
+            { _id: id, isDeleted: { $ne: true }, ...scopeFilter },
             {
                 $push: {
                     documents: {
@@ -101,13 +182,19 @@ export class PatientRepository {
             },
             { new: true }
         )
-            .populate("branchId")
-            .lean();
+        .populate("branchId")
+        .lean();
     }
 
-    async deleteDocument(id: Types.ObjectId, documentId: string): Promise<IPatient | null> {
-        return await Patient.findByIdAndUpdate(
-            id,
+    async deleteDocument(
+        id: Types.ObjectId,
+        documentId: string,
+        scopeFilter: Record<string, unknown> = {}
+    ): Promise<IPatient | null> {
+        if (!Types.ObjectId.isValid(documentId)) return null;
+
+        return await Patient.findOneAndUpdate(
+            { _id: id, isDeleted: { $ne: true }, ...scopeFilter },
             {
                 $pull: {
                     documents: { _id: new Types.ObjectId(documentId) }
@@ -143,7 +230,7 @@ export class PatientRepository {
             documents: combinedDocs,
             medicalHistory: combinedHistory,
             allergies: combinedAllergies
-        });
+        }, { runValidators: true });
 
         // Mark secondary as merged and deactivate
         await Patient.findByIdAndUpdate(secondaryId, {
@@ -151,7 +238,7 @@ export class PatientRepository {
             mergedWith: primaryId,
             mergeReason: reason,
             isActive: false
-        });
+        }, { runValidators: true });
 
         const updatedPrimary = await this.findById(primaryId);
         const updatedSecondary = await this.findById(secondaryId);

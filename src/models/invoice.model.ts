@@ -68,7 +68,7 @@ const invoiceSchema = new Schema<IInvoice>({
     },
     branchId: {
         type: Types.ObjectId,
-        ref: "Branch",
+        ref: "Organization",
         required: false
     }
 }, { timestamps: true });

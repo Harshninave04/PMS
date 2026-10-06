@@ -5,6 +5,8 @@ import defaultPaymentService, { PaymentService } from "@/services/payment.servic
 import { CreatePaymentDto } from "@/dto/payment.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { recordAudit } from "@/services/audit.service";
+import { checkRecordBoundary } from "@/lib/rbac/scope-guard";
 
 export class PaymentController {
     constructor(private paymentService: PaymentService = defaultPaymentService) { }
@@ -32,6 +34,13 @@ export class PaymentController {
             }
 
             const payment = await this.paymentService.createPayment(data);
+
+            await recordAudit(auth.context, {
+                action: "CREATE",
+                entity: "payment",
+                entityId: payment?._id?.toString(),
+                summary: `Payment of ₹${data.amount} received via ${data.method} for invoice ${data.invoiceId}`,
+            });
 
             return NextResponse.json(
                 { success: true, message: "Payment created successfully", data: payment },
@@ -93,42 +102,12 @@ export class PaymentController {
         }
     }
 
-    async getPaymentById(id: string, request?: NextRequest): Promise<NextResponse> {
+    async getPaymentById(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.BILLING_PAYMENT_VIEW, "Payment");
-                if (!auth.isAuthorized) return auth.response;
 
-                if (!Types.ObjectId.isValid(id)) {
-                    return NextResponse.json(
-                        { success: false, message: "Invalid payment ID" },
-                        { status: 400 }
-                    );
-                }
-
-                const payment = await this.paymentService.getPaymentById(new Types.ObjectId(id));
-                if (!payment) {
-                    return NextResponse.json(
-                        { success: false, message: "Payment not found" },
-                        { status: 404 }
-                    );
-                }
-
-                if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                    if (payment.branchId && payment.branchId.toString() !== auth.context.branchId.toString()) {
-                        return NextResponse.json(
-                            { success: false, message: "Forbidden: Payment belongs to another branch" },
-                            { status: 403 }
-                        );
-                    }
-                }
-
-                return NextResponse.json(
-                    { success: true, data: payment },
-                    { status: 200 }
-                );
-            }
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.BILLING_PAYMENT_VIEW, "Payment");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -142,6 +121,14 @@ export class PaymentController {
                 return NextResponse.json(
                     { success: false, message: "Payment not found" },
                     { status: 404 }
+                );
+            }
+
+            const boundary = checkRecordBoundary(payment, auth.context, auth.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
                 );
             }
 

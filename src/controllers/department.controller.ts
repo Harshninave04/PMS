@@ -153,14 +153,12 @@ export class DepartmentController {
         }
     }
 
-    async getDepartmentById(id: string, request?: NextRequest): Promise<NextResponse> {
+    async getDepartmentById(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
 
-            if (request) {
-                const authResult = await authorizeRequest(request, PERMISSION_KEYS.DEPARTMENT_VIEW, "Department");
-                if (!authResult.isAuthorized) return authResult.response;
-            }
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.DEPARTMENT_VIEW, "Department");
+            if (!authResult.isAuthorized) return authResult.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -229,14 +227,12 @@ export class DepartmentController {
         }
     }
 
-    async deleteDepartment(id: string, request?: NextRequest): Promise<NextResponse> {
+    async deleteDepartment(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
 
-            if (request) {
-                const authResult = await authorizeRequest(request, PERMISSION_KEYS.DEPARTMENT_DELETE, "Department");
-                if (!authResult.isAuthorized) return authResult.response;
-            }
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.DEPARTMENT_DELETE, "Department");
+            if (!authResult.isAuthorized) return authResult.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(

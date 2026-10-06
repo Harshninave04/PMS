@@ -4,6 +4,7 @@ export interface IStaff extends Document {
   userId: Types.ObjectId;
   employeeId: string;
   departmentId?: Types.ObjectId;
+  assignedWards?: Types.ObjectId[];
   designationId?: Types.ObjectId;
   role: string;
   qualification?: string;
@@ -41,6 +42,14 @@ const staffSchema = new Schema<IStaff>(
     departmentId: {
       type: Schema.Types.ObjectId,
       ref: "Department",
+    },
+    /**
+     * Wards this staff member is rostered to. Required for the WARD orgScope:
+     * without it a ward-scoped grant can never be evaluated.
+     */
+    assignedWards: {
+      type: [{ type: Schema.Types.ObjectId, ref: "Ward" }],
+      default: [],
     },
     designationId: {
       type: Schema.Types.ObjectId,

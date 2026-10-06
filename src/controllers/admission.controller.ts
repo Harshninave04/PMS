@@ -5,6 +5,8 @@ import defaultAdmissionService, { AdmissionService } from "@/services/admission.
 import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto } from "@/dto/admission.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { checkRecordBoundary } from "@/lib/rbac/scope-guard";
+import { recordAudit, diffRecords } from "@/services/audit.service";
 
 interface PopulatedEntity {
     _id?: Types.ObjectId;
@@ -56,6 +58,14 @@ export class AdmissionController {
             }
 
             const admission = await this.admissionService.createAdmission(data);
+
+            await recordAudit(auth.context, {
+                action: "CREATE",
+                entity: "admission",
+                entityId: admission?._id?.toString(),
+                summary: `Patient ${data.patientId ?? "unknown"} admitted`,
+                metadata: { bedId: data.bedId ?? null, admissionType: data.admissionType ?? null },
+            });
 
             return NextResponse.json(
                 { success: true, message: "Admission created successfully", data: admission },
@@ -145,15 +155,11 @@ export class AdmissionController {
         }
     }
 
-    async getAdmissionById(id: string, request?: NextRequest): Promise<NextResponse> {
+    async getAdmissionById(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            let authResult;
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_VIEW, "Admission");
-                if (!auth.isAuthorized) return auth.response;
-                authResult = auth;
-            }
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_VIEW, "Admission");
+            if (!authResult.isAuthorized) return authResult.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -182,14 +188,12 @@ export class AdmissionController {
             }
 
             // Organizational check
-            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
-                const admBranch = (admission.branchId as PopulatedEntity)?._id?.toString() || admission.branchId?.toString();
-                if (admBranch && admBranch !== authResult.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Admission belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(admission, authResult.context, authResult.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             return NextResponse.json(
@@ -232,17 +236,26 @@ export class AdmissionController {
                 return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
             }
 
-            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
-                if (admBranch && admBranch !== auth.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Admission belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(existing, auth.context, auth.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             const admission = await this.admissionService.transferPatient(data);
+
+            await recordAudit(auth.context, {
+                action: "UPDATE",
+                entity: "admission",
+                entityId: String(data.admissionId),
+                summary: `Patient transferred to bed ${String(data.newBedId)}`,
+                metadata: {
+                    newBedId: data.newBedId ?? null,
+                    newDoctorId: data.newDoctorId ?? null
+                },
+            });
 
             return NextResponse.json(
                 { success: true, message: "Patient transferred successfully", data: admission },
@@ -294,17 +307,31 @@ export class AdmissionController {
                 }
             }
 
-            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
-                if (admBranch && admBranch !== auth.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Admission belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(existing, auth.context, auth.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             const admission = await this.admissionService.dischargePatient(data);
+
+            await recordAudit(auth.context, {
+                action: "UPDATE",
+                entity: "admission",
+                entityId: String(data.admissionId),
+                summary: `Patient discharged (${data.dischargeCondition})`,
+                // `dischargeSummary` and the medication plan are clinical free
+                // text, so only the administrative facts are recorded here.
+                metadata: {
+                    dischargeDate: data.dischargeDate ?? null,
+                    followUpDate: data.followUpDate ?? null,
+                    dischargeMedications: Array.isArray(data.dischargeMedications)
+                        ? data.dischargeMedications.length
+                        : 0
+                },
+            });
 
             return NextResponse.json(
                 { success: true, message: "Patient discharged successfully", data: admission },
@@ -319,13 +346,12 @@ export class AdmissionController {
         }
     }
 
-    async getAdmissionStats(request?: NextRequest): Promise<NextResponse> {
+    async getAdmissionStats(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_VIEW, "Admission");
-                if (!auth.isAuthorized) return auth.response;
-            }
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_VIEW, "Admission");
+            if (!auth.isAuthorized) return auth.response;
+
             const stats = await this.admissionService.getAdmissionStats();
             return NextResponse.json(
                 { success: true, data: stats },
@@ -368,14 +394,12 @@ export class AdmissionController {
                 }
             }
 
-            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
-                if (admBranch && admBranch !== auth.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Admission belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(existing, auth.context, auth.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             const data: UpdateAdmissionDto = await request.json();
@@ -392,6 +416,17 @@ export class AdmissionController {
 
             const admission = await this.admissionService.updateAdmission(new Types.ObjectId(id), data);
 
+            await recordAudit(auth.context, {
+                action: "UPDATE",
+                entity: "admission",
+                entityId: id,
+                summary: `Admission ${id} updated`,
+                changes: diffRecords(
+                    existing as unknown as Record<string, unknown>,
+                    admission as unknown as Record<string, unknown>
+                ),
+            });
+
             return NextResponse.json(
                 { success: true, message: "Admission updated successfully", data: admission },
                 { status: 200 }
@@ -405,15 +440,11 @@ export class AdmissionController {
         }
     }
 
-    async deleteAdmission(id: string, request?: NextRequest): Promise<NextResponse> {
+    async deleteAdmission(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            let authResult;
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_CANCEL, "Admission");
-                if (!auth.isAuthorized) return auth.response;
-                authResult = auth;
-            }
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_CANCEL, "Admission");
+            if (!authResult.isAuthorized) return authResult.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -437,17 +468,23 @@ export class AdmissionController {
                 }
             }
 
-            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
-                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
-                if (admBranch && admBranch !== authResult.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Admission belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(existing, authResult.context, authResult.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             await this.admissionService.deleteAdmission(new Types.ObjectId(id));
+
+            await recordAudit(authResult.context, {
+                action: "DELETE",
+                entity: "admission",
+                entityId: id,
+                summary: `Admission ${id} cancelled`,
+                metadata: { patientId: existing.patientId ?? null },
+            });
 
             return NextResponse.json(
                 { success: true, message: "Admission deleted successfully" },

@@ -13,8 +13,8 @@ export class ClinicalService {
       .sort({ dateRecorded: -1 });
   }
 
-  static async getRecordById(id: string) {
-    return ClinicalRecord.findById(id)
+  static async getRecordById(id: string, scopeFilter: Record<string, unknown> = {}) {
+    return ClinicalRecord.findOne({ _id: id, ...scopeFilter })
       .populate("patient", "name uhid age gender bloodGroup contact allergies medicalHistory")
       .populate("doctor", "name email");
   }
@@ -23,12 +23,16 @@ export class ClinicalService {
     return ClinicalRecord.create(data);
   }
 
-  static async updateRecord(id: string, data: any) {
-    return ClinicalRecord.findByIdAndUpdate(id, data, { new: true });
+  static async updateRecord(id: string, data: any, scopeFilter: Record<string, unknown> = {}) {
+    return ClinicalRecord.findOneAndUpdate(
+      { _id: id, ...scopeFilter },
+      { $set: data },
+      { new: true, runValidators: true }
+    );
   }
 
-  static async deleteRecord(id: string) {
-    return ClinicalRecord.findByIdAndDelete(id);
+  static async deleteRecord(id: string, scopeFilter: Record<string, unknown> = {}) {
+    return ClinicalRecord.findOneAndDelete({ _id: id, ...scopeFilter });
   }
 
   // --- Diagnoses ---
@@ -43,12 +47,16 @@ export class ClinicalService {
     return Diagnosis.create(data);
   }
 
-  static async updateDiagnosis(id: string, data: any) {
-    return Diagnosis.findByIdAndUpdate(id, data, { new: true });
+  static async updateDiagnosis(id: string, data: any, scopeFilter: Record<string, unknown> = {}) {
+    return Diagnosis.findOneAndUpdate(
+      { _id: id, ...scopeFilter },
+      { $set: data },
+      { new: true, runValidators: true }
+    );
   }
 
-  static async deleteDiagnosis(id: string) {
-    return Diagnosis.findByIdAndDelete(id);
+  static async deleteDiagnosis(id: string, scopeFilter: Record<string, unknown> = {}) {
+    return Diagnosis.findOneAndDelete({ _id: id, ...scopeFilter });
   }
 
   // --- Vitals ---
@@ -63,8 +71,8 @@ export class ClinicalService {
     return Vitals.create(data);
   }
 
-  static async deleteVitals(id: string) {
-    return Vitals.findByIdAndDelete(id);
+  static async deleteVitals(id: string, scopeFilter: Record<string, unknown> = {}) {
+    return Vitals.findOneAndDelete({ _id: id, ...scopeFilter });
   }
 
   // --- Clinical Statistics ---

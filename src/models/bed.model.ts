@@ -14,6 +14,12 @@ const bedSchema = new Schema<IBed>(
             ref: 'Room',
             required: true
         },
+        /** Denormalised from the parent Room so BRANCH-scoped reads are filterable. */
+        organizationId: {
+            type: Types.ObjectId,
+            ref: 'Organization',
+            index: true
+        },
         bedType: {
             type: String,
             enum: [

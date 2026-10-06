@@ -55,14 +55,12 @@ export class OrganizationController {
         }
     }
 
-    async getOrganizations(request?: NextRequest): Promise<NextResponse> {
+    async getOrganizations(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
 
-            if (request) {
-                const authResult = await authorizeRequest(request, PERMISSION_KEYS.ORGANIZATION_VIEW, "Organization");
-                if (!authResult.isAuthorized) return authResult.response;
-            }
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.ORGANIZATION_VIEW, "Organization");
+            if (!authResult.isAuthorized) return authResult.response;
 
             const organizations = await this.organizationService.getAllOrganizations();
             return NextResponse.json(

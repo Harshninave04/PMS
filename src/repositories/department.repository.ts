@@ -31,7 +31,7 @@ export class DepartmentRepository {
     }
 
     async update(id: Types.ObjectId, data: UpdateDepartmentDto): Promise<IDepartment | null> {
-        return await Department.findByIdAndUpdate(id, data, { new: true }).lean();
+        return await Department.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
     }
 
     async delete(id: Types.ObjectId): Promise<IDepartment | null> {

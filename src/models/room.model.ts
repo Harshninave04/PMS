@@ -26,6 +26,16 @@ const roomSchema = new Schema<IRoom>(
             ref: 'Ward',
             required: true
         },
+        /**
+         * Denormalised from the parent Ward at creation time so a BRANCH-scoped
+         * user can be filtered without a join. Room had no branch field before,
+         * which made branch scoping impossible to express.
+         */
+        organizationId: {
+            type: Types.ObjectId,
+            ref: 'Organization',
+            index: true
+        },
         description: {
             type: String,
         },

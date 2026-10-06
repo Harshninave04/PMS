@@ -16,7 +16,10 @@ function normalizeId(value: unknown): string {
 }
 
 /** Users may only be managed inside the admin's own hospital. */
-function isOutsideOrganization(context: { organizationId?: Types.ObjectId }, organization: unknown): boolean {
+function isOutsideOrganization(
+    context: { organizationId?: Types.ObjectId | null },
+    organization: unknown
+): boolean {
     return !context.organizationId || normalizeId(organization) !== context.organizationId.toString();
 }
 
@@ -137,9 +140,12 @@ export class UserController {
         }
     }
 
-    async getUserById(id: string): Promise<NextResponse> {
+    async getUserById(request: NextRequest, id: string): Promise<NextResponse> {
         try {
             await dbConnect();
+
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_VIEW, "User");
+            if (!authResult.isAuthorized) return authResult.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -153,6 +159,13 @@ export class UserController {
                 return NextResponse.json(
                     { success: false, message: "User not found" },
                     { status: 404 }
+                );
+            }
+
+            if (isOutsideOrganization(authResult.context, user.organization)) {
+                return NextResponse.json(
+                    { success: false, message: "Forbidden: user belongs to another organization" },
+                    { status: 403 }
                 );
             }
 
@@ -231,7 +244,7 @@ export class UserController {
         }
     }
 
-    async deleteUser(id: string, request?: NextRequest): Promise<NextResponse> {
+    async deleteUser(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
 
@@ -242,17 +255,21 @@ export class UserController {
                 );
             }
 
-            if (request) {
-                const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DISABLE, "User");
-                if (!authResult.isAuthorized) return authResult.response;
+            // A hard delete is irreversible, so it needs USER_DELETE rather than
+            // the USER_DISABLE authority that merely deactivates an account.
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DELETE, "User");
+            if (!authResult.isAuthorized) return authResult.response;
 
-                const targetUser = await this.userService.getUserById(new Types.ObjectId(id));
-                if (!targetUser) {
-                    return NextResponse.json({ success: false, message: "Target user not found" }, { status: 404 });
-                }
-                if (isOutsideOrganization(authResult.context, targetUser.organization)) {
-                    return NextResponse.json({ success: false, message: "Cannot delete user outside your hospital" }, { status: 403 });
-                }
+            const targetUser = await this.userService.getUserById(new Types.ObjectId(id));
+            if (!targetUser) {
+                return NextResponse.json({ success: false, message: "Target user not found" }, { status: 404 });
+            }
+            if (isOutsideOrganization(authResult.context, targetUser.organization)) {
+                return NextResponse.json({ success: false, message: "Cannot delete user outside your hospital" }, { status: 403 });
+            }
+
+            if (authResult.context.userId.toString() === id) {
+                return NextResponse.json({ success: false, message: "You cannot delete your own account" }, { status: 400 });
             }
 
             await this.userService.deleteUser(new Types.ObjectId(id));

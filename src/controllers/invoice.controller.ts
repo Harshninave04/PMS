@@ -5,6 +5,8 @@ import defaultInvoiceService, { InvoiceService } from "@/services/invoice.servic
 import { CreateInvoiceDto, UpdateInvoiceDto } from "@/dto/invoice.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { recordAudit, diffRecords } from "@/services/audit.service";
+import { checkRecordBoundary } from "@/lib/rbac/scope-guard";
 
 export class InvoiceController {
     constructor(private invoiceService: InvoiceService = defaultInvoiceService) { }
@@ -52,6 +54,13 @@ export class InvoiceController {
             }
 
             const invoice = await this.invoiceService.createInvoice(data);
+
+            await recordAudit(auth.context, {
+                action: "CREATE",
+                entity: "invoice",
+                entityId: invoice?._id?.toString(),
+                summary: `Invoice ${data.invoiceNumber} raised for patient ${data.patientId} (₹${data.finalAmount})`,
+            });
 
             return NextResponse.json(
                 { success: true, message: "Invoice created successfully", data: invoice },
@@ -114,43 +123,12 @@ export class InvoiceController {
         }
     }
 
-    async getInvoiceById(id: string, request?: NextRequest): Promise<NextResponse> {
+    async getInvoiceById(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.BILLING_INVOICE_VIEW, "Invoice");
-                if (!auth.isAuthorized) return auth.response;
 
-                if (!Types.ObjectId.isValid(id)) {
-                    return NextResponse.json(
-                        { success: false, message: "Invalid invoice ID" },
-                        { status: 400 }
-                    );
-                }
-
-                const invoice = await this.invoiceService.getInvoiceById(new Types.ObjectId(id));
-                if (!invoice) {
-                    return NextResponse.json(
-                        { success: false, message: "Invoice not found" },
-                        { status: 404 }
-                    );
-                }
-
-                // Check branch boundary
-                if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                    if (invoice.branchId && invoice.branchId.toString() !== auth.context.branchId.toString()) {
-                        return NextResponse.json(
-                            { success: false, message: "Forbidden: Invoice belongs to another branch" },
-                            { status: 403 }
-                        );
-                    }
-                }
-
-                return NextResponse.json(
-                    { success: true, data: invoice },
-                    { status: 200 }
-                );
-            }
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.BILLING_INVOICE_VIEW, "Invoice");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -164,6 +142,14 @@ export class InvoiceController {
                 return NextResponse.json(
                     { success: false, message: "Invoice not found" },
                     { status: 404 }
+                );
+            }
+
+            const boundary = checkRecordBoundary(invoice, auth.context, auth.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
                 );
             }
 
@@ -199,14 +185,13 @@ export class InvoiceController {
                 return NextResponse.json({ success: false, message: "Invoice not found" }, { status: 404 });
             }
 
-            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                if (existingInvoice.branchId && existingInvoice.branchId.toString() !== auth.context.branchId.toString()) {
+                const boundary = checkRecordBoundary(existingInvoice, auth.context, auth.grant);
+                if (!boundary.allowed) {
                     return NextResponse.json(
-                        { success: false, message: "Forbidden: Cannot update invoice belonging to another branch" },
-                        { status: 403 }
+                        { success: false, message: boundary.message },
+                        { status: boundary.statusCode }
                     );
                 }
-            }
 
             const data: UpdateInvoiceDto = await request.json();
 
@@ -218,6 +203,17 @@ export class InvoiceController {
             }
 
             const invoice = await this.invoiceService.updateInvoice(new Types.ObjectId(id), data);
+
+            await recordAudit(auth.context, {
+                action: "UPDATE",
+                entity: "invoice",
+                entityId: id,
+                summary: `Invoice ${existingInvoice.invoiceNumber ?? id} updated`,
+                changes: diffRecords(
+                    existingInvoice as unknown as Record<string, unknown>,
+                    invoice as unknown as Record<string, unknown>
+                ),
+            });
 
             return NextResponse.json(
                 { success: true, message: "Invoice updated successfully", data: invoice },
@@ -233,27 +229,24 @@ export class InvoiceController {
         }
     }
 
-    async deleteInvoice(id: string, request?: NextRequest): Promise<NextResponse> {
+    async deleteInvoice(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.BILLING_INVOICE_CANCEL, "Invoice");
-                if (!auth.isAuthorized) return auth.response;
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.BILLING_INVOICE_CANCEL, "Invoice");
+            if (!auth.isAuthorized) return auth.response;
 
-                const existingInvoice = await this.invoiceService.getInvoiceById(new Types.ObjectId(id));
-                if (!existingInvoice) {
-                    return NextResponse.json({ success: false, message: "Invoice not found" }, { status: 404 });
-                }
-
-                if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                    if (existingInvoice.branchId && existingInvoice.branchId.toString() !== auth.context.branchId.toString()) {
-                        return NextResponse.json(
-                            { success: false, message: "Forbidden: Cannot cancel invoice belonging to another branch" },
-                            { status: 403 }
-                        );
-                    }
-                }
+            const existingInvoice = await this.invoiceService.getInvoiceById(new Types.ObjectId(id));
+            if (!existingInvoice) {
+                return NextResponse.json({ success: false, message: "Invoice not found" }, { status: 404 });
             }
+
+                const boundary = checkRecordBoundary(existingInvoice, auth.context, auth.grant);
+                if (!boundary.allowed) {
+                    return NextResponse.json(
+                        { success: false, message: boundary.message },
+                        { status: boundary.statusCode }
+                    );
+                }
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -263,6 +256,14 @@ export class InvoiceController {
             }
 
             await this.invoiceService.deleteInvoice(new Types.ObjectId(id));
+
+            await recordAudit(auth.context, {
+                action: "DELETE",
+                entity: "invoice",
+                entityId: id,
+                summary: `Invoice ${existingInvoice.invoiceNumber ?? id} cancelled/deleted`,
+                changes: diffRecords(existingInvoice as unknown as Record<string, unknown>, null),
+            });
 
             return NextResponse.json(
                 { success: true, message: "Invoice deleted successfully" },

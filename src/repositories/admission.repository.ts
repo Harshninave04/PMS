@@ -100,7 +100,7 @@ export class AdmissionRepository {
     }
 
     async update(id: Types.ObjectId, data: UpdateAdmissionDto | any): Promise<IAdmission | null> {
-        return await Admission.findByIdAndUpdate(id, data, { new: true })
+        return await Admission.findByIdAndUpdate(id, data, { new: true, runValidators: true })
             .populate(defaultPopulate)
             .lean();
     }

@@ -1,14 +1,20 @@
 import { Types } from "mongoose";
 import Room from "@/models/room.model";
+import Ward from "@/models/ward.model";
 // Ensure referenced models are registered in Mongoose
-import "@/models/ward.model";
 import "@/models/organization.model";
 import { IRoom } from "@/interfaces/room.interface";
 import { CreateRoomDto, UpdateRoomDto } from "@/dto/room.dto";
 
 export class RoomRepository {
     async create(data: CreateRoomDto): Promise<IRoom> {
-        return await new Room(data).save();
+        // Copy the branch from the parent ward so BRANCH-scoped queries can
+        // filter rooms without traversing wardId.
+        const ward = await Ward.findById(data.wardId).select("organizationId").lean();
+        return await new Room({
+            ...data,
+            organizationId: data.wardId && ward?.organizationId ? ward.organizationId : undefined
+        }).save();
     }
 
     async findAll(): Promise<IRoom[]> {
@@ -28,7 +34,7 @@ export class RoomRepository {
     }
 
     async update(id: Types.ObjectId, data: UpdateRoomDto): Promise<IRoom | null> {
-        return await Room.findByIdAndUpdate(id, data, { new: true }).lean();
+        return await Room.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
     }
 
     async delete(id: Types.ObjectId): Promise<IRoom | null> {

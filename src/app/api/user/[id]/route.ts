@@ -10,7 +10,7 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
     try {
         const { id } = await params;
-        return UserController.getUserById(id);
+        return UserController.getUserById(request, id);
     } catch (e: any) {
         return NextResponse.json({
             success: false,

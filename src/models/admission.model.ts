@@ -61,7 +61,7 @@ const admissionSchema = new Schema<IAdmission>(
         },
         branchId: {
             type: Types.ObjectId,
-            ref: 'Branch',
+            ref: 'Organization',
             required: false
         },
         bedId: {

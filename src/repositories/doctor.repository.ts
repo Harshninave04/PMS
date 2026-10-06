@@ -29,7 +29,7 @@ export class DoctorRepository {
     }
 
     async update(id: Types.ObjectId, data: UpdateDoctorDto): Promise<IDoctor | null> {
-        return await Doctor.findByIdAndUpdate(id, data, { new: true }).populate("userId", "-password").populate("departmentId").lean();
+        return await Doctor.findByIdAndUpdate(id, data, { new: true, runValidators: true }).populate("userId", "-password").populate("departmentId").lean();
     }
 
     async delete(id: Types.ObjectId): Promise<IDoctor | null> {

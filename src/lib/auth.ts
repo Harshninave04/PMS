@@ -36,13 +36,17 @@ export const authOptions: AuthOptions = {
           throw new Error("Your account has been deactivated");
         }
 
-        // Support bcrypt hashed passwords as well as legacy plaintext fallback
-        let isPasswordValid = false;
-        if (user.password.startsWith("$2a$") || user.password.startsWith("$2b$")) {
-          isPasswordValid = await bcrypt.compare(credentials.password, user.password);
-        } else {
-          isPasswordValid = credentials.password === user.password;
+        // Passwords must be bcrypt hashes. $2a$/$2b$/$2y$ are the standard
+        // bcrypt revision prefixes; $2y$ is emitted by PHP's password_hash().
+        const isBcryptHash = /^\$2[aby]\$\d{2}\$/.test(user.password);
+
+        if (!isBcryptHash) {
+          // Refuse to authenticate rather than falling back to plaintext
+          // comparison. The account must be reset to a bcrypt hash.
+          throw new Error("Account password is not a valid bcrypt hash. Please contact an administrator.");
         }
+
+        const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
 
         if (!isPasswordValid) {
           throw new Error("Invalid email or password");

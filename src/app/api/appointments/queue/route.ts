@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import Appointment from "@/models/appointment.model";
 import Patient from "@/models/patient.model";
 import Doctor from "@/models/doctor.model";
 import User from "@/models/user.model";
 import Department from "@/models/department.model";
-import { AppointmentService } from "@/services/appointment.service";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
@@ -28,13 +28,26 @@ export async function GET(req: NextRequest) {
         const todayEnd = new Date(todayStart);
         todayEnd.setDate(todayEnd.getDate() + 1);
 
-        const query: any = {
+        // `filter` carries the caller's branch/organization/ownership boundary.
+        // Without it the queue would list and disclose patients from branches the
+        // viewer has no jurisdiction over.
+        const query: Record<string, unknown> = {
+            ...authResult.filter,
             appointmentDate: { $gte: todayStart, $lt: todayEnd },
             status: { $nin: ["CANCELLED"] }
         };
 
+        // An "OWN" grant only permits the caller's own appointments; requesting a
+        // specific doctor must not widen that. Restricting the requested doctor to
+        // the boundary itself keeps the query honest.
         if (doctorId && doctorId !== 'ALL') {
-            query.doctorId = doctorId;
+            if (!Types.ObjectId.isValid(doctorId)) {
+                return NextResponse.json(
+                    { success: false, message: "Invalid doctor ID" },
+                    { status: 400 }
+                );
+            }
+            query.doctorId = new Types.ObjectId(doctorId);
         }
 
         const queue = await Appointment.find(query)

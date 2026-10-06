@@ -7,12 +7,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Activity, Lock, Mail, Eye, EyeOff, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Activity, Lock, Mail, Eye, EyeOff, AlertCircle } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@hospital.com");
-  const [password, setPassword] = useState("password123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,15 +146,6 @@ export default function LoginPage() {
                 )}
               </Button>
             </form>
-
-            <div className="mt-6 rounded-lg bg-emerald-950/40 border border-emerald-800/30 p-3 text-xs text-emerald-300/80">
-              <div className="flex items-center gap-1.5 font-medium text-emerald-400 mb-1">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Default Credentials
-              </div>
-              <p>Email: <span className="font-mono text-white">admin@hospital.com</span></p>
-              <p>Password: <span className="font-mono text-white">password123</span></p>
-            </div>
           </CardContent>
         </Card>
       </div>

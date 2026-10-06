@@ -6,6 +6,7 @@ import Organization from "@/models/organization.model";
 import { Types } from "mongoose";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { checkRecordBoundary } from "@/lib/rbac/scope-guard";
 
 interface PopulatedPatient {
     name?: string;
@@ -184,14 +185,12 @@ export const AppointmentController = {
             }
 
             // Organizational boundary check
-            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                const apptBranch = appointment.branchId ? appointment.branchId.toString() : null;
-                if (apptBranch && apptBranch !== auth.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, error: "Forbidden: Appointment belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(appointment, auth.context, auth.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             return NextResponse.json({ success: true, data: appointment });
@@ -229,17 +228,31 @@ export const AppointmentController = {
             }
 
             // Organizational boundary check
-            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                const apptBranch = existing.branchId ? existing.branchId.toString() : null;
-                if (apptBranch && apptBranch !== auth.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, error: "Forbidden: Appointment belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(existing, auth.context, auth.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             const body = await req.json();
+
+            // Reassigning to a different doctor is a separate capability: a role
+            // that can edit appointment details must not be able to hand an
+            // appointment to any doctor in the hospital.
+            const requestedDoctorId = body?.doctorId ? String(body.doctorId) : null;
+            const currentDoctorId = existing.doctorId
+                ? (typeof existing.doctorId === "object" && "_id" in existing.doctorId
+                    ? String(existing.doctorId._id)
+                    : String(existing.doctorId))
+                : null;
+
+            if (requestedDoctorId && requestedDoctorId !== currentDoctorId) {
+                const reassignAuth = await authorizeRequest(req, PERMISSION_KEYS.APPOINTMENT_REASSIGN, "Appointment");
+                if (!reassignAuth.isAuthorized) return reassignAuth.response;
+            }
+
             const updated = await AppointmentService.updateAppointment(resolvedParams.id, body);
             return NextResponse.json({ success: true, data: updated });
         } catch (error: unknown) {
@@ -276,14 +289,12 @@ export const AppointmentController = {
             }
 
             // Organizational boundary check
-            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                const apptBranch = existing.branchId ? existing.branchId.toString() : null;
-                if (apptBranch && apptBranch !== auth.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, error: "Forbidden: Appointment belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(existing, auth.context, auth.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             await AppointmentService.deleteAppointment(resolvedParams.id);

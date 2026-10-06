@@ -16,16 +16,22 @@ export async function GET(request: Request): Promise<NextResponse> {
   try {
     await dbConnect();
 
-    // 1. Basic counts
+    // Every read below is constrained by the caller's own scope. Counting
+    // unscoped would tell a branch user how many beds exist in other branches,
+    // and would report beds they are not allowed to see or manage.
+    const { filter } = authResult;
+
     const [totalWards, totalRooms, beds, wards, activeAdmissions] = await Promise.all([
-      Ward.countDocuments({ isActive: true }),
-      Room.countDocuments({ isActive: true }),
-      Bed.find().populate({
-        path: "roomId",
-        populate: { path: "wardId" }
-      }).lean(),
-      Ward.find({ isActive: true }).lean(),
-      Admission.find({ status: "ACTIVE" })
+      Ward.countDocuments({ ...filter, isActive: true }),
+      Room.countDocuments({ ...filter, isActive: true }),
+      Bed.find(filter)
+        .populate({
+          path: "roomId",
+          populate: { path: "wardId" }
+        })
+        .lean(),
+      Ward.find({ ...filter, isActive: true }).lean(),
+      Admission.find({ ...filter, status: "ACTIVE" })
         .populate("patientId", "name uhid age gender contact")
         .populate("doctorId", "name email")
         .populate({

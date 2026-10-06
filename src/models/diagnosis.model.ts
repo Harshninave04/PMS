@@ -3,6 +3,8 @@ import mongoose, { Schema, Document } from "mongoose";
 export interface IDiagnosis extends Document {
   patient: mongoose.Types.ObjectId;
   doctor?: mongoose.Types.ObjectId;
+  /** Copied from the patient's branch so BRANCH-scoped reads are enforceable. */
+  branchId?: mongoose.Types.ObjectId;
   code?: string; // ICD10 or similar
   description: string;
   status: "Active" | "Resolved" | "Chronic";
@@ -14,6 +16,7 @@ const DiagnosisSchema: Schema = new Schema(
   {
     patient: { type: Schema.Types.ObjectId, ref: "Patient", required: true },
     doctor: { type: Schema.Types.ObjectId, ref: "User" },
+    branchId: { type: Schema.Types.ObjectId, ref: "Organization", index: true },
     code: { type: String },
     description: { type: String, required: true },
     status: {

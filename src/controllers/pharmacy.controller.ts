@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import PharmacyService from "@/services/pharmacy.service";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { recordAudit } from "@/services/audit.service";
 
 export class PharmacyController {
     static async getStats(req: Request | NextRequest): Promise<NextResponse> {
@@ -44,11 +45,26 @@ export class PharmacyController {
             if (!auth.isAuthorized) return auth.response;
 
             const body = await req.json();
-            const dispense = await PharmacyService.createDispense(body);
+            const dispense = await PharmacyService.createDispense(body, auth.context.userId.toString());
+
+            await recordAudit(auth.context, {
+                action: "CREATE",
+                entity: "pharmacyDispense",
+                entityId: dispense._id.toString(),
+                summary: `Dispensed ${dispense.items?.length ?? 0} item(s) to ${dispense.patientName ?? "patient"}`,
+                metadata: {
+                    billNumber: dispense.billNumber,
+                    totalAmount: dispense.totalAmount,
+                    prescriptionId: body.prescriptionId ?? null
+                },
+            });
+
             return NextResponse.json({ success: true, data: dispense }, { status: 201 });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to create dispense";
-            return NextResponse.json({ success: false, message }, { status: 500 });
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode || 500;
+            const message = error instanceof Error ? error.message : err?.message || "Failed to create dispense";
+            return NextResponse.json({ success: false, message }, { status: statusCode });
         }
     }
 
@@ -85,10 +101,21 @@ export class PharmacyController {
                 return NextResponse.json({ success: false, message: "medicineId and quantityChange required" }, { status: 400 });
             }
             const updated = await PharmacyService.adjustStock(medicineId, Number(quantityChange), notes);
+
+            await recordAudit(auth.context, {
+                action: "UPDATE",
+                entity: "medicine",
+                entityId: medicineId,
+                summary: `Stock adjusted by ${quantityChange > 0 ? "+" : ""}${quantityChange}`,
+                metadata: { quantityChange, notes: notes ?? null },
+            });
+
             return NextResponse.json({ success: true, data: updated }, { status: 200 });
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to adjust stock";
-            return NextResponse.json({ success: false, message }, { status: 500 });
+            const err = error as { statusCode?: number; message?: string };
+            const statusCode = err?.statusCode ?? 500;
+            const message = error instanceof Error ? error.message : err?.message ?? "Failed to adjust stock";
+            return NextResponse.json({ success: false, message }, { status: statusCode });
         }
     }
 

@@ -152,14 +152,12 @@ export class DoctorController {
         }
     }
 
-    async getDoctorById(id: string, request?: NextRequest): Promise<NextResponse> {
+    async getDoctorById(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
 
-            if (request) {
-                const authResult = await authorizeRequest(request, PERMISSION_KEYS.DOCTOR_VIEW, "Doctor");
-                if (!authResult.isAuthorized) return authResult.response;
-            }
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.DOCTOR_VIEW, "Doctor");
+            if (!authResult.isAuthorized) return authResult.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -247,14 +245,12 @@ export class DoctorController {
         }
     }
 
-    async deleteDoctor(id: string, request?: NextRequest): Promise<NextResponse> {
+    async deleteDoctor(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
 
-            if (request) {
-                const authResult = await authorizeRequest(request, PERMISSION_KEYS.DOCTOR_DELETE, "Doctor");
-                if (!authResult.isAuthorized) return authResult.response;
-            }
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.DOCTOR_DELETE, "Doctor");
+            if (!authResult.isAuthorized) return authResult.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(

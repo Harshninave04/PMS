@@ -6,6 +6,27 @@ import "@/models/user.model";
 import "@/models/room.model";
 import "@/models/ward.model";
 
+/** Fields a client may set. `administeredBy` is stamped from the session, never the body. */
+const WRITABLE_MEDICATION_FIELDS = [
+  "patient",
+  "medicationName",
+  "dosage",
+  "route",
+  "scheduledTime",
+  "administeredTime",
+  "status",
+  "withheldReason",
+  "notes",
+] as const;
+
+function pickWritable(data: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (data[field] !== undefined) result[field] = data[field];
+  }
+  return result;
+}
+
 export class NursingService {
   // 1. My Inpatients (Real admitted ward inpatients)
   async getMyPatients(filter: Record<string, unknown> = {}) {
@@ -77,12 +98,24 @@ export class NursingService {
       .sort({ scheduledTime: 1, createdAt: -1 });
   }
 
-  async createMedication(data: Record<string, unknown>) {
-    return NursingMedication.create(data);
+  async createMedication(data: Record<string, unknown>, administeredBy?: string) {
+    return NursingMedication.create({
+      ...pickWritable(data, WRITABLE_MEDICATION_FIELDS),
+      // The administering nurse is whoever holds the session, not whoever the
+      // client named in the request body.
+      administeredBy: administeredBy ?? null,
+    });
+  }
+
+  async getMedicationById(id: string) {
+    return NursingMedication.findById(id);
   }
 
   async updateMedication(id: string, data: Record<string, unknown>) {
-    return NursingMedication.findByIdAndUpdate(id, data, { new: true });
+    return NursingMedication.findByIdAndUpdate(id, pickWritable(data, WRITABLE_MEDICATION_FIELDS), {
+      new: true,
+      runValidators: true,
+    });
   }
 
   async deleteMedication(id: string) {

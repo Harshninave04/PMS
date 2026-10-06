@@ -3,6 +3,8 @@ import mongoose, { Schema, Document } from "mongoose";
 export interface IVitals extends Document {
   patient: mongoose.Types.ObjectId;
   recordedBy?: mongoose.Types.ObjectId;
+  /** Copied from the patient's branch so BRANCH-scoped reads are enforceable. */
+  branchId?: mongoose.Types.ObjectId;
   temperature?: number;
   heartRate?: number;
   bloodPressure?: string;
@@ -17,6 +19,7 @@ const VitalsSchema: Schema = new Schema(
   {
     patient: { type: Schema.Types.ObjectId, ref: "Patient", required: true },
     recordedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    branchId: { type: Schema.Types.ObjectId, ref: "Organization", index: true },
     temperature: { type: Number },
     heartRate: { type: Number },
     bloodPressure: { type: String },

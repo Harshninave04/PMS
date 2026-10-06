@@ -90,13 +90,11 @@ export class BedController {
         }
     }
 
-    async getBedById(id: string, request?: NextRequest): Promise<NextResponse> {
+    async getBedById(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_VIEW, "Bed");
-                if (!auth.isAuthorized) return auth.response;
-            }
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_VIEW, "Bed");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -164,13 +162,11 @@ export class BedController {
         }
     }
 
-    async deleteBed(id: string, request?: NextRequest): Promise<NextResponse> {
+    async deleteBed(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Bed");
-                if (!auth.isAuthorized) return auth.response;
-            }
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Bed");
+            if (!auth.isAuthorized) return auth.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(

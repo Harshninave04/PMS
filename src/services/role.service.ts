@@ -33,7 +33,21 @@ export class RoleService {
                 throw { statusCode: 409, message: `Role '${data.role}' already exists` };
             }
         }
-        return await this.repository.update(id, data);
+
+        /** A rejected request is not an edit, so it must not take ownership of the role. */
+        const hasChanges =
+            data.role !== undefined || data.access !== undefined || data.managedRoles !== undefined;
+
+        // Taking ownership is what stops boot-time reconciliation from
+        // overwriting the administrator's changes on the next restart.
+        return hasChanges
+            ? await this.repository.update(id, { ...data, managedBy: "admin" })
+            : role;
+    }
+
+    /** Hand a role back to the code definitions so the next boot reconciles it again. */
+    async resetRoleToCodeDefaults(id: Types.ObjectId): Promise<IRole | null> {
+        return await this.repository.update(id, { managedBy: "code" } as UpdateRoleDto);
     }
 
     async deleteRole(id: Types.ObjectId): Promise<IRole | null> {

@@ -34,7 +34,21 @@ export async function DELETE(request: NextRequest, { params }: Params): Promise<
         const { id } = await params;
         return PatientController.deletePatient(id, request);
     } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : "Failed to delete patient";
+        const message = e instanceof Error ? e.message : "Failed to archive patient";
+        return NextResponse.json({
+            success: false,
+            message
+        }, { status: 500 });
+    }
+}
+
+/** Restores a soft-deleted patient record. */
+export async function PATCH(request: NextRequest, { params }: Params): Promise<NextResponse> {
+    try {
+        const { id } = await params;
+        return PatientController.restorePatient(id, request);
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Failed to restore patient";
         return NextResponse.json({
             success: false,
             message

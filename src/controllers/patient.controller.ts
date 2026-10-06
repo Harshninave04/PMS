@@ -5,6 +5,8 @@ import defaultPatientService, { PatientService } from "@/services/patient.servic
 import { CreatePatientDto, UpdatePatientDto, AddPatientDocumentDto } from "@/dto/patient.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { recordAudit, diffRecords } from "@/services/audit.service";
+import { checkRecordBoundary } from "@/lib/rbac/scope-guard";
 
 export class PatientController {
     constructor(private patientService: PatientService = defaultPatientService) { }
@@ -37,6 +39,13 @@ export class PatientController {
             }
 
             const patient = await this.patientService.createPatient(data);
+
+            await recordAudit(auth.context, {
+                action: "CREATE",
+                entity: "patient",
+                entityId: patient?._id?.toString(),
+                summary: `Patient ${patient?.uhid ?? ""} registered for ${patient?.name ?? "unknown"}`,
+            });
 
             return NextResponse.json(
                 { success: true, message: "Patient created successfully", data: patient },
@@ -89,15 +98,11 @@ export class PatientController {
         }
     }
 
-    async getPatientById(id: string, request?: NextRequest): Promise<NextResponse> {
+    async getPatientById(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            let authResult;
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_VIEW, "Patient");
-                if (!auth.isAuthorized) return auth.response;
-                authResult = auth;
-            }
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_VIEW, "Patient");
+            if (!authResult.isAuthorized) return authResult.response;
 
             let patient = null;
             if (Types.ObjectId.isValid(id)) {
@@ -115,14 +120,12 @@ export class PatientController {
                 );
             }
 
-            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
-                const patientBranch = patient.branchId ? patient.branchId.toString() : null;
-                if (patientBranch && patientBranch !== authResult.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Patient belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(patient, authResult.context, authResult.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             return NextResponse.json(
@@ -159,14 +162,12 @@ export class PatientController {
                 );
             }
 
-            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                const patientBranch = existingPatient.branchId ? existingPatient.branchId.toString() : null;
-                if (patientBranch && patientBranch !== auth.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Cannot update patient belonging to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(existingPatient, auth.context, auth.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             const data: UpdatePatientDto = await request.json();
@@ -179,6 +180,17 @@ export class PatientController {
             }
 
             const patient = await this.patientService.updatePatient(new Types.ObjectId(id), data);
+
+            await recordAudit(auth.context, {
+                action: "UPDATE",
+                entity: "patient",
+                entityId: id,
+                summary: `Patient ${existingPatient.uhid ?? id} record updated`,
+                changes: diffRecords(
+                    existingPatient as unknown as Record<string, unknown>,
+                    patient as unknown as Record<string, unknown>
+                ),
+            });
 
             return NextResponse.json(
                 { success: true, message: "Patient updated successfully", data: patient },
@@ -193,15 +205,11 @@ export class PatientController {
         }
     }
 
-    async deletePatient(id: string, request?: NextRequest): Promise<NextResponse> {
+    async deletePatient(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            let authResult;
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_DELETE, "Patient");
-                if (!auth.isAuthorized) return auth.response;
-                authResult = auth;
-            }
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_DELETE, "Patient");
+            if (!authResult.isAuthorized) return authResult.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -218,27 +226,91 @@ export class PatientController {
                 );
             }
 
-            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
-                const patientBranch = existingPatient.branchId ? existingPatient.branchId.toString() : null;
-                if (patientBranch && patientBranch !== authResult.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Cannot delete patient belonging to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(existingPatient, authResult.context, authResult.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
-            await this.patientService.deletePatient(new Types.ObjectId(id));
+            // Soft delete: the row is retained for billing, retention and audit.
+            const reason = new URL(request.url).searchParams.get("reason") ?? undefined;
+            await this.patientService.deletePatient(
+                new Types.ObjectId(id),
+                authResult.context.userId,
+                reason,
+                authResult.filter as Record<string, unknown>
+            );
+
+            await recordAudit(authResult.context, {
+                action: "DELETE",
+                entity: "patient",
+                entityId: id,
+                summary: `Patient ${existingPatient.uhid ?? id} archived${reason ? ` (${reason})` : ""}`,
+                changes: diffRecords(
+                    existingPatient as unknown as Record<string, unknown>,
+                    { isDeleted: true, isActive: false, deletedAt: new Date() }
+                ),
+            });
 
             return NextResponse.json(
-                { success: true, message: "Patient deleted successfully" },
+                { success: true, message: "Patient archived successfully" },
                 { status: 200 }
             );
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to delete patient";
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to archive patient");
             return NextResponse.json(
                 { success: false, message },
-                { status: 500 }
+                { status: err?.statusCode || 500 }
+            );
+        }
+    }
+
+    /** Restores a soft-deleted patient. */
+    async restorePatient(id: string, request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_DELETE, "Patient");
+            if (!authResult.isAuthorized) return authResult.response;
+
+            if (!Types.ObjectId.isValid(id)) {
+                return NextResponse.json(
+                    { success: false, message: "Invalid patient ID" },
+                    { status: 400 }
+                );
+            }
+
+            const restored = await this.patientService.restorePatient(
+                new Types.ObjectId(id),
+                authResult.filter as Record<string, unknown>
+            );
+
+            if (!restored) {
+                return NextResponse.json(
+                    { success: false, message: "Patient not found or not archived" },
+                    { status: 404 }
+                );
+            }
+
+            await recordAudit(authResult.context, {
+                action: "RESTORE",
+                entity: "patient",
+                entityId: id,
+                summary: `Patient ${restored.uhid ?? id} restored from archive`,
+            });
+
+            return NextResponse.json(
+                { success: true, message: "Patient restored successfully", data: restored },
+                { status: 200 }
+            );
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to restore patient");
+            return NextResponse.json(
+                { success: false, message },
+                { status: err?.statusCode || 500 }
             );
         }
     }
@@ -267,14 +339,12 @@ export class PatientController {
                 );
             }
 
-            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                const patientBranch = existingPatient.branchId ? existingPatient.branchId.toString() : null;
-                if (patientBranch && patientBranch !== auth.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Patient belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(existingPatient, auth.context, auth.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             const body: AddPatientDocumentDto = await request.json();
@@ -285,7 +355,19 @@ export class PatientController {
                 );
             }
 
-            const updated = await this.patientService.addDocument(new Types.ObjectId(patientId), body);
+            const updated = await this.patientService.addDocument(
+                new Types.ObjectId(patientId),
+                body,
+                auth.filter as Record<string, unknown>
+            );
+
+            if (!updated) {
+                return NextResponse.json(
+                    { success: false, message: "Forbidden: Patient not found within your scope" },
+                    { status: 403 }
+                );
+            }
+
             return NextResponse.json(
                 { success: true, message: "Document added successfully", data: updated },
                 { status: 201 }
@@ -316,34 +398,45 @@ export class PatientController {
                 );
             }
 
-            const existingPatient = await this.patientService.getPatientById(new Types.ObjectId(patientId));
-            if (!existingPatient) {
+            if (!Types.ObjectId.isValid(documentId)) {
                 return NextResponse.json(
-                    { success: false, message: "Patient not found" },
+                    { success: false, message: "Invalid document ID" },
+                    { status: 400 }
+                );
+            }
+
+            const scopeFilter = auth.filter as Record<string, unknown>;
+
+            const updated = await this.patientService.deleteDocument(
+                new Types.ObjectId(patientId),
+                documentId,
+                scopeFilter
+            );
+
+            if (!updated) {
+                return NextResponse.json(
+                    { success: false, message: "Patient not found or document does not exist" },
                     { status: 404 }
                 );
             }
 
-            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                const patientBranch = existingPatient.branchId ? existingPatient.branchId.toString() : null;
-                if (patientBranch && patientBranch !== auth.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Patient belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
-            }
+            await recordAudit(auth.context, {
+                action: "DELETE",
+                entity: "patientDocument",
+                entityId: documentId,
+                summary: `Document removed from patient ${patientId}`,
+                metadata: { patientId },
+            });
 
-            const updated = await this.patientService.deleteDocument(new Types.ObjectId(patientId), documentId);
             return NextResponse.json(
                 { success: true, message: "Document deleted successfully", data: updated },
                 { status: 200 }
             );
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to delete document";
+            const err = error as { statusCode?: number; message?: string };
             return NextResponse.json(
-                { success: false, message },
-                { status: 500 }
+                { success: false, message: err?.message ?? "Failed to delete document" },
+                { status: err?.statusCode ?? 500 }
             );
         }
     }

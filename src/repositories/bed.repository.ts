@@ -1,7 +1,7 @@
 import { Types } from "mongoose";
 import Bed from "@/models/bed.model";
+import Room from "@/models/room.model";
 // Ensure referenced models are registered in Mongoose
-import "@/models/room.model";
 import "@/models/ward.model";
 import "@/models/organization.model";
 import { IBed } from "@/interfaces/bed.interface";
@@ -9,7 +9,13 @@ import { CreateBedDto, UpdateBedDto } from "@/dto/bed.dto";
 
 export class BedRepository {
     async create(data: CreateBedDto): Promise<IBed> {
-        return await new Bed(data).save();
+        // Copy the branch from the parent room so BRANCH-scoped queries can
+        // filter beds without traversing roomId -> wardId.
+        const room = await Room.findById(data.roomId).select("organizationId").lean();
+        return await new Bed({
+            ...data,
+            organizationId: data.roomId && room?.organizationId ? room.organizationId : undefined
+        }).save();
     }
 
     async findAll(query: any = {}): Promise<IBed[]> {
@@ -29,7 +35,7 @@ export class BedRepository {
     }
 
     async update(id: Types.ObjectId, data: UpdateBedDto): Promise<IBed | null> {
-        return await Bed.findByIdAndUpdate(id, data, { new: true }).lean();
+        return await Bed.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
     }
 
     async delete(id: Types.ObjectId): Promise<IBed | null> {

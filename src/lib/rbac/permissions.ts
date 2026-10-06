@@ -16,6 +16,8 @@ export const PERMISSION_KEYS = {
   APPOINTMENT_CREATE: "appointment.appointment.create",
   APPOINTMENT_UPDATE: "appointment.appointment.update",
   APPOINTMENT_CANCEL: "appointment.appointment.cancel",
+  /** Moving an appointment to a different doctor. Separate from a general update. */
+  APPOINTMENT_REASSIGN: "appointment.appointment.reassign",
 
   // IPD / Admissions & Wards
   ADMISSION_VIEW: "admission.admission.view",
@@ -68,6 +70,9 @@ export const PERMISSION_KEYS = {
   USER_CREATE: "user.user.create",
   USER_UPDATE: "user.user.update",
   USER_DISABLE: "user.user.disable",
+  // Permanent removal. Distinct from USER_DISABLE: deactivating a clinician
+  // must not require the authority to erase their record.
+  USER_DELETE: "user.user.delete",
   USER_DIRECTORY_VIEW: "user.directory.view",
   ROLE_VIEW: "role.role.view",
   ROLE_UPDATE: "role.role.update",
@@ -93,6 +98,9 @@ export const PERMISSION_KEYS = {
 
   // Dashboard
   DASHBOARD_VIEW: "dashboard.dashboard.view",
+
+  // Audit trail. Administrator-only in practice; not granted to any staff role.
+  AUDIT_VIEW: "audit.audit.view",
 } as const;
 
 export type PermissionKey = typeof PERMISSION_KEYS[keyof typeof PERMISSION_KEYS];

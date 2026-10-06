@@ -11,7 +11,7 @@ const paymentSchema = new Schema<IPayment>({
     cashierName: { type: String, default: "Main Billing Counter" },
     notes: { type: String },
     date: { type: Date, default: Date.now },
-    branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: false }
+    branchId: { type: Schema.Types.ObjectId, ref: "Organization", required: false }
 }, { timestamps: true });
 
 export default models.Payment || model<IPayment>("Payment", paymentSchema);

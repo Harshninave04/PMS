@@ -25,7 +25,7 @@ export class InvoiceRepository {
     }
 
     async update(id: Types.ObjectId, data: UpdateInvoiceDto): Promise<IInvoice | null> {
-        return await Invoice.findByIdAndUpdate(id, data, { new: true }).populate("patientId").populate("branchId").lean();
+        return await Invoice.findByIdAndUpdate(id, data, { new: true, runValidators: true }).populate("patientId").populate("branchId").lean();
     }
 
     async delete(id: Types.ObjectId): Promise<IInvoice | null> {

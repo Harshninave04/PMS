@@ -66,8 +66,10 @@ export class ScopeResolver {
           return { organizationId: context.organizationId };
         }
 
+        // Room and Bed carry a denormalised organizationId copied from their
+        // parent Ward/Room at creation time.
         if (normalizedModel === "room" || normalizedModel === "bed") {
-          return {};
+          return { organizationId: context.organizationId };
         }
 
         // For records referencing branchId (Patient, Appointment, Invoice, etc.)
@@ -98,7 +100,7 @@ export class ScopeResolver {
         }
 
         if (normalizedModel === "room" || normalizedModel === "bed") {
-          return {};
+          return { organizationId: branchId };
         }
 
         // Default branch field for Patient, Appointment, Invoice, Admission, Prescription

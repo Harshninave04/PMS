@@ -29,7 +29,7 @@ export class UserRepository {
     }
 
     async update(id: Types.ObjectId, data: UpdateUserDto): Promise<IUser | null> {
-        return await User.findByIdAndUpdate(id, data, { new: true }).select("-password").populate("role").populate("organization").populate("branch").lean();
+        return await User.findByIdAndUpdate(id, data, { new: true, runValidators: true }).select("-password").populate("role").populate("organization").populate("branch").lean();
     }
 
     async delete(id: Types.ObjectId): Promise<IUser | null> {

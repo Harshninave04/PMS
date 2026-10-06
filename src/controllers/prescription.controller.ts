@@ -4,7 +4,9 @@ import dbConnect from "@/lib/dbConnect";
 import defaultPrescriptionService, { PrescriptionService } from "@/services/prescription.service";
 import { CreatePrescriptionDto, UpdatePrescriptionDto } from "@/dto/prescription.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
+import { recordAudit, diffRecords } from "@/services/audit.service";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { checkRecordBoundary } from "@/lib/rbac/scope-guard";
 
 function extractEntityId(field: unknown): string | null {
     if (!field) return null;
@@ -65,6 +67,18 @@ export class PrescriptionController {
             }
 
             const prescription = await this.prescriptionService.createPrescription(data);
+
+            await recordAudit(auth.context, {
+                action: "CREATE",
+                entity: "prescription",
+                entityId: prescription?._id?.toString(),
+                summary: `Prescription issued for patient ${String(data.patientId)}`,
+                metadata: {
+                    patientId: data.patientId ?? null,
+                    // Medication names are clinical detail and stay out of the trail.
+                    medicationCount: Array.isArray(data.medications) ? data.medications.length : 0
+                },
+            });
 
             return NextResponse.json(
                 { success: true, message: "Prescription created successfully", data: prescription },
@@ -145,17 +159,15 @@ export class PrescriptionController {
         }
     }
 
-    async getPrescriptionById(id: string, request?: NextRequest): Promise<NextResponse> {
+    async getPrescriptionById(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            let authResult;
-            if (request) {
-                let auth = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_PRESCRIPTION_VIEW, "Prescription");
-                if (!auth.isAuthorized) {
-                    auth = await authorizeRequest(request, PERMISSION_KEYS.PHARMACY_PRESCRIPTION_VIEW, "Prescription");
-                    if (!auth.isAuthorized) return auth.response;
-                }
-                authResult = auth;
+            // Either permission grants access: a prescriber reads their own
+            // prescription, a pharmacist reads the same record to dispense it.
+            let authResult = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_PRESCRIPTION_VIEW, "Prescription");
+            if (!authResult.isAuthorized) {
+                authResult = await authorizeRequest(request, PERMISSION_KEYS.PHARMACY_PRESCRIPTION_VIEW, "Prescription");
+                if (!authResult.isAuthorized) return authResult.response;
             }
 
             if (!Types.ObjectId.isValid(id)) {
@@ -185,14 +197,12 @@ export class PrescriptionController {
             }
 
             // Organizational check
-            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
-                const pBranch = extractEntityId(prescription.branchId);
-                if (pBranch && pBranch !== authResult.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Prescription belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(prescription, authResult.context, authResult.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             return NextResponse.json(
@@ -246,14 +256,12 @@ export class PrescriptionController {
             }
 
             // Organizational check
-            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
-                const pBranch = extractEntityId(existing.branchId);
-                if (pBranch && pBranch !== auth.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Prescription belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(existing, auth.context, auth.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             const data: UpdatePrescriptionDto = await request.json();
@@ -270,6 +278,17 @@ export class PrescriptionController {
 
             const prescription = await this.prescriptionService.updatePrescription(new Types.ObjectId(id), data);
 
+            await recordAudit(auth.context, {
+                action: "UPDATE",
+                entity: "prescription",
+                entityId: id,
+                summary: `Prescription ${id} updated`,
+                changes: diffRecords(
+                    existing as unknown as Record<string, unknown>,
+                    prescription as unknown as Record<string, unknown>
+                ),
+            });
+
             return NextResponse.json(
                 { success: true, message: "Prescription updated successfully", data: prescription },
                 { status: 200 }
@@ -283,15 +302,11 @@ export class PrescriptionController {
         }
     }
 
-    async deletePrescription(id: string, request?: NextRequest): Promise<NextResponse> {
+    async deletePrescription(id: string, request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
-            let authResult;
-            if (request) {
-                const auth = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_PRESCRIPTION_CANCEL, "Prescription");
-                if (!auth.isAuthorized) return auth.response;
-                authResult = auth;
-            }
+            const authResult = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_PRESCRIPTION_CANCEL, "Prescription");
+            if (!authResult.isAuthorized) return authResult.response;
 
             if (!Types.ObjectId.isValid(id)) {
                 return NextResponse.json(
@@ -318,17 +333,23 @@ export class PrescriptionController {
                 }
             }
 
-            if (authResult?.context.branchId && authResult.grant.orgScope === "BRANCH") {
-                const pBranch = extractEntityId(existing.branchId);
-                if (pBranch && pBranch !== authResult.context.branchId.toString()) {
-                    return NextResponse.json(
-                        { success: false, message: "Forbidden: Prescription belongs to another branch" },
-                        { status: 403 }
-                    );
-                }
+            const boundary = checkRecordBoundary(existing, authResult.context, authResult.grant);
+            if (!boundary.allowed) {
+                return NextResponse.json(
+                    { success: false, message: boundary.message },
+                    { status: boundary.statusCode }
+                );
             }
 
             await this.prescriptionService.deletePrescription(new Types.ObjectId(id));
+
+            await recordAudit(authResult.context, {
+                action: "DELETE",
+                entity: "prescription",
+                entityId: id,
+                summary: `Prescription ${id} cancelled`,
+                metadata: { patientId: existing.patientId ?? null },
+            });
 
             return NextResponse.json(
                 { success: true, message: "Prescription deleted successfully" },

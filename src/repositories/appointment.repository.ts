@@ -29,7 +29,7 @@ export class AppointmentRepository {
     }
 
     async update(id: Types.ObjectId, data: UpdateAppointmentDto): Promise<IAppointment | null> {
-        return await Appointment.findByIdAndUpdate(id, data, { new: true }).populate("patientId").populate("doctorId", "-password").populate("branchId").lean();
+        return await Appointment.findByIdAndUpdate(id, data, { new: true, runValidators: true }).populate("patientId").populate("doctorId", "-password").populate("branchId").lean();
     }
 
     async delete(id: Types.ObjectId): Promise<IAppointment | null> {

@@ -25,7 +25,7 @@ export class WardRepository {
     }
 
     async update(id: Types.ObjectId, data: UpdateWardDto): Promise<IWard | null> {
-        return await Ward.findByIdAndUpdate(id, data, { new: true }).lean();
+        return await Ward.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
     }
 
     async delete(id: Types.ObjectId): Promise<IWard | null> {

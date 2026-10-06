@@ -8,8 +8,12 @@ export interface IManagedRole {
     permissions: string[];
 }
 
+export type RoleOwnership = "code" | "admin";
+
 export interface IRole extends Document {
     role: string;
+    /** "code" roles are reconciled from ROLE_ACCESS on boot; "admin" roles are left alone. */
+    managedBy: RoleOwnership;
     access: IAccess[];
     managedRoles: IManagedRole[];
 }

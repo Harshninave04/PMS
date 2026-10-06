@@ -125,6 +125,25 @@ const patientSchema = new Schema<IPatient>(
             type: Boolean,
             default: true,
             index: true
+        },
+        /**
+         * Medical records are never hard-deleted. `deletePatient` sets this and
+         * the row stays queryable for billing, statutory retention and audit.
+         */
+        isDeleted: {
+            type: Boolean,
+            default: false,
+            index: true
+        },
+        deletedAt: {
+            type: Date
+        },
+        deletedBy: {
+            type: Types.ObjectId,
+            ref: 'User'
+        },
+        deleteReason: {
+            type: String
         }
     },
     { timestamps: true }

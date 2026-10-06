@@ -37,7 +37,7 @@ export class PrescriptionRepository {
     }
 
     async update(id: Types.ObjectId, data: UpdatePrescriptionDto): Promise<IPrescription | null> {
-        return await Prescription.findByIdAndUpdate(id, data, { new: true }).populate("patientId").populate("doctorId", "-password").populate("branchId").populate("appointmentId").lean();
+        return await Prescription.findByIdAndUpdate(id, data, { new: true, runValidators: true }).populate("patientId").populate("doctorId", "-password").populate("branchId").populate("appointmentId").lean();
     }
 
     async delete(id: Types.ObjectId): Promise<IPrescription | null> {

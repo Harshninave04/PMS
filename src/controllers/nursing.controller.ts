@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import nursingService from "@/services/nursing.service";
 import { authorizeRequest } from "@/lib/rbac/guard";
+import { recordAudit, diffRecords } from "@/services/audit.service";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class NursingController {
@@ -59,7 +61,17 @@ export class NursingController {
       if (!auth.isAuthorized) return auth.response;
 
       const body = await request.json();
-      const data = await nursingService.createMedication(body);
+      const data = await nursingService.createMedication(body, auth.context.userId.toString());
+
+      await recordAudit(auth.context, {
+        action: "CREATE",
+        entity: "nursing-medication",
+        entityId: data?._id?.toString(),
+        summary: "Medication round recorded",
+        // Drug names and dosages are clinical detail and stay out of the trail.
+        metadata: { patientId: body?.patientId ?? null, admissionId: body?.admissionId ?? null },
+      });
+
       return NextResponse.json({ success: true, data }, { status: 201 });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Failed to create medication record";
@@ -73,8 +85,29 @@ export class NursingController {
       const auth = await authorizeRequest(request, PERMISSION_KEYS.NURSING_TASK_EXECUTE, "NursingMedication");
       if (!auth.isAuthorized) return auth.response;
 
+      if (!Types.ObjectId.isValid(id)) {
+        return NextResponse.json({ success: false, message: "Invalid medication ID" }, { status: 400 });
+      }
+
+      const existing = await nursingService.getMedicationById(id);
+      if (!existing) {
+        return NextResponse.json({ success: false, message: "Medication record not found" }, { status: 404 });
+      }
+
       const body = await request.json();
       const data = await nursingService.updateMedication(id, body);
+
+      await recordAudit(auth.context, {
+        action: "UPDATE",
+        entity: "nursing-medication",
+        entityId: id,
+        summary: `Medication record ${id} updated`,
+        changes: diffRecords(
+          existing.toObject() as Record<string, unknown>,
+          data?.toObject() as Record<string, unknown>
+        ),
+      });
+
       return NextResponse.json({ success: true, data });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Failed to update medication record";
@@ -85,10 +118,28 @@ export class NursingController {
   async deleteMedication(request: NextRequest, id: string): Promise<NextResponse> {
     try {
       await dbConnect();
-      const auth = await authorizeRequest(request, PERMISSION_KEYS.NURSING_TASK_CREATE, "NursingMedication");
+      const auth = await authorizeRequest(request, PERMISSION_KEYS.NURSING_TASK_EXECUTE, "NursingMedication");
       if (!auth.isAuthorized) return auth.response;
 
+      if (!Types.ObjectId.isValid(id)) {
+        return NextResponse.json({ success: false, message: "Invalid medication ID" }, { status: 400 });
+      }
+
+      const existing = await nursingService.getMedicationById(id);
+      if (!existing) {
+        return NextResponse.json({ success: false, message: "Medication record not found" }, { status: 404 });
+      }
+
       const data = await nursingService.deleteMedication(id);
+
+      await recordAudit(auth.context, {
+        action: "DELETE",
+        entity: "nursing-medication",
+        entityId: id,
+        summary: `Medication record ${id} removed`,
+        metadata: { patientId: existing.patient ?? null },
+      });
+
       return NextResponse.json({ success: true, data });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Failed to delete medication record";

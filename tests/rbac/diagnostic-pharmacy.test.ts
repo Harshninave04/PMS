@@ -236,11 +236,24 @@ async function runDiagnosticPharmacyRbacTests() {
     assert.equal(nurseAContext.permissions.has(PERMISSION_KEYS.WARD_VIEW), true);
   });
 
-  test("Ward: Bed resolution returns empty filter for BRANCH boundary (relies on room/ward structure)", () => {
+  test("Ward: Bed resolution is bounded by the branch for a BRANCH boundary", () => {
     const grant = wardInchargeContext.grants.get(PERMISSION_KEYS.WARD_VIEW)!;
     const filter = ScopeResolver.resolve(grant, wardInchargeContext, "Bed");
 
-    assert.deepEqual(filter, {});
+    // Previously this returned {}, which let a branch-scoped user read every
+    // bed in the hospital. Bed carries a denormalised organizationId.
+    assert.deepEqual(filter, {
+      organizationId: wardInchargeContext.branchId || wardInchargeContext.organizationId,
+    });
+  });
+
+  test("Ward: Room resolution is bounded by the branch for a BRANCH boundary", () => {
+    const grant = wardInchargeContext.grants.get(PERMISSION_KEYS.WARD_VIEW)!;
+    const filter = ScopeResolver.resolve(grant, wardInchargeContext, "Room");
+
+    assert.deepEqual(filter, {
+      organizationId: wardInchargeContext.branchId || wardInchargeContext.organizationId,
+    });
   });
 
   console.log("\n=================================================");

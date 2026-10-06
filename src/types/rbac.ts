@@ -56,9 +56,11 @@ export interface AuthenticatedUserContext {
   readonly name?: string;
   readonly roleId: Types.ObjectId;
   readonly roleName: string;
-  readonly organizationId?: Types.ObjectId;
-  readonly branchId?: Types.ObjectId;
-  readonly departmentId?: Types.ObjectId;
+  // Headquarters staff belong to an organization but to no single branch, so
+  // these are genuinely null rather than merely absent.
+  readonly organizationId?: Types.ObjectId | null;
+  readonly branchId?: Types.ObjectId | null;
+  readonly departmentId?: Types.ObjectId | null;
   readonly doctorProfileId?: Types.ObjectId;
   readonly staffProfileId?: Types.ObjectId;
   readonly assignedWardIds: readonly Types.ObjectId[];

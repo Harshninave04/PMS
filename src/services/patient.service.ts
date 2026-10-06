@@ -15,6 +15,14 @@ export class PatientService {
     constructor(private repository: PatientRepository = patientRepository) { }
 
     async createPatient(data: CreatePatientDto): Promise<IPatient> {
+        if (data.uhid && (await this.repository.uhidExists(data.uhid))) {
+            throw {
+                statusCode: 409,
+                message:
+                    "That hospital ID is already assigned. An archived patient keeps their ID, so it cannot be reused."
+            };
+        }
+
         return await this.repository.create(data);
     }
 
@@ -31,8 +39,24 @@ export class PatientService {
         return await this.repository.search(params);
     }
 
-    async getPatientById(id: Types.ObjectId): Promise<IPatient | null> {
-        return await this.repository.findById(id);
+    async getPatientById(id: Types.ObjectId, includeDeleted = false): Promise<IPatient | null> {
+        return await this.repository.findById(id, includeDeleted);
+    }
+
+    /**
+     * Reads a patient subject to the caller's boundary. Returns null when the
+     * patient does not exist *or* lies outside the scope, so callers cannot use
+     * the difference to probe for records they may not see.
+     */
+    async getPatientByIdScoped(
+        id: Types.ObjectId,
+        scopeFilter: Record<string, unknown> = {}
+    ): Promise<IPatient | null> {
+        return await this.repository.findByIdScoped(id, scopeFilter);
+    }
+
+    async getDeletedPatients(filter: Record<string, unknown> = {}): Promise<IPatient[]> {
+        return await this.repository.findDeleted(filter);
     }
 
     async getPatientByUhid(uhid: string): Promise<IPatient | null> {
@@ -48,31 +72,61 @@ export class PatientService {
         if (!patient) {
             throw { statusCode: 404, message: "Patient not found" };
         }
+
+        // Includes archived records: reassigning a UHID that a deleted chart
+        // still owns would leave that chart unrestorable.
+        if (data.uhid && data.uhid !== patient.uhid && (await this.repository.uhidExists(data.uhid, id))) {
+            throw { statusCode: 409, message: "That hospital ID is already assigned" };
+        }
+
         return await this.repository.update(id, data);
     }
 
-    async deletePatient(id: Types.ObjectId): Promise<IPatient | null> {
+    /**
+     * Soft-deletes a patient. The record is retained for billing, statutory
+     * retention and audit; use restorePatient to bring it back.
+     */
+    async deletePatient(
+        id: Types.ObjectId,
+        deletedBy: Types.ObjectId,
+        reason?: string,
+        scopeFilter: Record<string, unknown> = {}
+    ): Promise<IPatient | null> {
         const patient = await this.repository.findById(id);
         if (!patient) {
             throw { statusCode: 404, message: "Patient not found" };
         }
-        return await this.repository.delete(id);
+        return await this.repository.softDelete(id, deletedBy, reason, scopeFilter);
     }
 
-    async addDocument(patientId: Types.ObjectId, document: AddPatientDocumentDto): Promise<IPatient | null> {
+    async restorePatient(id: Types.ObjectId, scopeFilter: Record<string, unknown> = {}): Promise<IPatient | null> {
+        const restored = await this.repository.restore(id, scopeFilter);
+        if (!restored) {
+            throw { statusCode: 404, message: "Patient not found or not deleted" };
+        }
+        return restored;
+    }
+
+    async addDocument(patientId: Types.ObjectId, document: AddPatientDocumentDto, scopeFilter: Record<string, unknown> = {}): Promise<IPatient | null> {
         const patient = await this.repository.findById(patientId);
         if (!patient) {
             throw { statusCode: 404, message: "Patient not found" };
         }
-        return await this.repository.addDocument(patientId, document);
+        return await this.repository.addDocument(patientId, document, scopeFilter);
     }
 
-    async deleteDocument(patientId: Types.ObjectId, documentId: string): Promise<IPatient | null> {
-        const patient = await this.repository.findById(patientId);
+    async deleteDocument(
+        patientId: Types.ObjectId,
+        documentId: string,
+        scopeFilter: Record<string, unknown> = {}
+    ): Promise<IPatient | null> {
+        // Scoped read: without the boundary a branch user could delete documents
+        // from any other branch's chart.
+        const patient = await this.repository.findByIdScoped(patientId, scopeFilter);
         if (!patient) {
             throw { statusCode: 404, message: "Patient not found" };
         }
-        return await this.repository.deleteDocument(patientId, documentId);
+        return await this.repository.deleteDocument(patientId, documentId, scopeFilter);
     }
 
     async getPatientHistory(patientId: Types.ObjectId) {
