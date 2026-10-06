@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import DynamicIcon from "./dynamic-icon";
+import { useBranding } from "@/components/branding/branding-context";
+import { splitBrandName } from "@/lib/software-branding";
 import { ChevronDown, ChevronRight, LogOut, Activity, Shield } from "lucide-react";
 
 interface MenuItem {
@@ -27,6 +29,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
   const [menus, setMenus] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+  const branding = useBranding();
+  const brandName = splitBrandName(branding.softwareName);
 
   useEffect(() => {
     async function fetchMenus() {
@@ -97,15 +101,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
       >
         {/* Sidebar Header Brand */}
         <div className="flex h-16 items-center gap-3 border-b border-slate-200 dark:border-slate-800/80 px-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-500/30">
-            <Activity className="h-5 w-5 animate-pulse" />
-          </div>
+          {branding.logoUrl ? (
+            <img
+              src={branding.logoUrl}
+              alt={branding.softwareName}
+              className="h-9 w-9 rounded-xl object-contain border border-slate-200 dark:border-slate-700 bg-white p-0.5"
+            />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-500/30">
+              <Activity className="h-5 w-5 animate-pulse" />
+            </div>
+          )}
           <div className="flex flex-col">
             <span className="text-base font-bold tracking-tight text-slate-900 dark:text-white">
-              Medistra <span className="text-emerald-600 dark:text-emerald-400">HMS</span>
+              {brandName.head}
+              {brandName.accent && (
+                <>
+                  {" "}
+                  <span className="text-emerald-600 dark:text-emerald-400">{brandName.accent}</span>
+                </>
+              )}
             </span>
             <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Healthcare Admin
+              {branding.tagline}
             </span>
           </div>
         </div>

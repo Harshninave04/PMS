@@ -28,6 +28,8 @@ export default withAuth(withPathname as never, {
   },
 });
 
+// The uploads folder is deliberately public: the product logo is shown on the
+// login screen and as the favicon, both reachable before a session exists.
 export const config = {
-  matcher: ["/((?!api/auth|login|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api/auth|uploads|login|_next/static|_next/image|favicon.ico).*)"],
 };

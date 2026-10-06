@@ -16,6 +16,8 @@ services:
       - DEFAULT_ADMIN_PASSWORD=password123
       - PORT=3000
       - HOSTNAME=0.0.0.0
+    volumes:
+      - uploads-data:/app/uploads
     depends_on:
       mongodb:
         condition: service_healthy
@@ -68,6 +70,8 @@ services:
 
 volumes:
   mongo-data:
+    driver: local
+  uploads-data:
     driver: local
 
 networks:

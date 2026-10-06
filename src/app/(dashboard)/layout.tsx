@@ -3,12 +3,14 @@ import { getServerSession } from "next-auth";
 import { headers } from "next/headers";
 import { forbidden } from "next/navigation";
 import MasterLayout from "@/components/layout/master-layout";
+import { BrandingProvider } from "@/components/branding/branding-context";
 import {
   PermissionsProvider,
   type PermissionSnapshot,
 } from "@/components/permissions/permission-context";
 import { authOptions } from "@/lib/auth";
 import { resolveRequestIdentity } from "@/lib/rbac/guard";
+import { SoftwareMetadataService } from "@/services/software-metadata.service";
 import { currentPermissionEpoch } from "@/lib/rbac/audit";
 import { isPublicPage, permissionsForPage } from "@/lib/rbac/permissions.config";
 import { PATHNAME_HEADER, canOpenPage } from "@/lib/rbac/page-guard";
@@ -45,13 +47,20 @@ export default async function DashboardLayout({ children }: { children: React.Re
     epoch: currentPermissionEpoch(),
   };
 
+  // The product name, logo and authorship an administrator manages from
+  // Settings > Software Metadata, resolved here so the chrome renders with the
+  // right brand on first paint.
+  const branding = await SoftwareMetadataService.getBranding();
+
   return (
     <PermissionsProvider
       snapshot={snapshot}
       isSuperAdmin={identity?.permissions.isSuperAdmin ?? session?.user?.roleName === "ADMIN"}
       roleName={identity?.roleName ?? session?.user?.roleName ?? null}
     >
-      <MasterLayout>{children}</MasterLayout>
+      <BrandingProvider branding={branding}>
+        <MasterLayout>{children}</MasterLayout>
+      </BrandingProvider>
     </PermissionsProvider>
   );
 }

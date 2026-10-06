@@ -9,7 +9,8 @@ import {
   Shield,
   RefreshCw,
   ArrowUpRight,
-  Building2
+  Building2,
+  Palette
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -83,6 +84,15 @@ export default function AdminHubPage() {
       desc: "Hospital name, address, contact details, GSTIN and letterhead.",
       badge: "Settings",
       badgeColor: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
+    },
+    {
+      title: "Software Metadata",
+      path: "/admin/software",
+      icon: Palette,
+      permission: "admin.software:view",
+      desc: "Product name, logo, version and author credits shown across the app.",
+      badge: "Settings",
+      badgeColor: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
     },
   ];
 

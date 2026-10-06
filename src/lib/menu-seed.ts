@@ -129,6 +129,7 @@ export const MENUS: MenuSeed[] = [
         icon: "Settings",
         children: [
             { name: "Hospital Profile", path: "/organization/details" },
+            { name: "Software Metadata", path: "/admin/software" },
             { name: "Users", path: "/admin/users" },
             { name: "Roles & Permissions", path: "/admin/roles" },
             { name: "Doctors", path: "/staff/doctors" },

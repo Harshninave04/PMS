@@ -208,6 +208,10 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
 
     // Administration
     get("/admin/stats", K("admin", "users", "view")),
+    // Software metadata: the product name, logo and authorship settings.
+    get("/admin/software", K("admin", "software", "view")),
+    put("/admin/software", K("admin", "software", "update")),
+    post("/admin/software/logo", K("admin", "software", "update")),
     get("/user", K("admin", "users", "view")),
     post("/user", K("admin", "users", "create")),
     { path: "/user/[id]", method: "GET", permission: K("admin", "users", "view") },
