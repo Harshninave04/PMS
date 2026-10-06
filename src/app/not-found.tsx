@@ -24,7 +24,7 @@ export default function NotFound() {
           </h2>
           <p className="text-sm text-slate-400">
             The ward, patient file, or system route you are trying to access
-            does not exist or has been relocated in the MEDICALE PMS directory.
+            does not exist or has been relocated in the Medistra HMS directory.
           </p>
         </div>
 

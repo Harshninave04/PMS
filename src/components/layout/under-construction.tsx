@@ -112,7 +112,7 @@ export default function UnderConstruction({
               Module Implementation Pipeline
             </CardTitle>
             <CardDescription>
-              Check the live status of autonomous MEDICALE PMS agents working on
+              Check the live status of autonomous Medistra HMS agents working on
               this module.
             </CardDescription>
           </CardHeader>

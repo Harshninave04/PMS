@@ -1,8 +1,8 @@
-﻿# MEDICALE PMS — Client Overview
+﻿# Medistra HMS — Client Overview
 
-## 1. About MEDICALE PMS
+## 1. About Medistra HMS
 
-MEDICALE PMS brings patient, visit, admission, nursing, pharmacy and billing work into one hospital system.
+Medistra HMS brings patient, visit, admission, nursing, pharmacy and billing work into one hospital system.
 It gives reception, clinical teams, pharmacy and accounts a shared view of hospital records.
 Staff can register patients, book visits, record care, manage beds and collect payments.
 Administrators can manage staff accounts and decide which screens each role can use.
