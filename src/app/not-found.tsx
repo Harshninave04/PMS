@@ -16,15 +16,23 @@ export default function NotFound() {
         </div>
 
         <div className="space-y-2">
-          <h1 className="text-7xl font-black tracking-tight text-emerald-500">404</h1>
-          <h2 className="text-xl font-bold tracking-tight text-slate-200">Page or Record Not Found</h2>
+          <h1 className="text-7xl font-black tracking-tight text-emerald-500">
+            404
+          </h1>
+          <h2 className="text-xl font-bold tracking-tight text-slate-200">
+            Page or Record Not Found
+          </h2>
           <p className="text-sm text-slate-400">
-            The ward, patient file, or system route you are trying to access does not exist or has been relocated in the Medistra HMS directory.
+            The ward, patient file, or system route you are trying to access
+            does not exist or has been relocated in the MEDICALE PMS directory.
           </p>
         </div>
 
         <div className="flex justify-center pt-2">
-          <Link href="/dashboard/main" className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-6 py-2.5 rounded-lg shadow-md transition-all active:scale-[0.98]">
+          <Link
+            href="/dashboard/main"
+            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-6 py-2.5 rounded-lg shadow-md transition-all active:scale-[0.98]"
+          >
             <Home className="h-4 w-4" />
             Return to Dashboard
           </Link>

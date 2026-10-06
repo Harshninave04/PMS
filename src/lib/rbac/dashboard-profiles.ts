@@ -2,7 +2,10 @@ import {
   Bed,
   Calendar,
   CalendarCheck,
+  CalendarClock,
   CalendarPlus,
+  CheckCircle2,
+  Clipboard,
   ClipboardList,
   FilePlus,
   FileText,
@@ -25,7 +28,12 @@ export type DashboardMetricKey =
   | "totalAppointments"
   | "todayAppointments"
   | "occupiedBeds"
-  | "totalBeds";
+  | "totalBeds"
+  /** Pharmacy-only keys returned by GET /api/pharmacy/stats */
+  | "pendingPrescriptions"
+  | "dispensedToday"
+  | "lowStockItems"
+  | "expiringSoon";
 
 export type DashboardStat =
   | {
@@ -64,6 +72,8 @@ export interface DashboardProfile {
   /** Deep link to the role's own operational module */
   moduleDashboard: string | null;
   stats: DashboardStat[];
+  /** Hide the trend arrow rendered next to each stat hint */
+  showTrendArrow?: boolean;
   quickActions: DashboardQuickAction[];
   showRecentPatients: boolean;
 }
@@ -76,6 +86,7 @@ const TONE = {
   violet: "text-violet-600 bg-violet-500/10 border-violet-500/20",
   amber: "text-amber-600 bg-amber-500/10 border-amber-500/20",
   rose: "text-rose-600 bg-rose-500/10 border-rose-500/20",
+  red: "text-red-600 bg-red-500/10 border-red-500/20",
   sky: "text-sky-600 bg-sky-500/10 border-sky-500/20"
 } as const;
 
@@ -197,11 +208,12 @@ const profiles: Record<string, DashboardProfile> = {
     subtitle: "Prescriptions to dispense and medicine stock.",
     moduleDashboard: "/pharmacy",
     stats: [
-      metric("totalPatients", "Total Patients", "All time total", Users, TONE.emerald),
-      metric("todayAppointments", "OPD Today", "Patients seen today", CalendarCheck, TONE.teal),
-      metric("totalDoctors", "Doctors", "Prescribing doctors", Stethoscope, TONE.cyan),
-      bedOccupancy(TONE.violet)
+      metric("pendingPrescriptions", "Pending Prescriptions", "Waiting to dispense", Clipboard, TONE.emerald),
+      metric("dispensedToday", "Dispensed Today", "Prescriptions completed", CheckCircle2, TONE.teal),
+      metric("lowStockItems", "Low Stock Items", "Needs reorder", Package, TONE.amber),
+      metric("expiringSoon", "Expiring Soon", "Within 30 days", CalendarClock, TONE.red)
     ],
+    showTrendArrow: false,
     quickActions: [
       { title: "Dispense Medicines", href: "/pharmacy/dispensing", icon: Pill, color: ACTION.emerald },
       { title: "Prescriptions", href: "/pharmacy/prescriptions", icon: ClipboardList, color: ACTION.teal },

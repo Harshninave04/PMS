@@ -18,6 +18,10 @@ interface DashboardStats {
   todayAppointments?: number;
   occupiedBeds?: number;
   totalBeds?: number;
+  pendingPrescriptions?: number;
+  dispensedToday?: number;
+  lowStockItems?: number;
+  expiringSoon?: number;
   recentPatients?: {
     name: string;
     id: string;
@@ -88,10 +92,55 @@ export default function DashboardPage() {
     };
   }, [sessionStatus]);
 
+  const [pharmacyData, setPharmacyData] = React.useState<Partial<DashboardStats> | null>(null);
+  const [pharmacyLoadState, setPharmacyLoadState] = React.useState<LoadState>("loading");
+
+  React.useEffect(() => {
+    if (sessionStatus !== "authenticated" || profile.key !== "pharmacy") return;
+
+    let cancelled = false;
+
+    fetch("/api/pharmacy/stats")
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          throw new Error(json?.message || `Request failed with status ${res.status}`);
+        }
+        return json.data ?? {};
+      })
+      .then((stats) => {
+        if (cancelled) return;
+        setPharmacyData({
+          pendingPrescriptions: stats.pendingPrescriptionsCount ?? 0,
+          dispensedToday: stats.todayDispensedCount ?? 0,
+          lowStockItems: stats.lowStockCount ?? 0,
+          expiringSoon: stats.expiringIn30DaysCount ?? 0
+        });
+        setPharmacyLoadState("ready");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("Failed to load pharmacy stats", err);
+        setPharmacyData({
+          pendingPrescriptions: 0,
+          dispensedToday: 0,
+          lowStockItems: 0,
+          expiringSoon: 0
+        });
+        setPharmacyLoadState("ready");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionStatus, profile.key]);
+
   const effectiveState: LoadState =
     sessionStatus === "unauthenticated" ? "error" : loadState;
-  const isLoading = effectiveState === "loading";
-  const data = liveData ?? {};
+  const isLoading =
+    effectiveState === "loading" ||
+    (profile.key === "pharmacy" && pharmacyLoadState === "loading");
+  const data: DashboardStats = { ...liveData, ...(pharmacyData ?? {}) };
   const recentPatients = liveData?.recentPatients ?? [];
 
   return (
@@ -166,7 +215,9 @@ export default function DashboardPage() {
                     )}
                   </span>
                   <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
-                    <TrendingUp className="h-3 w-3" />
+                    {profile.showTrendArrow === false ? null : (
+                      <TrendingUp className="h-3 w-3" />
+                    )}
                     {isLoading ? "Loading" : formatStatHint(stat, data)}
                   </span>
                 </div>
