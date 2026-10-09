@@ -5,14 +5,14 @@ export interface IAppointment extends Document {
     doctorId: Types.ObjectId;
     branchId?: Types.ObjectId;
     appointmentDate: Date;
-    appointmentTime: string;
+    appointmentTime?: string;
     status: string;
     type: string;
     reason: string;
     notes?: string;
     tokenNumber?: string;
-    queueStatus?: "WAITING" | "TRIAGE" | "IN_CONSULTATION" | "COMPLETED" | "SKIPPED";
-    priority?: "NORMAL" | "URGENT" | "VIP";
+    queueStatus?: "WAITING" | "CALLED" | "IN_CONSULTATION" | "COMPLETED" | "CANCELLED" | "NO_SHOW" | "TRIAGE" | "SKIPPED";
+    priority?: "NORMAL" | "URGENT" | "EMERGENCY" | "VIP";
     consultationFee?: number;
     paymentStatus?: "PAID" | "PENDING" | "WAIVED";
     paymentMode?: string;
@@ -22,6 +22,7 @@ export interface IAppointment extends Document {
     rescheduledFrom?: Date | Types.ObjectId;
     rescheduleReason?: string;
     checkedInAt?: Date;
+    calledAt?: Date;
     consultationStartedAt?: Date;
     consultationEndedAt?: Date;
     noShowRecordedAt?: Date;

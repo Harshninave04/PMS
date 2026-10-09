@@ -44,9 +44,10 @@ interface QueueItem {
   status: string;
   queueStatus?: string;
   priority?: string;
-  appointmentTime: string;
+  appointmentTime?: string;
   reason: string;
   checkedInAt?: string;
+  calledAt?: string;
   consultationStartedAt?: string;
 }
 
@@ -56,6 +57,7 @@ export default function AppointmentQueuePage() {
   const [metrics, setMetrics] = useState({
     totalToday: 0,
     waiting: 0,
+    called: 0,
     inConsultation: 0,
     completed: 0,
     estimatedWaitTimeMins: 0,
@@ -121,20 +123,81 @@ export default function AppointmentQueuePage() {
     }
   };
 
+  // Call the next waiting patient (WAITING -> CALLED)
+  const handleCallNext = async () => {
+    try {
+      setProcessingId("CALL_NEXT");
+      const res = await fetch("/api/appointments/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "CALL_NEXT", doctorId: selectedDoctor }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({
+          title: "Patient Called",
+          description: `${data.data?.tokenNumber || "Token"} — ${data.data?.patientId?.name || "Patient"} called.`,
+        });
+        fetchQueue();
+      } else {
+        toast({ title: "Cannot Call Patient", description: data.error || "No patients waiting.", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
   // Group queue by stages
-  const waitingList = queue.filter(
-    (q) => q.queueStatus === "WAITING" || q.status === "CHECKED_IN" || q.status === "SCHEDULED"
-  );
-  const inConsultationList = queue.filter(
-    (q) => q.queueStatus === "IN_CONSULTATION" || q.status === "IN_PROGRESS"
-  );
+  const isConsulting = (q: QueueItem) =>
+    q.queueStatus === "IN_CONSULTATION" || q.status === "IN_PROGRESS";
+  const isFinished = (q: QueueItem) =>
+    ["COMPLETED", "NO_SHOW", "CANCELLED", "SKIPPED"].includes(q.queueStatus || "") ||
+    ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(q.status);
+
+  const inConsultationList = queue.filter(isConsulting);
+  const finishedList = queue.filter(isFinished);
+  const nextList = queue.filter((q) => !isConsulting(q) && !isFinished(q));
+  // Still in the waiting area: not yet called, or called but not taken inside.
+  const waitingList = nextList;
   const completedList = queue.filter(
     (q) => q.queueStatus === "COMPLETED" || q.status === "COMPLETED"
   );
+  const callNextDisabled =
+    processingId === "CALL_NEXT" || nextList.filter((q) => q.queueStatus === "WAITING").length === 0;
 
   // Active consulting patient
   const currentServing = inConsultationList[0] || null;
-  const nextInLine = waitingList[0] || null;
+  const nextInLine = nextList[0] || null;
+
+  const getQueueBadge = (item: QueueItem) => {
+    switch (item.queueStatus) {
+      case "CALLED":
+        return <Badge className="bg-blue-600 hover:bg-blue-700 text-white text-[10px]">Called</Badge>;
+      case "IN_CONSULTATION":
+        return <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px]">In Consultation</Badge>;
+      case "COMPLETED":
+        return <Badge className="bg-purple-600 hover:bg-purple-700 text-white text-[10px]">Completed</Badge>;
+      case "NO_SHOW":
+        return <Badge variant="outline" className="text-red-500 border-red-400 text-[10px]">No Show</Badge>;
+      case "CANCELLED":
+        return <Badge variant="destructive" className="text-[10px]">Cancelled</Badge>;
+      default:
+        return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[10px]">Waiting</Badge>;
+    }
+  };
+
+  const getPriorityBadge = (priority?: string) => {
+    if (!priority || priority === "NORMAL") return null;
+    const tone =
+      priority === "EMERGENCY" || priority === "URGENT"
+        ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"
+        : "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300";
+    return (
+      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${tone}`}>{priority}</span>
+    );
+  };
 
   // TV Display Mode Fullscreen
   if (tvMode) {
@@ -193,7 +256,7 @@ export default function AppointmentQueuePage() {
         </div>
 
         <div className="border-t border-slate-800 pt-4 flex items-center justify-between text-slate-400 text-sm">
-          <span>Patients Waiting: {waitingList.length}</span>
+          <span>Patients Waiting: {nextList.length}</span>
           <span>Consultations Completed Today: {completedList.length}</span>
           <span>Time: {new Date().toLocaleTimeString()}</span>
         </div>
@@ -215,6 +278,15 @@ export default function AppointmentQueuePage() {
         </div>
         <div className="flex items-center gap-2">
           <Button
+            size="sm"
+            onClick={handleCallNext}
+            disabled={callNextDisabled}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 text-xs font-semibold"
+            title="Call the next waiting patient"
+          >
+            <Volume2 className="h-3.5 w-3.5" /> CALL NEXT
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             onClick={() => setTvMode(true)}
@@ -229,7 +301,7 @@ export default function AppointmentQueuePage() {
       </div>
 
       {/* Metrics Row */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card className="border-slate-200/80 dark:border-slate-800">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20">
@@ -250,6 +322,18 @@ export default function AppointmentQueuePage() {
             <div>
               <p className="text-xs font-medium text-slate-500">Waiting in Reception</p>
               <h3 className="text-2xl font-bold text-slate-900 dark:text-white">{metrics.waiting}</h3>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200/80 dark:border-slate-800">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20">
+              <Volume2 className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-slate-500">Called</p>
+              <h3 className="text-2xl font-bold text-slate-900 dark:text-white">{metrics.called}</h3>
             </div>
           </CardContent>
         </Card>
@@ -279,7 +363,7 @@ export default function AppointmentQueuePage() {
         </Card>
       </div>
 
-      {/* Doctor Filter */}
+      {/* Doctor Filter
       <div className="flex items-center gap-3">
         <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Filter Clinic Queue:</span>
         <select
@@ -294,7 +378,7 @@ export default function AppointmentQueuePage() {
             </option>
           ))}
         </select>
-      </div>
+      </div> */}
 
       {/* Control Banner: Current Serving & Next in Line */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -417,14 +501,20 @@ export default function AppointmentQueuePage() {
                   key={item._id}
                   className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1.5"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-xs bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                      {item.tokenNumber || "T-??"}
-                    </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono font-bold text-xs bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                        {item.tokenNumber || "T-??"}
+                      </span>
+                      {getPriorityBadge(item.priority)}
+                    </div>
                     <span className="text-[11px] text-slate-400">{item.appointmentTime}</span>
                   </div>
-                  <div className="font-semibold text-xs text-slate-900 dark:text-white">
-                    {item.patientId?.name}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">
+                      {item.patientId?.name}
+                    </div>
+                    {getQueueBadge(item)}
                   </div>
                   <div className="text-[11px] text-slate-500 truncate">{item.reason}</div>
                   <div className="pt-2 flex justify-end">

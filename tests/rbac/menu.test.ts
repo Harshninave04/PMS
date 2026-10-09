@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { listRoleProfileAssignments, resolveDashboardProfile } from "@/lib/rbac/dashboard-profiles";
 import { ADMIN_ROLE, ALL_ROLES, buildRoleAccess, withBaselineAccess } from "@/lib/rbac/role-access";
-import { MENUS, filterMenusByPermissions, getMenuModuleKey } from "@/lib/menu-data";
+import { MENUS, applyRoleNav, filterMenusByPermissions, getMenuModuleKey } from "@/lib/menu-data";
 import { defaultPermissionsFor } from "@/lib/rbac/default-permissions";
 import { permissionsForRoute } from "@/lib/rbac/permissions.config";
 import { BASELINE_REFERENCE_PERMISSIONS, PERMISSION_KEYS, REFERENCE_DATA_MODULE } from "@/types/rbac";
@@ -16,8 +16,14 @@ function pageExists(route: string): boolean {
   return fs.existsSync(path.join(DASHBOARD_ROOT, clean, "page.tsx"));
 }
 
+function visibleMenuItems(roleName: string): { name: string; path: string }[] {
+  return applyRoleNav(roleName, filterMenusByPermissions(MENUS, defaultPermissionsFor(roleName))).map(
+    (m) => ({ name: m.name ?? "", path: m.path ?? "" })
+  );
+}
+
 function visibleMenuNames(roleName: string): string[] {
-  return filterMenusByPermissions(MENUS, defaultPermissionsFor(roleName)).map((m) => m.name);
+  return visibleMenuItems(roleName).map((m) => m.name);
 }
 
 /** Routes the role's permissions let it open, as the sidebar and dashboards compute them. */
@@ -91,27 +97,55 @@ async function runMenuTests() {
     assert.deepEqual([...routes].sort(), [...everyRoute].sort(), "Admin cannot open every route");
   });
 
-  test("Every role sees its own dashboard", () => {
+  test("Every role can open its own dashboard", () => {
     for (const role of ALL_ROLES) {
-      assert.ok(
-        visibleMenuNames(role).includes("Dashboard"),
-        `${role} must see the Dashboard section`
-      );
       assert.ok(accessibleRoutes(role).has("/dashboard/main"), `${role} cannot open /dashboard/main`);
     }
+    // The Receptionist sidebar is the three shortcuts only, so it carries no
+    // Dashboard section; every other role keeps it.
+    for (const role of ALL_ROLES.filter((r) => r !== "RECEPTIONIST")) {
+      assert.ok(visibleMenuNames(role).includes("Dashboard"), `${role} must see the Dashboard section`);
+    }
+    assert.ok(
+      !visibleMenuNames("RECEPTIONIST").includes("Dashboard"),
+      "The Receptionist sidebar must stay the three shortcuts"
+    );
   });
 
   test("Each role sees only the modules its permissions grant", () => {
     const expected: Record<string, string[]> = {
       DOCTOR: ["Dashboard", "Patients", "OPD", "Consultation", "IPD / Admissions", "Wards & Beds"],
       NURSE: ["Dashboard", "Patients", "Consultation", "IPD / Admissions", "Wards & Beds", "Nursing"],
-      RECEPTIONIST: ["Dashboard", "Patients", "OPD", "IPD / Admissions", "Wards & Beds", "Billing"],
+      RECEPTIONIST: ["Book Appointment", "All Patients", "All Appointments"],
       PHARMACIST: ["Dashboard", "Patients", "Consultation", "Pharmacy", "Reports"],
       ACCOUNTANT: ["Dashboard", "Patients", "IPD / Admissions", "Billing", "Reports"],
     };
     for (const [role, menus] of Object.entries(expected)) {
       assert.deepEqual(visibleMenuNames(role), menus, `Unexpected sidebar for ${role}`);
     }
+  });
+
+  test("Receptionist sidebar and dashboard offer the same three shortcuts", () => {
+    const sidebar = visibleMenuItems("RECEPTIONIST");
+    const actions = resolveDashboardProfile("RECEPTIONIST").quickActions;
+
+    assert.deepEqual(
+      sidebar.map((m) => m.name),
+      actions.map((a) => a.title),
+      "Sidebar and dashboard titles must match"
+    );
+    assert.deepEqual(
+      sidebar.map((m) => m.path),
+      actions.map((a) => a.href),
+      "Sidebar and dashboard links must point at the same routes"
+    );
+    // Flat by design: no OPD section, no accordion groups.
+    assert.ok(
+      applyRoleNav("RECEPTIONIST", filterMenusByPermissions(MENUS, defaultPermissionsFor("RECEPTIONIST"))).every(
+        (m) => !m.children || m.children.length === 0
+      ),
+      "The Receptionist sidebar must be flat links, never groups"
+    );
   });
 
   test("Only the admin sees Settings", () => {

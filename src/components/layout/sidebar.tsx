@@ -23,6 +23,18 @@ interface SidebarProps {
   setMobileOpen?: (open: boolean) => void;
 }
 
+/**
+ * Client-side Home entry shown at the very top of the Receptionist sidebar.
+ * Rendered locally so the API / menu catalogue stays untouched; it opens the
+ * existing role-aware Dashboard page.
+ */
+const HOME_MENU: MenuItem = {
+  _id: "receptionist-home",
+  name: "Home",
+  path: "/dashboard/main",
+  icon: "Home",
+};
+
 export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) => {
   const pathname = usePathname();
   const { data: session } = useSession();
@@ -78,6 +90,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
     fetchMenus();
   }, [pathname]);
 
+
+  const isReceptionist = session?.user?.roleName === "RECEPTIONIST";
+
+  const displayMenus = React.useMemo(() => {
+    if (!isReceptionist) return menus;
+    return [HOME_MENU, ...menus];
+  }, [menus, isReceptionist]);
+
+  // Home is active while the dashboard page is open. The real route is
+  // /dashboard/main (the role-aware reception dashboard); "/dashboard" is
+  // treated as the same destination.
+  const isLeafActive = (path?: string) =>
+    Boolean(path && (pathname === path || (path === "/dashboard/main" && pathname === "/dashboard")));
 
   const toggleExpand = (id: string) => {
     setExpandedItems((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -141,7 +166,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
               ))}
             </div>
           ) : (
-            menus.map((menu) => {
+            displayMenus.map((menu) => {
               const hasChildren = menu.children && menu.children.length > 0;
               const isExpanded = expandedItems[menu._id];
               const isActive = pathname === menu.path || (hasChildren && menu.children?.some(c => pathname === c.path));
@@ -172,10 +197,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
                       onClick={() => setMobileOpen?.(false)}
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white",
-                        pathname === menu.path ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20" : "text-slate-600 dark:text-slate-300"
+                        isLeafActive(menu.path) ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20" : "text-slate-600 dark:text-slate-300"
                       )}
                     >
-                      <DynamicIcon name={menu.icon || "Circle"} className={cn("h-4 w-4", pathname === menu.path ? "text-white" : "text-slate-400")} />
+                      <DynamicIcon name={menu.icon || "Circle"} className={cn("h-4 w-4", isLeafActive(menu.path) ? "text-white" : "text-slate-400")} />
                       <span>{menu.name}</span>
                     </Link>
                   )}

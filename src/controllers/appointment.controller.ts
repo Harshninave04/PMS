@@ -6,6 +6,7 @@ import Organization from "@/models/organization.model";
 import { Types } from "mongoose";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { isDoctorActor } from "@/lib/rbac/doctor-scope";
 
 interface PopulatedPatient {
     name?: string;
@@ -56,7 +57,7 @@ export const AppointmentController = {
             }
 
             // Enforce doctor relational constraint: doctor with OWN scope can only book for themselves
-            if (auth.grant.relScope === "OWN" && auth.context.doctorProfileId) {
+            if ((auth.grant.relScope === "OWN" || isDoctorActor(auth.context)) && auth.context.doctorProfileId) {
                 body.doctorId = auth.context.doctorProfileId.toString();
             }
 
@@ -80,9 +81,9 @@ export const AppointmentController = {
                 body.patientId = newPatient._id;
             }
 
-            if (!body.patientId || !body.doctorId || !body.appointmentDate || !body.appointmentTime) {
+            if (!body.patientId || !body.doctorId || !body.appointmentDate) {
                 return NextResponse.json(
-                    { success: false, error: "Patient, Doctor, Date, and Time are required" },
+                    { success: false, error: "Patient, Doctor, and Date are required" },
                     { status: 400 }
                 );
             }
@@ -111,7 +112,7 @@ export const AppointmentController = {
 
             // Enforce relational scope: Doctor with OWN scope can ONLY see their own appointments
             let effectiveDoctorId: string | undefined = requestedDoctorId || undefined;
-            if (auth.grant.relScope === "OWN") {
+            if (auth.grant.relScope === "OWN" || isDoctorActor(auth.context)) {
                 effectiveDoctorId = (auth.context.doctorProfileId || auth.context.userId).toString();
             }
 
@@ -169,7 +170,7 @@ export const AppointmentController = {
             }
 
             // Relational boundary check
-            if (auth.grant.relScope === "OWN") {
+            if (auth.grant.relScope === "OWN" || isDoctorActor(auth.context)) {
                 const rawDoc = appointment.doctorId;
                 const docId = rawDoc && typeof rawDoc === "object" && "_id" in rawDoc && rawDoc._id
                     ? rawDoc._id.toString()
@@ -214,7 +215,7 @@ export const AppointmentController = {
             }
 
             // Relational boundary check
-            if (auth.grant.relScope === "OWN") {
+            if (auth.grant.relScope === "OWN" || isDoctorActor(auth.context)) {
                 const rawDoc = existing.doctorId;
                 const docId = rawDoc && typeof rawDoc === "object" && "_id" in rawDoc && rawDoc._id
                     ? rawDoc._id.toString()
@@ -261,7 +262,7 @@ export const AppointmentController = {
             }
 
             // Relational boundary check
-            if (auth.grant.relScope === "OWN") {
+            if (auth.grant.relScope === "OWN" || isDoctorActor(auth.context)) {
                 const rawDoc = existing.doctorId;
                 const docId = rawDoc && typeof rawDoc === "object" && "_id" in rawDoc && rawDoc._id
                     ? rawDoc._id.toString()

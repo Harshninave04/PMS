@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
-import { User, Heart, Shield, Phone, MapPin, Plus, X, ArrowLeft } from "lucide-react";
+import { User, Shield, Phone, MapPin, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 export default function RegisterPatientPage() {
@@ -37,11 +37,6 @@ export default function RegisterPatientPage() {
     branchId: "",
   });
 
-  const [allergyInput, setAllergyInput] = useState("");
-  const [allergies, setAllergies] = useState<string[]>([]);
-  const [historyInput, setHistoryInput] = useState("");
-  const [medicalHistory, setMedicalHistory] = useState<string[]>([]);
-
   useEffect(() => {
     async function fetchOrganizations() {
       try {
@@ -61,28 +56,6 @@ export default function RegisterPatientPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleAddAllergy = () => {
-    if (allergyInput.trim() && !allergies.includes(allergyInput.trim())) {
-      setAllergies([...allergies, allergyInput.trim()]);
-      setAllergyInput("");
-    }
-  };
-
-  const handleRemoveAllergy = (index: number) => {
-    setAllergies(allergies.filter((_, i) => i !== index));
-  };
-
-  const handleAddHistory = () => {
-    if (historyInput.trim() && !medicalHistory.includes(historyInput.trim())) {
-      setMedicalHistory([...medicalHistory, historyInput.trim()]);
-      setHistoryInput("");
-    }
-  };
-
-  const handleRemoveHistory = (index: number) => {
-    setMedicalHistory(medicalHistory.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -115,8 +88,6 @@ export default function RegisterPatientPage() {
       const payload = {
         ...formData,
         age: parseInt(formData.age),
-        allergies,
-        medicalHistory,
       };
 
       const response = await fetch("/api/patient", {
@@ -363,91 +334,13 @@ export default function RegisterPatientPage() {
           </CardContent>
         </Card>
 
-        {/* Section 4: Allergies & Medical History */}
-        <Card className="border-slate-200 dark:border-slate-800">
-          <CardHeader className="border-b border-slate-100 dark:border-slate-800/60 pb-4">
-            <CardTitle className="text-base font-semibold flex items-center gap-2 text-slate-900 dark:text-white">
-              <Heart className="h-4 w-4 text-rose-500" />
-              4. Known Allergies & Pre-existing Medical Conditions
-            </CardTitle>
-            <CardDescription>Tag critical drug allergies, food intolerances, and chronic conditions.</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Allergies tag input */}
-            <div className="space-y-3">
-              <Label>Known Allergies (Penicillin, Sulfa, Peanuts, Latex, etc.)</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={allergyInput}
-                  onChange={(e) => setAllergyInput(e.target.value)}
-                  placeholder="Type allergy and click Add"
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddAllergy(); } }}
-                />
-                <Button type="button" variant="outline" onClick={handleAddAllergy}>
-                  <Plus className="h-4 w-4 mr-1" /> Add
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-2 pt-1 min-h-8">
-                {allergies.length === 0 ? (
-                  <span className="text-xs text-slate-400 italic">No known allergies added.</span>
-                ) : (
-                  allergies.map((allergy, idx) => (
-                    <span
-                      key={idx}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
-                    >
-                      {allergy}
-                      <button type="button" onClick={() => handleRemoveAllergy(idx)} className="hover:text-rose-700">
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* Medical History tag input */}
-            <div className="space-y-3">
-              <Label>Pre-existing Conditions (Diabetes, Hypertension, Asthma...)</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={historyInput}
-                  onChange={(e) => setHistoryInput(e.target.value)}
-                  placeholder="Type condition and click Add"
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddHistory(); } }}
-                />
-                <Button type="button" variant="outline" onClick={handleAddHistory}>
-                  <Plus className="h-4 w-4 mr-1" /> Add
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-2 pt-1 min-h-8">
-                {medicalHistory.length === 0 ? (
-                  <span className="text-xs text-slate-400 italic">No prior medical conditions added.</span>
-                ) : (
-                  medicalHistory.map((cond, idx) => (
-                    <span
-                      key={idx}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                    >
-                      {cond}
-                      <button type="button" onClick={() => handleRemoveHistory(idx)} className="hover:text-amber-700">
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Section 5: Hospital (only shown when more than one hospital exists; otherwise auto-selected) */}
+        {/* Section 4: Hospital (only shown when more than one hospital exists; otherwise auto-selected) */}
         {organizations.length > 1 && (
         <Card className="border-slate-200 dark:border-slate-800">
           <CardHeader className="border-b border-slate-100 dark:border-slate-800/60 pb-4">
             <CardTitle className="text-base font-semibold flex items-center gap-2 text-slate-900 dark:text-white">
               <MapPin className="h-4 w-4 text-emerald-500" />
-              5. Hospital
+              4. Hospital
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-6">

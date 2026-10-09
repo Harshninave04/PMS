@@ -3,7 +3,7 @@ import dbConnect from "@/lib/dbConnect";
 import defaultMenuService, { MenuService } from "@/services/menu.service";
 import { requirePermission, resolveRequestIdentity } from "@/lib/rbac/guard";
 import { IMenu } from "@/interfaces/menu.interface";
-import { filterMenusByPermissions, restrictToCanonicalMenus, type MenuNode } from "@/lib/menu-data";
+import { applyRoleNav, filterMenusByPermissions, restrictToCanonicalMenus, type MenuNode } from "@/lib/menu-data";
 import { resolveRolePermissions } from "@/lib/rbac/role-permissions";
 
 export class MenuController {
@@ -73,7 +73,11 @@ export class MenuController {
             // Sub-item filtering, from the same helper the client uses. The
             // sidebar re-applies it locally so a permission change shows up
             // without another round trip.
-            const menus = filterMenusByPermissions(canonical, identity.identity.permissions.subItem);
+            const visible = filterMenusByPermissions(canonical, identity.identity.permissions.subItem);
+
+            // A role with a fixed sidebar (the Receptionist's three shortcuts)
+            // answers with that flat list; every other role keeps the tree.
+            const menus = applyRoleNav(identity.identity.roleName, visible);
 
             return NextResponse.json(
                 {

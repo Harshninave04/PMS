@@ -52,6 +52,52 @@ export function restrictToCanonicalMenus<T extends MenuNode>(menus: readonly T[]
 }
 
 /**
+ * Fixed, flat sidebars for roles that do not get the grouped tree.
+ *
+ * The Receptionist works from three shortcuts only: no OPD section, no other
+ * modules — the desk's whole world is booking, looking a patient up, and the
+ * appointment roster, in that order.
+ */
+const FLAT_NAV_FOR_ROLE: Record<string, readonly { path: string; icon: string }[]> = {
+    RECEPTIONIST: [
+        { path: "/appointments/book", icon: "CalendarPlus" },
+        { path: "/patients/list", icon: "Users" },
+        { path: "/appointments/list", icon: "Calendar" },
+    ],
+};
+
+/**
+ * Replaces the grouped tree with the role's fixed sidebar when it has one, so
+ * `/api/menu` answers the Receptionist with three flat links while every other
+ * role keeps the tree it already had.
+ *
+ * The selection still rides on the permission filter that ran first: a shortcut
+ * only appears when the user may actually open its page, so a role whose
+ * permissions were narrowed shows fewer shortcuts instead of a dead link.
+ */
+export function applyRoleNav<T extends MenuNode>(
+    roleName: string | null | undefined,
+    menus: readonly T[]
+): T[] {
+    const flat = FLAT_NAV_FOR_ROLE[(roleName ?? "").trim().toUpperCase()];
+    if (!flat) return [...menus];
+
+    const byPath = new Map<string, T>();
+    for (const menu of menus) {
+        if (menu.path) byPath.set(menu.path.toLowerCase(), menu);
+        for (const child of menu.children ?? []) {
+            if (child.path) byPath.set(child.path.toLowerCase(), child as T);
+        }
+    }
+
+    return flat.flatMap(({ path, icon }) => {
+        const item = byPath.get(path.toLowerCase());
+        if (!item) return [];
+        return [{ ...item, children: undefined, icon }];
+    });
+}
+
+/**
  * Keeps only the sub-items a user may actually open, and only the groups that
  * still have something left in them.
  *

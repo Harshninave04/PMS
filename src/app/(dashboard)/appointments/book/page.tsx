@@ -38,12 +38,6 @@ const QUICK_COMPLAINTS = [
   "Cough & Cold",
 ];
 
-const TIME_SLOTS = [
-  "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
-  "12:00", "12:30", "14:00", "14:30", "15:00", "15:30",
-  "16:00", "16:30", "17:00", "17:30"
-];
-
 export default function BookAppointmentPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -53,6 +47,8 @@ export default function BookAppointmentPage() {
   const [patients, setPatients] = useState<any[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
+  const [selectedDept, setSelectedDept] = useState("ALL");
+  const [confirmed, setConfirmed] = useState<any>(null);
 
   // Registration mode: 'existing' or 'new'
   const [patientMode, setPatientMode] = useState<"existing" | "new">("existing");
@@ -72,9 +68,8 @@ export default function BookAppointmentPage() {
     // Appointment info
     doctorId: "",
     appointmentDate: new Date().toISOString().split("T")[0],
-    appointmentTime: "10:00",
     type: "NEW" as "NEW" | "FOLLOW_UP" | "EMERGENCY" | "ROUTINE_CHECKUP",
-    priority: "NORMAL" as "NORMAL" | "URGENT" | "VIP",
+    priority: "NORMAL" as "NORMAL" | "URGENT" | "EMERGENCY",
     reason: "",
     notes: "",
     consultationFee: 500,
@@ -110,6 +105,9 @@ export default function BookAppointmentPage() {
               doctorId: firstDoc._id,
               consultationFee: firstDoc.consultationFee || 500,
             }));
+            if (firstDoc.departmentId?._id) {
+              setSelectedDept(firstDoc.departmentId._id);
+            }
           }
         }
         if (deptJson.success && deptJson.data) {
@@ -136,15 +134,30 @@ export default function BookAppointmentPage() {
     );
   }, [patients, patientSearch]);
 
-  // When doctor changes, update consultation fee
+  // When doctor changes, update consultation fee and keep department in sync
   const handleDoctorChange = (docId: string) => {
     const doc = doctors.find((d) => d._id === docId);
     setFormData((prev) => ({
       ...prev,
       doctorId: docId,
-      consultationFee: doc?.consultationFee || 500,
+      consultationFee: doc?.consultationFee || prev.consultationFee,
     }));
+    const deptId = doc?.departmentId?._id;
+    if (deptId) setSelectedDept(deptId);
   };
+
+  // Department acts as the department of record; changing it clears a doctor from another department
+  const handleDepartmentChange = (deptId: string) => {
+    setSelectedDept(deptId);
+    if (deptId !== "ALL" && selectedDoctorObj && (selectedDoctorObj.departmentId?._id || "") !== deptId) {
+      setFormData((prev) => ({ ...prev, doctorId: "" }));
+    }
+  };
+
+  const filteredDoctors = useMemo(() => {
+    if (selectedDept === "ALL") return doctors;
+    return doctors.filter((d) => d.departmentId?._id === selectedDept);
+  }, [doctors, selectedDept]);
 
   const selectedPatientObj = patients.find((p) => p._id === formData.patientId);
   const selectedDoctorObj = doctors.find((d) => d._id === formData.doctorId);
@@ -174,7 +187,6 @@ export default function BookAppointmentPage() {
       const payload: any = {
         doctorId: formData.doctorId,
         appointmentDate: formData.appointmentDate,
-        appointmentTime: formData.appointmentTime,
         type: formData.type,
         priority: formData.priority,
         reason: formData.reason,
@@ -203,13 +215,13 @@ export default function BookAppointmentPage() {
 
       const data = await res.json();
       if (res.ok && data.success) {
+        setConfirmed(data.data);
         toast({
           title: "Appointment Booked!",
           description: `Token ${data.data?.tokenNumber || "Assigned"} confirmed for ${
             data.data?.patientId?.name || "Patient"
           }.`,
         });
-        router.push("/appointments/list");
       } else {
         toast({
           title: "Booking Failed",
@@ -221,6 +233,34 @@ export default function BookAppointmentPage() {
       toast({ title: "Booking Error", description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBookAnother = () => {
+    const firstDoc = doctors[0];
+    setConfirmed(null);
+    setPatientMode("existing");
+    setPatientSearch("");
+    setFormData({
+      patientId: patients[0]?._id || "",
+      patientName: "",
+      contact: "",
+      patientAge: "32",
+      patientGender: "MALE",
+      patientBloodGroup: "O+",
+      patientAddress: "",
+      doctorId: firstDoc?._id || "",
+      appointmentDate: new Date().toISOString().split("T")[0],
+      type: "NEW",
+      priority: "NORMAL",
+      reason: "",
+      notes: "",
+      consultationFee: firstDoc?.consultationFee || 500,
+      paymentStatus: "PAID",
+      paymentMode: "CASH",
+    });
+    if (firstDoc?.departmentId?._id) {
+      setSelectedDept(firstDoc.departmentId._id);
     }
   };
 
@@ -245,6 +285,91 @@ export default function BookAppointmentPage() {
         <div className="flex justify-center items-center py-24">
           <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
         </div>
+      ) : confirmed ? (
+        /* Booking Confirmation: token issued, patient queued */
+        <Card className="border-emerald-200 dark:border-emerald-800/60 max-w-2xl mx-auto shadow-sm">
+          <CardHeader className="text-center bg-emerald-50/60 dark:bg-emerald-950/30 border-b border-emerald-100 dark:border-emerald-900 pb-4">
+            <div className="flex justify-center mb-2">
+              <CheckCircle2 className="h-10 w-10 text-emerald-600" />
+            </div>
+            <CardTitle className="text-lg">Appointment Confirmed</CardTitle>
+            <CardDescription>
+              Token issued. The patient has been added to today&apos;s OPD waiting queue.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-5">
+            <div className="text-center">
+              <p className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">Token Number</p>
+              <p className="text-5xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1">
+                {confirmed.tokenNumber || "T-???"}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm border-t border-slate-100 dark:border-slate-800 pt-4">
+              <div className="flex justify-between sm:block">
+                <span className="text-[11px] uppercase tracking-wider text-slate-500">Patient</span>
+                <p className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                  {confirmed.patientId?.name || "Patient"}
+                </p>
+              </div>
+              <div className="flex justify-between sm:block">
+                <span className="text-[11px] uppercase tracking-wider text-slate-500">Doctor</span>
+                <p className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                  Dr. {confirmed.doctorId?.userId?.name || confirmed.doctorId?.name || "Doctor"}
+                </p>
+              </div>
+              <div className="flex justify-between sm:block">
+                <span className="text-[11px] uppercase tracking-wider text-slate-500">Department</span>
+                <p className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                  {confirmed.doctorId?.departmentId?.name || "OPD"}
+                </p>
+              </div>
+              <div className="flex justify-between sm:block">
+                <span className="text-[11px] uppercase tracking-wider text-slate-500">Date</span>
+                <p className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                  {new Date(confirmed.appointmentDate).toLocaleDateString()}
+                </p>
+              </div>
+              <div className="flex justify-between sm:block">
+                <span className="text-[11px] uppercase tracking-wider text-slate-500">Priority</span>
+                <div className="mt-0.5">
+                  <Badge
+                    variant={
+                      confirmed.priority === "EMERGENCY"
+                        ? "destructive"
+                        : confirmed.priority === "URGENT"
+                        ? "default"
+                        : "secondary"
+                    }
+                    className="text-[10px]"
+                  >
+                    {confirmed.priority || "NORMAL"}
+                  </Badge>
+                </div>
+              </div>
+              <div className="flex justify-between sm:block">
+                <span className="text-[11px] uppercase tracking-wider text-slate-500">Status</span>
+                <div className="mt-0.5">
+                  <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[10px] font-bold">
+                    {confirmed.queueStatus || "WAITING"}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <Button onClick={handleBookAnother} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
+                <Plus className="h-4 w-4" /> Book Another Appointment
+              </Button>
+              <Button variant="outline" onClick={() => router.push("/appointments/queue")}>
+                View Queue
+              </Button>
+              <Button variant="outline" onClick={() => router.push("/appointments/list")}>
+                All Appointments
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Booking Form (2 Columns) */}
@@ -404,14 +529,14 @@ export default function BookAppointmentPage() {
               </CardContent>
             </Card>
 
-            {/* Step 2: Doctor & Clinic Schedule */}
+            {/* Step 2: Doctor, Department & Date */}
             <Card className="border-slate-200/80 dark:border-slate-800 shadow-sm">
               <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800/80">
                 <div className="flex items-center gap-2">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-100 dark:bg-blue-950 text-blue-600 font-semibold text-xs">
                     2
                   </div>
-                  <CardTitle className="text-base">Physician & Schedule Slot</CardTitle>
+                  <CardTitle className="text-base">Doctor, Department & Date</CardTitle>
                 </div>
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
@@ -424,7 +549,7 @@ export default function BookAppointmentPage() {
                     required
                   >
                     <option value="">-- Choose Doctor --</option>
-                    {doctors.map((d) => (
+                    {filteredDoctors.map((d) => (
                       <option key={d._id} value={d._id}>
                         Dr. {d.userId?.name || "Doctor"} • {d.specialization || d.departmentId?.name || "Physician"} • Room {d.roomNumber || "OPD"} • Fee: ₹{d.consultationFee || 500}
                       </option>
@@ -434,6 +559,23 @@ export default function BookAppointmentPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
+                    <Label>Department *</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      value={selectedDept}
+                      onChange={(e) => handleDepartmentChange(e.target.value)}
+                      required
+                    >
+                      <option value="ALL">All Departments</option>
+                      {departments.map((dept) => (
+                        <option key={dept._id} value={dept._id}>
+                          {dept.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
                     <Label>Appointment Date *</Label>
                     <Input
                       type="date"
@@ -442,36 +584,6 @@ export default function BookAppointmentPage() {
                       value={formData.appointmentDate}
                       onChange={(e) => setFormData({ ...formData, appointmentDate: e.target.value })}
                     />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Time Slot *</Label>
-                    <Input
-                      type="time"
-                      required
-                      value={formData.appointmentTime}
-                      onChange={(e) => setFormData({ ...formData, appointmentTime: e.target.value })}
-                    />
-                  </div>
-                </div>
-
-                {/* Quick Time Slot Chips */}
-                <div>
-                  <span className="text-xs text-slate-500 font-medium">Quick Select Slot:</span>
-                  <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {TIME_SLOTS.map((slot) => (
-                      <button
-                        type="button"
-                        key={slot}
-                        onClick={() => setFormData({ ...formData, appointmentTime: slot })}
-                        className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
-                          formData.appointmentTime === slot
-                            ? "bg-emerald-600 text-white border-emerald-600 font-medium"
-                            : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-400"
-                        }`}
-                      >
-                        {slot}
-                      </button>
-                    ))}
                   </div>
                 </div>
 
@@ -484,13 +596,12 @@ export default function BookAppointmentPage() {
                       onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
                     >
                       <option value="NEW">New Patient Consultation</option>
-                      <option value="FOLLOW_UP">Follow-up Visit</option>
                       <option value="EMERGENCY">Emergency / Priority</option>
                       <option value="ROUTINE_CHECKUP">Routine Health Checkup</option>
                     </select>
                   </div>
 
-                  <div className="space-y-1.5">
+                  {/* <div className="space-y-1.5">
                     <Label>Priority Level</Label>
                     <select
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -498,10 +609,10 @@ export default function BookAppointmentPage() {
                       onChange={(e) => setFormData({ ...formData, priority: e.target.value as any })}
                     >
                       <option value="NORMAL">Normal Priority</option>
-                      <option value="URGENT">Urgent / Fast-track</option>
-                      <option value="VIP">VIP / Priority Protocol</option>
+                      <option value="URGENT">Urgent</option>
+                      <option value="EMERGENCY">Emergency</option>
                     </select>
-                  </div>
+                  </div> */}
                 </div>
               </CardContent>
             </Card>
@@ -598,8 +709,10 @@ export default function BookAppointmentPage() {
                     <span className="font-semibold text-slate-800 dark:text-slate-200">{formData.appointmentDate}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Time:</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{formData.appointmentTime}</span>
+                    <span className="text-slate-500">Department:</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">
+                      {selectedDoctorObj?.departmentId?.name || "OPD"}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Type:</span>
@@ -610,7 +723,13 @@ export default function BookAppointmentPage() {
                   <div className="flex justify-between">
                     <span className="text-slate-500">Priority:</span>
                     <Badge
-                      variant={formData.priority === "VIP" ? "default" : formData.priority === "URGENT" ? "destructive" : "secondary"}
+                      variant={
+                        formData.priority === "EMERGENCY"
+                          ? "destructive"
+                          : formData.priority === "URGENT"
+                          ? "default"
+                          : "secondary"
+                      }
                       className="text-[10px]"
                     >
                       {formData.priority}
@@ -656,7 +775,7 @@ export default function BookAppointmentPage() {
                       >
                         <option value="PAID">Paid</option>
                         <option value="PENDING">Pending</option>
-                        <option value="WAIVED">Waived / Free</option>
+                        {/* <option value="WAIVED">Waived / Free</option> */}
                       </select>
                     </div>
                   </div>
@@ -672,7 +791,7 @@ export default function BookAppointmentPage() {
                     Confirm & Issue Token
                   </Button>
                   <p className="text-[11px] text-center text-slate-400 mt-2">
-                    Generates daily queue token and sends booking SMS/email alert.
+                    Generates daily queue token and sends booking SMS alert.
                   </p>
                 </div>
               </CardContent>

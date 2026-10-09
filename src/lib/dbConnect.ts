@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import "@/models/organization.model";
+import "@/models/department.model";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
 

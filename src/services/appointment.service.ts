@@ -1,4 +1,5 @@
 import Appointment from "@/models/appointment.model";
+import OpdTokenCounter from "@/models/opd-token-counter.model";
 import Patient from "@/models/patient.model";
 import Doctor from "@/models/doctor.model";
 import User from "@/models/user.model";
@@ -6,6 +7,20 @@ import Department from "@/models/department.model";
 import Organization from "@/models/organization.model";
 import { IAppointment } from "@/interfaces/appointment.interface";
 import { Types } from "mongoose";
+
+// Normalizes any appointment date to its local day window and readable day key.
+function dayWindow(input: Date | string) {
+    const start = new Date(input);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    const day = [
+        start.getFullYear(),
+        String(start.getMonth() + 1).padStart(2, "0"),
+        String(start.getDate()).padStart(2, "0"),
+    ].join("-");
+    return { start, end, day };
+}
 
 export const AppointmentService = {
     async createAppointment(data: any) {
@@ -23,22 +38,54 @@ export const AppointmentService = {
             }
         }
 
-        // Auto-generate daily token number for doctor
+        // Auto-generate daily token number per doctor (T-001, race-safe)
         if (!data.tokenNumber && data.doctorId) {
-            const apptDate = data.appointmentDate ? new Date(data.appointmentDate) : new Date();
-            apptDate.setHours(0, 0, 0, 0);
-            const nextDay = new Date(apptDate);
-            nextDay.setDate(nextDay.getDate() + 1);
-
-            const count = await Appointment.countDocuments({
-                doctorId: data.doctorId,
-                appointmentDate: { $gte: apptDate, $lt: nextDay }
-            });
-            data.tokenNumber = `T-${String(count + 1).padStart(2, '0')}`;
+            data.tokenNumber = await this.generateTokenNumber(
+                data.doctorId,
+                data.appointmentDate || new Date()
+            );
         }
 
         const appointment = await Appointment.create(data);
         return await this.getAppointmentById(appointment._id.toString());
+    },
+
+    // Reserves the next token for a doctor on a given day via an atomic counter,
+    // seeded from any tokens already issued that day so sequences never restart.
+    async generateTokenNumber(doctorId: Types.ObjectId | string, appointmentDate: Date | string) {
+        const { start, end, day } = dayWindow(appointmentDate);
+
+        const issued = await Appointment.find({
+            doctorId,
+            appointmentDate: { $gte: start, $lt: end },
+            tokenNumber: { $regex: /^T-\d+$/ }
+        }).select("tokenNumber").lean();
+
+        const maxIssued = issued.reduce((max, doc) => {
+            const value = Number(String(doc.tokenNumber).slice(2));
+            return Number.isFinite(value) && value > max ? value : max;
+        }, 0);
+
+        for (let attempt = 1; attempt <= 5; attempt++) {
+            try {
+                await OpdTokenCounter.updateOne(
+                    { doctorId, day },
+                    { $max: { seq: maxIssued } },
+                    { upsert: true }
+                );
+                const counter = await OpdTokenCounter.findOneAndUpdate(
+                    { doctorId, day },
+                    { $inc: { seq: 1 } },
+                    { new: true, upsert: true }
+                );
+                return `T-${String(counter.seq).padStart(3, "0")}`;
+            } catch (error: any) {
+                // Concurrent first-time upserts can collide on the unique index; retry.
+                if (error?.code !== 11000 || attempt === 5) throw error;
+            }
+        }
+
+        throw new Error("Unable to generate appointment token");
     },
 
     async getAllAppointments(filter: any = {}) {
@@ -69,7 +116,7 @@ export const AppointmentService = {
                     { path: 'departmentId', select: 'name code location' }
                 ]
             })
-            .sort({ appointmentDate: 1, appointmentTime: 1 })
+            .sort({ appointmentDate: 1, createdAt: 1 })
             .lean();
     },
 

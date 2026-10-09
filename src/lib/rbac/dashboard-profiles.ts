@@ -174,7 +174,7 @@ const profiles: Record<string, DashboardProfile> = {
   frontDesk: {
     key: "frontDesk",
     label: "Reception",
-    subtitle: "Registrations, OPD bookings and admissions.",
+    subtitle: "Appointments, patients and front-desk records.",
     moduleDashboard: null,
     stats: [
       metric("todayAppointments", "Appointments Today", "Booked for today", CalendarCheck, TONE.emerald),
@@ -183,10 +183,9 @@ const profiles: Record<string, DashboardProfile> = {
       bedOccupancy(TONE.violet)
     ],
     quickActions: [
-      { title: "Register Patient", href: "/patients/register", icon: UserPlus, color: ACTION.emerald },
       { title: "Book Appointment", href: "/appointments/book", icon: CalendarPlus, color: ACTION.teal },
-      { title: "New Admission", href: "/admissions/new", icon: PlusCircle, color: ACTION.cyan },
-      { title: "Today's Queue", href: "/appointments/queue", icon: ClipboardList, color: ACTION.slate }
+      { title: "All Patients", href: "/patients/list", icon: Users, color: ACTION.emerald },
+      { title: "All Appointments", href: "/appointments/list", icon: Calendar, color: ACTION.cyan }
     ],
     showRecentPatients: true
   },

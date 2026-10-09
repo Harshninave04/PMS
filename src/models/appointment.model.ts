@@ -22,8 +22,7 @@ const appointmentSchema = new Schema<IAppointment>(
             required: true
         },
         appointmentTime: {
-            type: String,
-            required: true
+            type: String
         },
         tokenNumber: {
             type: String,
@@ -46,16 +45,19 @@ const appointmentSchema = new Schema<IAppointment>(
             type: String,
             enum: [
                 "WAITING",
-                "TRIAGE",
+                "CALLED",
                 "IN_CONSULTATION",
                 "COMPLETED",
+                "CANCELLED",
+                "NO_SHOW",
+                "TRIAGE",
                 "SKIPPED",
             ],
             default: "WAITING",
         },
         priority: {
             type: String,
-            enum: ["NORMAL", "URGENT", "VIP"],
+            enum: ["NORMAL", "URGENT", "EMERGENCY", "VIP"],
             default: "NORMAL",
         },
         type: {
@@ -104,6 +106,9 @@ const appointmentSchema = new Schema<IAppointment>(
             type: String
         },
         checkedInAt: {
+            type: Date
+        },
+        calledAt: {
             type: Date
         },
         consultationStartedAt: {
