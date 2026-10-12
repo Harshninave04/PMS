@@ -195,7 +195,10 @@ export async function authorizeRequest<T = Record<string, unknown>>(
     );
 
     if (!allowed) {
-      const deniedPermission = routeRule?.permission ?? requiredPermission;
+      const missingLegacyPermission = routeRule?.requiredLegacyPermissions?.find(
+        (permission) => !permissionsSet.has(permission)
+      );
+      const deniedPermission = missingLegacyPermission ?? routeRule?.permission ?? requiredPermission;
       return {
         isAuthorized: false,
         errorCode: "FORBIDDEN",

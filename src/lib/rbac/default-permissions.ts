@@ -15,6 +15,14 @@ import { ADMIN_ROLE } from "./roles";
 
 const ALL = [...ALL_SUB_ITEM_PERMISSIONS];
 
+const LEGACY_DOCTOR_DEFAULT_PERMISSIONS = [
+    permissionKey("dashboard", "main", "view"),
+    permissionKey("opd", "queue", "view"),
+    permissionKey("opd", "queue", "update"),
+    permissionKey("opd", "list", "view"),
+    permissionKey("opd", "list", "update"),
+];
+
 /** Shorthand: all four CRUD actions on a sub-item. */
 function crud(moduleKey: string, subItemKey: string): string[] {
     const actions: PermissionAction[] = ["view", "create", "update", "delete"];
@@ -51,24 +59,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]
     DOCTOR: [
         ...act("dashboard", "main", "view"),
 
-        ...act("patients", "list", "view", "update"),
-        ...act("patients", "profile", "view", "update"),
-        ...act("patients", "documents", "view", "upload"),
-
         ...act("opd", "queue", "view", "update"),
-        ...act("opd", "list", "view", "update"),
-
-        ...crud("clinical", "consultations"),
-        ...act("clinical", "prescriptions", "view", "update", "prescribe"),
-        ...act("clinical", "vitals", "view", "create", "update"),
-        ...act("clinical", "history", "view"),
-
-        ...act("admissions", "new", "view", "create"),
-        ...act("admissions", "current", "view", "update"),
-        ...act("admissions", "summary", "view"),
-        ...act("admissions", "history", "view"),
-
-        ...act("wards", "availability", "view"),
     ],
 
     NURSE: [
@@ -222,6 +213,11 @@ export function defaultPermissionsFor(roleName: string): string[] {
     // equal `defaultPermissionsFor(x)` for Admin and only for Admin.
     if (isSuperAdminRole(roleName)) return normalizePermissions(ALL_SUB_ITEM_PERMISSIONS);
     return normalizePermissions(DEFAULT_ROLE_PERMISSIONS[roleName] ?? []);
+}
+
+/** Recognizes the shipped Doctor defaults from before the queue-only dashboard. */
+export function hasLegacyDoctorDefaults(permissions: Iterable<string> | null | undefined): boolean {
+    return permissionSignature(permissions) === permissionSignature(LEGACY_DOCTOR_DEFAULT_PERMISSIONS);
 }
 
 /** Order-independent fingerprint used to decide whether a seed write is needed. */

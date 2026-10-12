@@ -61,17 +61,13 @@ export interface ModuleAccess {
  */
 export const ROLE_ACCESS: Record<string, ModuleAccess[]> = {
   DOCTOR: [
-    { moduleName: "patient", permissions: [P.PATIENT_VIEW] },
     { moduleName: "appointment", permissions: [P.APPOINTMENT_VIEW, P.APPOINTMENT_UPDATE] },
-    { moduleName: "admission", permissions: [P.ADMISSION_VIEW] },
     {
       moduleName: "clinical",
       permissions: [
-        P.CLINICAL_RECORD_VIEW, P.CLINICAL_RECORD_CREATE, P.CLINICAL_RECORD_UPDATE,
-        P.CLINICAL_DIAGNOSIS_VIEW, P.CLINICAL_DIAGNOSIS_CREATE,
-        P.CLINICAL_PRESCRIPTION_VIEW, P.CLINICAL_PRESCRIPTION_CREATE, P.CLINICAL_PRESCRIPTION_CANCEL,
-        // Vitals are recorded from the Consultation screens
-        P.NURSING_VITALS_VIEW, P.NURSING_VITALS_CREATE,
+        P.CLINICAL_RECORD_CREATE,
+        P.CLINICAL_PRESCRIPTION_VIEW,
+        P.CLINICAL_PRESCRIPTION_CREATE,
       ],
     },
   ],

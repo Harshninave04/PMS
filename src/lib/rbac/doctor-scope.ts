@@ -26,6 +26,16 @@ export function isDoctorActor(context: {
     return Boolean(isDoctorRole(context.roleName) && context.doctorProfileId);
 }
 
+/** Doctors may complete only appointments assigned to their linked profile. */
+export function canCompleteAppointment(context: {
+    roleName?: string | null;
+    doctorProfileId?: Types.ObjectId;
+}, appointmentDoctorId: unknown): boolean {
+    if (!isDoctorRole(context.roleName)) return true;
+    if (!context.doctorProfileId || appointmentDoctorId == null) return false;
+    return context.doctorProfileId.toString() === String(appointmentDoctorId);
+}
+
 export function doctorProfileIdOf(context: {
     doctorProfileId?: Types.ObjectId;
 }): Types.ObjectId | undefined {

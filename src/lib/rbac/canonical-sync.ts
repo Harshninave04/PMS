@@ -19,7 +19,7 @@ import User from "@/models/user.model";
 import Organization from "@/models/organization.model";
 import { MENUS, getMenuModuleKey } from "@/lib/menu-data";
 import { ALL_ROLES, buildRoleAccess, type ModuleAccess } from "@/lib/rbac/role-access";
-import { defaultPermissionsFor, normalizePermissions, permissionSignature } from "@/lib/rbac/default-permissions";
+import { defaultPermissionsFor, hasLegacyDoctorDefaults, normalizePermissions, permissionSignature } from "@/lib/rbac/default-permissions";
 import { migrateLegacyAccess } from "@/lib/rbac/migrate-access";
 import { recordRoleChange } from "@/lib/rbac/audit";
 
@@ -256,6 +256,11 @@ export function expectedPermissionsFor(
 ): string[] {
     const defaults = defaultPermissionsFor(roleName);
     if (!existing) return defaults;
+
+    // The shipped Doctor role is intentionally the dashboard and OPD queue.
+    // Keep administrator-customized Doctor permissions, but migrate the old
+    // default role away from its former patient, admission and appointment-list grants.
+    if (roleName === "DOCTOR" && (!existing.permissionsCustomized || hasLegacyDoctorDefaults(existing.permissions))) return defaults;
 
     if (existing.permissionsCustomized || existing.permissions?.length) {
         return normalizePermissions(existing.permissions);

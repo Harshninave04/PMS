@@ -79,5 +79,7 @@ const prescriptionSchema = new Schema<IPrescription>(
     { timestamps: true }
 );
 
+prescriptionSchema.index({ appointmentId: 1 }, { unique: true, sparse: true });
+
 const Prescription = models.Prescription || model<IPrescription>('Prescription', prescriptionSchema);
 export default Prescription;

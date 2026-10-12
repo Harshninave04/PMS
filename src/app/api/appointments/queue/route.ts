@@ -7,7 +7,7 @@ import User from "@/models/user.model";
 import Department from "@/models/department.model";
 import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
-import { isDoctorActor } from "@/lib/rbac/doctor-scope";
+import { isDoctorRole } from "@/lib/rbac/doctor-scope";
 
 // Queue serving order: EMERGENCY -> URGENT -> NORMAL, then the order the
 // tokens were issued. Tokens themselves are never renumbered.
@@ -55,8 +55,11 @@ export async function GET(request: NextRequest) {
 
         // Doctor isolation: a doctor only ever sees their own live queue,
         // never another doctor's list (or the full hospital queue)
-        if (isDoctorActor(authResult.context)) {
-            doctorId = authResult.context.doctorProfileId!.toString();
+        if (isDoctorRole(authResult.context.roleName)) {
+            if (!authResult.context.doctorProfileId) {
+                return NextResponse.json({ success: false, error: "Doctor profile is not linked to this account" }, { status: 403 });
+            }
+            doctorId = authResult.context.doctorProfileId.toString();
         }
 
         const todayStart = new Date();
@@ -125,8 +128,11 @@ export async function POST(request: NextRequest) {
 
         // Doctor isolation: a doctor only operates on their own queue.
         // Ignore any doctorId supplied by the doctor's client.
-        if (isDoctorActor(authResult.context)) {
-            body.doctorId = authResult.context.doctorProfileId!.toString();
+        if (isDoctorRole(authResult.context.roleName)) {
+            if (!authResult.context.doctorProfileId) {
+                return NextResponse.json({ success: false, error: "Doctor profile is not linked to this account" }, { status: 403 });
+            }
+            body.doctorId = authResult.context.doctorProfileId.toString();
         }
 
         if (!action) {
@@ -209,7 +215,7 @@ export async function POST(request: NextRequest) {
 
         // Doctor isolation: a targeted queue action may only touch the doctor's
         // own appointment (CALL_NEXT already picks from the doctor's own queue).
-        if (isDoctorActor(authResult.context) && action !== "CALL_NEXT") {
+        if (isDoctorRole(authResult.context.roleName) && action !== "CALL_NEXT") {
             const target = await Appointment.findById(targetId).select("doctorId").lean();
             if (!target || target.doctorId?.toString() !== authResult.context.doctorProfileId!.toString()) {
                 return NextResponse.json(

@@ -114,7 +114,7 @@ async function runMenuTests() {
 
   test("Each role sees only the modules its permissions grant", () => {
     const expected: Record<string, string[]> = {
-      DOCTOR: ["Dashboard", "Patients", "OPD", "Consultation", "IPD / Admissions", "Wards & Beds"],
+      DOCTOR: ["Dashboard", "OPD Queue"],
       NURSE: ["Dashboard", "Patients", "Consultation", "IPD / Admissions", "Wards & Beds", "Nursing"],
       RECEPTIONIST: ["Book Appointment", "All Patients", "All Appointments"],
       PHARMACIST: ["Dashboard", "Patients", "Consultation", "Pharmacy", "Reports"],
@@ -148,6 +148,16 @@ async function runMenuTests() {
     );
   });
 
+  test("Doctor sidebar is flat and contains only Dashboard and today's OPD queue", () => {
+    const sidebar = visibleMenuItems("DOCTOR");
+    assert.deepEqual(sidebar.map((item) => item.name), ["Dashboard", "OPD Queue"]);
+    assert.deepEqual(sidebar.map((item) => item.path), ["/dashboard/main", "/appointments/queue"]);
+    const tree = applyRoleNav("DOCTOR", filterMenusByPermissions(MENUS, defaultPermissionsFor("DOCTOR")));
+    assert.ok(tree.every((item) => !item.children || item.children.length === 0), "Doctor sidebar must not have nested duplicate links");
+    const doctorPermissions = defaultPermissionsFor("DOCTOR");
+    assert.ok(!doctorPermissions.some((key) => key.startsWith("opd.list:")), "Doctor defaults must not include All Appointments");
+  });
+
   test("Only the admin sees Settings", () => {
     for (const role of ALL_ROLES.filter((r) => r !== ADMIN_ROLE)) {
       assert.ok(!visibleMenuNames(role).includes("Settings"), `${role} must not see Settings`);
@@ -176,6 +186,11 @@ async function runMenuTests() {
     assert.deepEqual([...mapped].sort(), [...ALL_ROLES].sort(), "Roles and dashboard profiles out of sync");
     const keys = ALL_ROLES.map((r) => resolveDashboardProfile(r).key);
     assert.equal(new Set(keys).size, keys.length, "Two roles share a dashboard profile");
+    const doctorProfile = resolveDashboardProfile("DOCTOR");
+    assert.deepEqual(doctorProfile.stats, []);
+    assert.deepEqual(doctorProfile.quickActions, []);
+    assert.equal(doctorProfile.showRecentPatients, false);
+    assert.equal(doctorProfile.moduleDashboard, null);
   });
 
   test("Dashboard quick actions open pages the role is allowed to see", () => {

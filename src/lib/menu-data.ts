@@ -58,7 +58,11 @@ export function restrictToCanonicalMenus<T extends MenuNode>(menus: readonly T[]
  * modules — the desk's whole world is booking, looking a patient up, and the
  * appointment roster, in that order.
  */
-const FLAT_NAV_FOR_ROLE: Record<string, readonly { path: string; icon: string }[]> = {
+const FLAT_NAV_FOR_ROLE: Record<string, readonly { path: string; icon: string; name?: string }[]> = {
+    DOCTOR: [
+        { path: "/dashboard/main", icon: "LayoutDashboard" },
+        { path: "/appointments/queue", icon: "CalendarClock", name: "OPD Queue" },
+    ],
     RECEPTIONIST: [
         { path: "/appointments/book", icon: "CalendarPlus" },
         { path: "/patients/list", icon: "Users" },
@@ -67,9 +71,8 @@ const FLAT_NAV_FOR_ROLE: Record<string, readonly { path: string; icon: string }[
 };
 
 /**
- * Replaces the grouped tree with the role's fixed sidebar when it has one, so
- * `/api/menu` answers the Receptionist with three flat links while every other
- * role keeps the tree it already had.
+ * Replaces the grouped tree with the role's fixed sidebar when it has one. The
+ * selected links still pass through the permission filter above.
  *
  * The selection still rides on the permission filter that ran first: a shortcut
  * only appears when the user may actually open its page, so a role whose
@@ -90,10 +93,10 @@ export function applyRoleNav<T extends MenuNode>(
         }
     }
 
-    return flat.flatMap(({ path, icon }) => {
+    return flat.flatMap(({ path, icon, name }) => {
         const item = byPath.get(path.toLowerCase());
         if (!item) return [];
-        return [{ ...item, children: undefined, icon }];
+        return [{ ...item, name: name ?? item.name, children: undefined, icon }];
     });
 }
 

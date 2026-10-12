@@ -15,7 +15,7 @@
  * layer is layered on top and is what decides what a user can *reach*.
  */
 import { ALL_SUB_ITEM_PERMISSIONS } from "./permissions.config";
-import { isSuperAdminRole, normalizePermissions } from "./default-permissions";
+import { defaultPermissionsFor, hasLegacyDoctorDefaults, isSuperAdminRole, normalizePermissions } from "./default-permissions";
 import { migrateLegacyAccess } from "./migrate-access";
 
 export interface StoredRoleLike {
@@ -88,8 +88,13 @@ export function resolveRolePermissions(role: StoredRoleLike | null | undefined):
     // through the migration (`permissions` empty), so an installed database that
     // only knows the old keys keeps working instead of resolving to nothing.
     const hasExplicitPermissionList = role?.permissionsCustomized === true || storedSubItem.length > 0;
+    const isDefaultDoctorRole = roleName.toUpperCase() === "DOCTOR" && (
+        role?.permissionsCustomized !== true || hasLegacyDoctorDefaults(storedSubItem)
+    );
     const subItem = isSuperAdmin
         ? [...ALL_SUB_ITEM_PERMISSIONS]
+        : isDefaultDoctorRole
+            ? defaultPermissionsFor("DOCTOR")
         : normalizePermissions(hasExplicitPermissionList ? storedSubItem as string[] : migratedSubItem);
 
     return {

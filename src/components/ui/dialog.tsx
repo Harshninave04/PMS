@@ -71,9 +71,11 @@ export function DialogTrigger({
 export function DialogContent({
   children,
   className,
+  side = "center",
 }: {
   children: React.ReactNode;
   className?: string;
+  side?: "center" | "right";
 }) {
   const { open, setOpen } = React.useContext(DialogContext);
 
@@ -91,7 +93,7 @@ export function DialogContent({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+    <div className={cn("fixed inset-0 z-[100] flex", side === "right" ? "justify-end" : "items-center justify-center")}>
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in-0"

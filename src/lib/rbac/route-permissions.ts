@@ -10,6 +10,7 @@
  * enforceable rather than aspirational.
  */
 import { permissionKey } from "./permissions.config";
+import { PERMISSION_KEYS } from "./permissions";
 
 const K = permissionKey;
 
@@ -53,6 +54,8 @@ export interface RouteRule {
     method: "GET" | "POST" | "PUT" | "DELETE";
     /** Permission required, or `null` for authenticated-but-unrestricted. */
     permission: string | null;
+    /** Additional legacy data-layer grants required by this route. */
+    requiredLegacyPermissions?: readonly string[];
     /** True when the endpoint is reachable by any active user. */
     lookup?: boolean;
 }
@@ -105,10 +108,20 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     post("/appointments/no-show", K("opd", "list", "update")),
     get("/appointments/queue", K("opd", "queue", "view")),
     post("/appointments/queue", K("opd", "queue", "update")),
+    get("/appointments/consultation-medicines", K("opd", "queue", "view")),
     get("/appointments/reschedule", K("opd", "list", "view")),
     post("/appointments/reschedule", K("opd", "list", "update")),
 
     // Consultation
+    {
+        path: "/appointments/[id]/complete-consultation",
+        method: "POST",
+        permission: K("opd", "queue", "update"),
+        requiredLegacyPermissions: [
+            PERMISSION_KEYS.CLINICAL_RECORD_CREATE,
+            PERMISSION_KEYS.CLINICAL_PRESCRIPTION_CREATE,
+        ],
+    },
     get("/clinical/records", K("clinical", "consultations", "view")),
     post("/clinical/records", K("clinical", "consultations", "create")),
     { path: "/clinical/records/[id]", method: "PUT", permission: K("clinical", "consultations", "update") },
@@ -314,7 +327,11 @@ export const ROUTE_ALTERNATIVES: Readonly<Record<string, readonly string[]>> = {
  * none (the caller then falls back to the legacy key).
  * A returned `permission: null` means any signed-in user (a lookup or open read).
  */
-export function findRouteRule(request: Request): { permission: string | null; alternatives: readonly string[] } | null {
+export function findRouteRule(request: Request): {
+    permission: string | null;
+    alternatives: readonly string[];
+    requiredLegacyPermissions?: readonly string[];
+} | null {
     let pathname = "";
     try {
         pathname = new URL(request.url).pathname;
@@ -327,7 +344,11 @@ export function findRouteRule(request: Request): { permission: string | null; al
 
     const rule = ROUTE_PERMISSIONS.find((r) => r.path === path && r.method === method);
     if (!rule) return null;
-    return { permission: rule.permission, alternatives: ROUTE_ALTERNATIVES[`${method} ${path}`] ?? [] };
+    return {
+        permission: rule.permission,
+        alternatives: ROUTE_ALTERNATIVES[`${method} ${path}`] ?? [],
+        requiredLegacyPermissions: rule.requiredLegacyPermissions,
+    };
 }
 
 /** Route rules consult only the saved sub-item layer, never legacy data keys. */
@@ -341,12 +362,16 @@ export function routeRuleAllows(
 
 /** The exact permission decision shared by every legacy controller guard. */
 export function authorizeRoutePermission(
-    rule: { permission: string | null; alternatives: readonly string[] } | null,
+    rule: {
+        permission: string | null;
+        alternatives: readonly string[];
+        requiredLegacyPermissions?: readonly string[];
+    } | null,
     subItemPermissions: ReadonlySet<string>,
     legacyPermissions: ReadonlySet<string>,
     requiredPermission: string
 ): boolean {
-    return rule
-        ? routeRuleAllows(rule, subItemPermissions)
-        : legacyPermissions.has(requiredPermission);
+    if (!rule) return legacyPermissions.has(requiredPermission);
+    return routeRuleAllows(rule, subItemPermissions) &&
+        (rule.requiredLegacyPermissions ?? []).every((permission) => legacyPermissions.has(permission));
 }
