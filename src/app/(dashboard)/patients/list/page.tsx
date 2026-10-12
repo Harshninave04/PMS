@@ -31,6 +31,11 @@ export default function PatientsListPage() {
   const [branches, setBranches] = useState<any[]>([]);
   const [selectedBranch, setSelectedBranch] = useState("ALL");
 
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search).get("query");
+    if (query) setSearchQuery(query);
+  }, []);
+
   const fetchPatients = async () => {
     setLoading(true);
     try {

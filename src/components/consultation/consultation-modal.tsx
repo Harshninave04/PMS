@@ -1,14 +1,14 @@
 "use client";
 
 import React from "react";
-import { Plus, Trash2, Loader2 } from "lucide-react";
+import { Plus, Trash2, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
+import { ComboField } from "@/components/consultation/combo-field";
 import {
   COMMON_CHIEF_COMPLAINTS,
   COMMON_INVESTIGATIONS,
@@ -16,11 +16,12 @@ import {
   MEDICATION_DURATION_OPTIONS,
   MEDICATION_FREQUENCY_OPTIONS,
   MEDICATION_INSTRUCTIONS_OPTIONS,
-  OTHER_OPTION,
 } from "@/constants/consultation";
 import {
+  activeMedications,
   consultationPayload,
   createConsultationDraft,
+  createId,
   createMedicationDraft,
   type ConsultationDraft,
   type MedicationDraft,
@@ -36,32 +37,17 @@ interface ConsultationModalProps {
   onSaved: () => void | Promise<void>;
 }
 
-interface MedicineDropdownProps {
-  label: string;
-  value: string;
-  otherValue: string;
-  options: readonly string[];
-  onValueChange: (value: string) => void;
-  onOtherChange: (value: string) => void;
+async function searchMedicines(query: string): Promise<string[]> {
+  const response = await fetch(`/api/appointments/consultation-medicines?q=${encodeURIComponent(query)}`);
+  const result = await response.json();
+  return response.ok && result.success ? (result.data as string[]) : [];
 }
 
-function MedicineDropdown({ label, value, otherValue, options, onValueChange, onOtherChange }: MedicineDropdownProps) {
-  const id = `medicine-${label.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`;
+function Info({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
-    <div className="space-y-1">
-      <Select id={id} aria-label={label} value={value} onChange={(event) => onValueChange(event.target.value)}>
-        <option value="">{label}</option>
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
-      </Select>
-      {value === OTHER_OPTION && (
-        <Input
-          aria-label={`${label} other`}
-          placeholder={`Enter ${label.toLowerCase()}`}
-          value={otherValue}
-          onChange={(event) => onOtherChange(event.target.value)}
-          required
-        />
-      )}
+    <div className="min-w-0">
+      <div className="text-[11px] text-slate-500">{label}</div>
+      <div className={`truncate text-xs font-medium text-slate-900 dark:text-white ${mono ? "font-mono" : ""}`}>{value}</div>
     </div>
   );
 }
@@ -69,34 +55,18 @@ function MedicineDropdown({ label, value, otherValue, options, onValueChange, on
 export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: ConsultationModalProps) {
   const [draft, setDraft] = React.useState<ConsultationDraft | null>(null);
   const [medications, setMedications] = React.useState<MedicationDraft[]>([]);
-  const [medicineSuggestions, setMedicineSuggestions] = React.useState<string[]>([]);
+  const [customTest, setCustomTest] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
-  const [complaintSearch, setComplaintSearch] = React.useState("");
   const { toast } = useToast();
 
   React.useEffect(() => {
     if (!open || !appointment) return;
-    const initialDraft = createConsultationDraft(appointment);
-    setDraft(initialDraft);
-    setComplaintSearch(initialDraft.chiefComplaint);
-    setMedications([]);
+    setDraft(createConsultationDraft(appointment));
+    setMedications([createMedicationDraft(createId())]);
+    setCustomTest("");
     setDirty(false);
   }, [open, appointment]);
-
-  React.useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    fetch("/api/appointments/consultation-medicines")
-      .then(async (response) => {
-        const result = await response.json();
-        if (!response.ok || !result.success) throw new Error(result.message || "Medicine suggestions unavailable");
-        return result.data as string[];
-      })
-      .then((names) => { if (!cancelled) setMedicineSuggestions(names); })
-      .catch(() => { if (!cancelled) setMedicineSuggestions([]); });
-    return () => { cancelled = true; };
-  }, [open]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && dirty && !window.confirm("Discard your unsaved consultation changes?")) return;
@@ -105,12 +75,12 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
   };
 
   const updateDraft = (update: (current: ConsultationDraft) => ConsultationDraft) => {
-    setDraft((current) => current ? update(current) : current);
+    setDraft((current) => (current ? update(current) : current));
     setDirty(true);
   };
 
-  const updateMedication = (id: string, update: (current: MedicationDraft) => MedicationDraft) => {
-    setMedications((current) => current.map((medication) => medication.id === id ? update(medication) : medication));
+  const updateMedication = (id: string, patch: Partial<MedicationDraft>) => {
+    setMedications((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
     setDirty(true);
   };
 
@@ -123,9 +93,29 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
     return new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name));
   }, [medications]);
 
+  const toggleInvestigation = (name: string) =>
+    updateDraft((current) => ({
+      ...current,
+      investigations: current.investigations.includes(name)
+        ? current.investigations.filter((item) => item !== name)
+        : [...current.investigations, name],
+    }));
+
+  const addCustomTest = () => {
+    const name = customTest.trim();
+    if (!name) return;
+    updateDraft((current) =>
+      current.investigations.some((item) => item.toLowerCase() === name.toLowerCase())
+        ? current
+        : { ...current, investigations: [...current.investigations, name] }
+    );
+    setCustomTest("");
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!appointment || !draft) return;
+    if (!appointment || !draft || saving) return;
+
     const validationError = validateConsultationDraft(draft, medications);
     if (validationError) {
       toast({ title: "Check consultation details", description: validationError, variant: "destructive" });
@@ -137,21 +127,25 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
       const response = await fetch(`/api/appointments/${appointment._id}/complete-consultation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(consultationPayload(draft, medications)),
+        body: JSON.stringify(consultationPayload(draft, activeMedications(medications))),
       });
       const result = await response.json();
       if (!response.ok || !result.success) {
-        toast({ title: "Unable to complete consultation", description: result.error || result.message || "Please try again.", variant: "destructive" });
+        toast({
+          title: "Could not complete consultation",
+          description: result.error || result.message || "Please try again.",
+          variant: "destructive",
+        });
         return;
       }
 
       setDirty(false);
-      toast({ title: "Consultation completed", description: "The clinical note and prescription were saved." });
+      toast({ title: "Consultation completed", description: "Clinical note and prescription saved." });
       onOpenChange(false);
       await onSaved();
     } catch (error) {
       toast({
-        title: "Unable to complete consultation",
+        title: "Could not complete consultation",
         description: error instanceof Error ? error.message : "Please try again.",
         variant: "destructive",
       });
@@ -160,168 +154,218 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
     }
   };
 
-  if (!appointment) return <Dialog open={open} onOpenChange={handleOpenChange}><></></Dialog>;
+  if (!appointment) {
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <></>
+      </Dialog>
+    );
+  }
 
   const patient = appointment.patientId;
-  const physicianName = formatDoctorName(appointment.doctorId?.userId?.name || appointment.doctorId?.name);
+  const physician = formatDoctorName(appointment.doctorId?.userId?.name || appointment.doctorId?.name) || "—";
   const encounterDate = new Date().toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-  const addMedication = () => {
-    setMedications((current) => [...current, createMedicationDraft(crypto.randomUUID())]);
-    setDirty(true);
-  };
+  const customTests = (draft?.investigations ?? []).filter(
+    (name) => !(COMMON_INVESTIGATIONS as readonly string[]).includes(name)
+  );
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent side="right" className="flex h-[100dvh] max-h-[100dvh] w-full max-w-[600px] flex-col gap-0 overflow-hidden rounded-none border-l p-0 sm:rounded-l-2xl">
-        <DialogHeader className="mb-0 shrink-0 border-b px-5 py-4 pr-12 sm:px-6">
-          <DialogTitle>Complete Consultation</DialogTitle>
-          <DialogDescription>Record clinical notes and an optional prescription.</DialogDescription>
+      <DialogContent
+        side="right"
+        className="flex h-[100dvh] max-h-[100dvh] w-full max-w-[600px] flex-col gap-0 overflow-hidden rounded-none border-l p-0 sm:rounded-l-2xl"
+      >
+        <DialogHeader className="mb-0 shrink-0 border-b px-5 py-3.5 pr-12 sm:px-6">
+          <DialogTitle>Consultation</DialogTitle>
         </DialogHeader>
 
         <div className="shrink-0 border-b bg-slate-50 px-5 py-3 dark:bg-slate-900 sm:px-6">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
-            <div><div className="text-slate-500">Patient</div><div className="font-semibold text-slate-900 dark:text-white">{patient?.name || "—"}</div></div>
-            <div><div className="text-slate-500">Age / Gender</div><div className="font-medium">{patient?.age ?? "—"} / {patient?.gender || "—"}</div></div>
-            <div><div className="text-slate-500">UHID</div><div className="font-mono">{patient?.uhid || "—"}</div></div>
-            <div><div className="text-slate-500">Token</div><div className="font-mono">{appointment.tokenNumber || "—"}</div></div>
-            <div><div className="text-slate-500">Attending physician</div><div className="font-medium">{physicianName || "—"}</div></div>
-            <div><div className="text-slate-500">Encounter date</div><div className="font-medium">{encounterDate}</div></div>
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <span className="truncate text-sm font-semibold text-slate-900 dark:text-white">{patient?.name || "Patient"}</span>
+            <span className="shrink-0 font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+              {appointment.tokenNumber || ""}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+            <Info label="Age / Gender" value={`${patient?.age ?? "—"} / ${patient?.gender || "—"}`} />
+            <Info label="UHID" value={patient?.uhid || "—"} mono />
+            <Info label="Physician" value={physician} />
+            <Info label="Date" value={encounterDate} />
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
-            <section className="space-y-3">
-              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Clinical Notes</h3>
+          <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5 sm:px-6">
+            <section className="space-y-4">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Clinical notes</h3>
+
               <div className="space-y-1.5">
-                <Label htmlFor="consultation-chief-complaint">Chief complaint <span className="text-red-500">*</span></Label>
-                <Input
+                <Label htmlFor="consultation-chief-complaint">
+                  Chief complaint <span className="text-red-500">*</span>
+                </Label>
+                <ComboField
                   id="consultation-chief-complaint"
-                  list="consultation-chief-complaints"
-                  autoComplete="off"
-                  placeholder="Search chief complaints"
-                  value={complaintSearch}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setComplaintSearch(value);
-                    updateDraft((current) => ({ ...current, chiefComplaint: COMMON_CHIEF_COMPLAINTS.find((option) => option.toLowerCase() === value.toLowerCase()) ?? "" }));
-                  }}
+                  ariaLabel="Chief complaint"
+                  placeholder="Type or pick a complaint"
+                  value={draft?.chiefComplaint ?? ""}
+                  onChange={(value) => updateDraft((current) => ({ ...current, chiefComplaint: value }))}
+                  suggestions={COMMON_CHIEF_COMPLAINTS}
                   required
                 />
-                <datalist id="consultation-chief-complaints">
-                  {COMMON_CHIEF_COMPLAINTS.map((complaint) => <option key={complaint} value={complaint} />)}
-                </datalist>
-                {draft?.chiefComplaint === OTHER_OPTION && (
-                  <Input
-                    aria-label="Other chief complaint"
-                    placeholder="Enter chief complaint"
-                    value={draft.chiefComplaintOther}
-                    onChange={(event) => updateDraft((current) => ({ ...current, chiefComplaintOther: event.target.value }))}
-                    required
-                  />
-                )}
               </div>
 
               <div className="space-y-1.5">
                 <Label>Investigations</Label>
                 <div className="flex flex-wrap gap-2">
-                  {COMMON_INVESTIGATIONS.map((investigation) => {
-                    const selected = draft?.investigations.includes(investigation) ?? false;
+                  {COMMON_INVESTIGATIONS.map((name) => {
+                    const selected = draft?.investigations.includes(name) ?? false;
                     return (
                       <button
-                        key={investigation}
+                        key={name}
                         type="button"
                         aria-pressed={selected}
-                        onClick={() => updateDraft((current) => ({
-                          ...current,
-                          investigations: selected
-                            ? current.investigations.filter((item) => item !== investigation)
-                            : [...current.investigations, investigation],
-                        }))}
-                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${selected ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-emerald-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"}`}
+                        onClick={() => toggleInvestigation(name)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                          selected
+                            ? "border-emerald-600 bg-emerald-600 text-white"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-emerald-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                        }`}
                       >
-                        {investigation}
+                        {name}
                       </button>
                     );
                   })}
+                  {customTests.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => toggleInvestigation(name)}
+                      aria-label={`Remove ${name}`}
+                      className="flex items-center gap-1 rounded-full border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white"
+                    >
+                      {name} <X className="h-3 w-3" />
+                    </button>
+                  ))}
                 </div>
-                {draft?.investigations.includes(OTHER_OPTION) && (
-                  <Input
-                    aria-label="Other investigation"
-                    placeholder="Enter another investigation"
-                    value={draft.investigationsOther}
-                    onChange={(event) => updateDraft((current) => ({ ...current, investigationsOther: event.target.value }))}
-                    required
-                  />
-                )}
+                <Input
+                  aria-label="Add another test"
+                  placeholder="Add another test, press Enter"
+                  value={customTest}
+                  onChange={(event) => setCustomTest(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addCustomTest();
+                    }
+                  }}
+                />
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="consultation-diagnosis-notes">Diagnosis / Notes</Label>
+                <Label htmlFor="consultation-diagnosis-notes">Diagnosis / notes</Label>
                 <Textarea
                   id="consultation-diagnosis-notes"
                   rows={2}
                   className="min-h-[52px]"
-                  placeholder="Optional diagnosis or clinical notes"
+                  placeholder="Optional"
                   value={draft?.diagnosisNotes ?? ""}
                   onChange={(event) => updateDraft((current) => ({ ...current, diagnosisNotes: event.target.value }))}
                 />
               </div>
             </section>
 
-            <section className="space-y-3 border-t pt-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Prescription <span className="text-xs font-normal text-slate-500">(optional)</span></h3>
-                  <p className="text-xs text-slate-500">Suggestions use the medicine master or your previous prescriptions.</p>
-                </div>
-              </div>
-              {medications.length === 0 ? (
-                <p className="rounded-lg border border-dashed p-4 text-center text-xs text-slate-500">No medicines added.</p>
-              ) : medications.map((medication, index) => {
-                const isDuplicate = duplicateNames.has(medication.name.trim().toLocaleLowerCase());
-                const medicineListId = `consultation-medicine-options-${medication.id}`;
+            <section className="space-y-3 border-t pt-5">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                Prescription <span className="text-xs font-normal text-slate-500">(optional)</span>
+              </h3>
+
+              {medications.map((medication, index) => {
+                const duplicate = duplicateNames.has(medication.name.trim().toLocaleLowerCase());
+                const label = `Medicine ${index + 1}`;
                 return (
                   <div key={medication.id} className="space-y-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
                     <div className="flex items-center gap-2">
-                      <Input
-                        aria-label={`Medicine ${index + 1} drug name and strength`}
-                        list={medicineListId}
-                        autoComplete="off"
-                        placeholder="Drug name & strength *"
-                        value={medication.name}
-                        onChange={(event) => updateMedication(medication.id, (current) => ({ ...current, name: event.target.value }))}
-                        required
+                      <ComboField
                         className="min-w-0 flex-1"
+                        ariaLabel={`${label} drug name and strength`}
+                        placeholder="Drug name & strength"
+                        value={medication.name}
+                        onChange={(value) => updateMedication(medication.id, { name: value })}
+                        fetchSuggestions={searchMedicines}
+                        minChars={2}
                       />
-                      <Button type="button" variant="ghost" size="icon" aria-label={`Remove medicine ${index + 1}`} onClick={() => {
-                        setMedications((current) => current.filter((item) => item.id !== medication.id));
-                        setDirty(true);
-                      }}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {medications.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Remove ${label.toLowerCase()}`}
+                          onClick={() => {
+                            setMedications((current) => current.filter((item) => item.id !== medication.id));
+                            setDirty(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
-                    {isDuplicate && <p role="alert" className="text-xs text-amber-700">This medicine is already in the prescription.</p>}
-                    <datalist id={medicineListId}>
-                      {medicineSuggestions.map((name) => <option key={name} value={name} />)}
-                    </datalist>
+                    {duplicate && (
+                      <p role="alert" className="text-xs text-amber-700">
+                        This medicine is already in the prescription.
+                      </p>
+                    )}
                     <div className="grid grid-cols-2 gap-2">
-                      <MedicineDropdown label={`Medicine ${index + 1} dosage`} value={medication.dosage} otherValue={medication.dosageOther} options={MEDICATION_DOSAGE_OPTIONS} onValueChange={(value) => updateMedication(medication.id, (current) => ({ ...current, dosage: value }))} onOtherChange={(value) => updateMedication(medication.id, (current) => ({ ...current, dosageOther: value }))} />
-                      <MedicineDropdown label={`Medicine ${index + 1} frequency`} value={medication.frequency} otherValue={medication.frequencyOther} options={MEDICATION_FREQUENCY_OPTIONS} onValueChange={(value) => updateMedication(medication.id, (current) => ({ ...current, frequency: value }))} onOtherChange={(value) => updateMedication(medication.id, (current) => ({ ...current, frequencyOther: value }))} />
-                      <MedicineDropdown label={`Medicine ${index + 1} duration`} value={medication.duration} otherValue={medication.durationOther} options={MEDICATION_DURATION_OPTIONS} onValueChange={(value) => updateMedication(medication.id, (current) => ({ ...current, duration: value }))} onOtherChange={(value) => updateMedication(medication.id, (current) => ({ ...current, durationOther: value }))} />
-                      <MedicineDropdown label={`Medicine ${index + 1} instructions`} value={medication.instructions} otherValue={medication.instructionsOther} options={MEDICATION_INSTRUCTIONS_OPTIONS} onValueChange={(value) => updateMedication(medication.id, (current) => ({ ...current, instructions: value }))} onOtherChange={(value) => updateMedication(medication.id, (current) => ({ ...current, instructionsOther: value }))} />
+                      <ComboField
+                        ariaLabel={`${label} dosage`}
+                        placeholder="Dosage"
+                        value={medication.dosage}
+                        onChange={(value) => updateMedication(medication.id, { dosage: value })}
+                        suggestions={MEDICATION_DOSAGE_OPTIONS}
+                      />
+                      <ComboField
+                        ariaLabel={`${label} frequency`}
+                        placeholder="Frequency"
+                        value={medication.frequency}
+                        onChange={(value) => updateMedication(medication.id, { frequency: value })}
+                        suggestions={MEDICATION_FREQUENCY_OPTIONS}
+                      />
+                      <ComboField
+                        ariaLabel={`${label} duration`}
+                        placeholder="Duration"
+                        value={medication.duration}
+                        onChange={(value) => updateMedication(medication.id, { duration: value })}
+                        suggestions={MEDICATION_DURATION_OPTIONS}
+                      />
+                      <ComboField
+                        ariaLabel={`${label} instructions`}
+                        placeholder="Instructions"
+                        value={medication.instructions}
+                        onChange={(value) => updateMedication(medication.id, { instructions: value })}
+                        suggestions={MEDICATION_INSTRUCTIONS_OPTIONS}
+                      />
                     </div>
                   </div>
                 );
               })}
-              <Button type="button" variant="outline" size="sm" onClick={addMedication}>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setMedications((current) => [...current, createMedicationDraft(createId())]);
+                  setDirty(true);
+                }}
+              >
                 <Plus className="mr-1 h-4 w-4" /> Add medicine
               </Button>
             </section>
           </div>
 
           <DialogFooter className="mt-0 shrink-0 border-t bg-white px-5 py-4 dark:bg-slate-900 sm:px-6">
-            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
+              Cancel
+            </Button>
             <Button type="submit" disabled={saving || !draft} className="bg-emerald-600 text-white hover:bg-emerald-700">
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Complete Consultation

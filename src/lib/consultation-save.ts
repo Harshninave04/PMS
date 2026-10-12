@@ -33,15 +33,19 @@ export function normalizeConsultationInput(body: unknown): { data?: NormalizedCo
   const input = body as Record<string, unknown>;
   const chiefComplaint = trimmed(input.chiefComplaint);
   if (!chiefComplaint) return { error: "Chief complaint is required" };
+  if (chiefComplaint.length > 200) return { error: "Chief complaint must be 200 characters or fewer" };
 
   const rawInvestigations = Array.isArray(input.investigations)
     ? input.investigations
     : typeof input.investigations === "string"
       ? input.investigations.split(/\n+/)
       : [];
+  if (rawInvestigations.length > 15) return { error: "A maximum of 15 investigations is allowed" };
   const investigations = [...new Set(rawInvestigations.map(trimmed).filter(Boolean))];
   const diagnosisNotes = trimmed(input.diagnosisNotes ?? input.plan);
+  if (diagnosisNotes.length > 1000) return { error: "Diagnosis notes must be 1000 characters or fewer" };
   const rawMedications = Array.isArray(input.medications) ? input.medications : [];
+  if (rawMedications.length > 15) return { error: "A maximum of 15 medicines is allowed" };
   const medications = rawMedications.map((raw) => {
     const medication = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
     return {
@@ -52,6 +56,13 @@ export function normalizeConsultationInput(body: unknown): { data?: NormalizedCo
       instructions: trimmed(medication.instructions) || undefined,
     };
   });
+
+  if (medications.some((medication) =>
+    [medication.name, medication.dosage, medication.frequency, medication.duration, medication.instructions]
+      .some((field) => (field?.length ?? 0) > 200)
+  )) {
+    return { error: "Medicine fields must be 200 characters or fewer" };
+  }
 
   if (medications.some((medication) => !medication.name)) {
     return { error: "Every prescription row must include a drug name" };

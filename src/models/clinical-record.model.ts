@@ -55,7 +55,10 @@ const ClinicalRecordSchema: Schema = new Schema(
   { timestamps: true }
 );
 
-ClinicalRecordSchema.index({ appointmentId: 1, recordType: 1 }, { unique: true });
+ClinicalRecordSchema.index(
+  { appointmentId: 1, recordType: 1 },
+  { unique: true, partialFilterExpression: { appointmentId: { $type: "objectId" } } }
+);
 
 export const ClinicalRecord =
   mongoose.models.ClinicalRecord ||

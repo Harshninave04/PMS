@@ -8,9 +8,10 @@ import {
 import { ScopeResolver } from "@/lib/rbac/scope-resolver";
 import { canCompleteAppointment } from "@/lib/rbac/doctor-scope";
 import { supportsMongoTransactions } from "@/lib/mongo-transaction-support";
-import { COMMON_CHIEF_COMPLAINTS, COMMON_INVESTIGATIONS, MEDICATION_DOSAGE_OPTIONS, MEDICATION_DURATION_OPTIONS, MEDICATION_FREQUENCY_OPTIONS, MEDICATION_INSTRUCTIONS_OPTIONS, OTHER_OPTION } from "@/constants/consultation";
+import { COMMON_CHIEF_COMPLAINTS, COMMON_INVESTIGATIONS, MEDICATION_DOSAGE_OPTIONS, MEDICATION_DURATION_OPTIONS, MEDICATION_FREQUENCY_OPTIONS, MEDICATION_INSTRUCTIONS_OPTIONS } from "@/constants/consultation";
 import { buildConsultationDocuments, isAppointmentReadyForConsultation, normalizeConsultationInput } from "@/lib/consultation-save";
-import { createConsultationDraft, createMedicationDraft, validateConsultationDraft } from "@/lib/consultation-form";
+import { consultationPayload, createConsultationDraft, createMedicationDraft, validateConsultationDraft } from "@/lib/consultation-form";
+import { buildCompletedTodayFilter, buildCompletedVisitRecordFilters, getTodayDateRange, isCompletedVisitInScope } from "@/lib/completed-today";
 import { ClinicalRecord } from "@/models/clinical-record.model";
 import Prescription from "@/models/prescription.model";
 
@@ -241,28 +242,41 @@ async function runClinicalRbacTests() {
   });
 
   test("Consultation form option lists match the Doctor workflow", () => {
-    assert.deepEqual(COMMON_CHIEF_COMPLAINTS, ["Fever", "Cough / Cold", "Headache / Migraine", "Abdominal pain", "Body ache / Weakness", "Follow-up visit", "Other"]);
-    assert.deepEqual(COMMON_INVESTIGATIONS, ["CBC", "Blood sugar", "X-ray", "ECG", "Urine routine", "Ultrasound (USG)", "Other"]);
-    assert.deepEqual(MEDICATION_DOSAGE_OPTIONS, ["1 Tablet", "2 Tablets", "1 Capsule", "5 ml", "10 ml", "As directed", "Other"]);
-    assert.deepEqual(MEDICATION_FREQUENCY_OPTIONS, ["Once daily (OD)", "Twice daily (BD)", "Thrice daily (TDS)", "Four times daily (QID)", "At bedtime (HS)", "S.O.S (as required)", "Other"]);
-    assert.deepEqual(MEDICATION_DURATION_OPTIONS, ["3 days", "5 days", "7 days", "10 days", "14 days", "1 month", "Other"]);
-    assert.deepEqual(MEDICATION_INSTRUCTIONS_OPTIONS, ["After meals", "Before meals", "With food", "On empty stomach", "Avoid alcohol", "As directed", "Other"]);
+    assert.deepEqual(COMMON_CHIEF_COMPLAINTS, ["Fever", "Cough / Cold", "Headache / Migraine", "Abdominal pain", "Body ache / Weakness", "Follow-up visit"]);
+    assert.deepEqual(COMMON_INVESTIGATIONS, ["CBC", "Blood sugar", "X-ray", "ECG", "Urine routine", "Ultrasound (USG)"]);
+    assert.deepEqual(MEDICATION_DOSAGE_OPTIONS, ["1 Tablet", "2 Tablets", "1 Capsule", "5 ml", "10 ml", "As directed"]);
+    assert.deepEqual(MEDICATION_FREQUENCY_OPTIONS, ["Once daily (OD)", "Twice daily (BD)", "Thrice daily (TDS)", "Four times daily (QID)", "At bedtime (HS)", "S.O.S (as required)"]);
+    assert.deepEqual(MEDICATION_DURATION_OPTIONS, ["3 days", "5 days", "7 days", "10 days", "14 days", "1 month"]);
+    assert.deepEqual(MEDICATION_INSTRUCTIONS_OPTIONS, ["After meals", "Before meals", "With food", "On empty stomach", "Avoid alcohol", "As directed"]);
   });
 
-  test("Consultation form requires a chief complaint and a name for every medicine row", () => {
-    const draft = createConsultationDraft({ _id: "a", status: "CHECKED_IN", reason: "Unknown complaint" });
-    assert.equal(draft.chiefComplaint, OTHER_OPTION);
-    assert.equal(draft.chiefComplaintOther, "Unknown complaint");
-    assert.equal(validateConsultationDraft({ ...draft, chiefComplaint: "", chiefComplaintOther: "" }, []), "Chief complaint is required.");
-    assert.equal(validateConsultationDraft({ ...draft, chiefComplaint: "Fever", chiefComplaintOther: "" }, [createMedicationDraft("m1")]), "Enter a drug name for medicine 1.");
+  test("Consultation form requires a chief complaint and a drug name for every filled medicine row", () => {
+    const draft = createConsultationDraft({ _id: "a", status: "CHECKED_IN", reason: "  Unknown complaint " });
+    assert.equal(draft.chiefComplaint, "Unknown complaint");
+    assert.equal(validateConsultationDraft({ ...draft, chiefComplaint: "" }, []), "Chief complaint is required.");
+    // An untouched blank row is ignored.
+    assert.equal(validateConsultationDraft({ ...draft, chiefComplaint: "Fever" }, [createMedicationDraft("m1")]), null);
+    // A row with any value but no drug name is rejected.
+    assert.equal(
+      validateConsultationDraft({ ...draft, chiefComplaint: "Fever" }, [{ ...createMedicationDraft("m1"), dosage: "1 Tablet" }]),
+      "Enter a drug name for medicine 1."
+    );
   });
 
-  test("Every Other prescription value requires its corresponding free-text input", () => {
-    const base = { chiefComplaint: "Fever", chiefComplaintOther: "", diagnosisNotes: "", investigations: [], investigationsOther: "" };
-    for (const field of ["dosage", "frequency", "duration", "instructions"] as const) {
-      const medication = { ...createMedicationDraft(field), name: "Medicine", [field]: OTHER_OPTION };
-      assert.match(validateConsultationDraft(base, [medication]) ?? "", /Other field/);
-    }
+  test("Free-typed values are accepted, duplicates blocked, and blank rows dropped from the payload", () => {
+    const base = { chiefComplaint: " Fever ", diagnosisNotes: " viral ", investigations: ["CBC", " CBC ", "Dengue NS1"] };
+    const filled = { ...createMedicationDraft("m1"), name: " Dolo 650 ", dosage: "half tablet", frequency: "every 4 hrs" };
+    const blank = createMedicationDraft("m2");
+
+    assert.equal(validateConsultationDraft(base, [filled, blank]), null);
+    const payload = consultationPayload(base, [filled, blank]);
+    assert.equal(payload.chiefComplaint, "Fever");
+    assert.equal(payload.diagnosisNotes, "viral");
+    assert.deepEqual(payload.investigations, ["CBC", "Dengue NS1"]);
+    assert.deepEqual(payload.medications, [{ name: "Dolo 650", dosage: "half tablet", frequency: "every 4 hrs", duration: "", instructions: "" }]);
+
+    const duplicate = { ...createMedicationDraft("m3"), name: "dolo 650" };
+    assert.equal(validateConsultationDraft(base, [filled, duplicate]), "Remove duplicate medicines from the prescription.");
   });
 
   test("Consultation saves ignore spoofed client patient and doctor ids", () => {
@@ -281,11 +295,61 @@ async function runClinicalRbacTests() {
     assert.deepEqual(pharmacyDocument?.medications, [{ name: "Dolo 650", dosage: "1 Tablet", frequency: undefined, duration: undefined, instructions: undefined }]);
   });
 
+  test("Consultation input enforces field and collection length limits", () => {
+    assert.match(normalizeConsultationInput({ chiefComplaint: "x".repeat(201) }).error || "", /200/);
+    assert.match(normalizeConsultationInput({ chiefComplaint: "Fever", diagnosisNotes: "x".repeat(1001) }).error || "", /1000/);
+    assert.match(normalizeConsultationInput({ chiefComplaint: "Fever", investigations: Array.from({ length: 16 }, (_, index) => `Test ${index}`) }).error || "", /15 investigations/);
+    assert.match(normalizeConsultationInput({ chiefComplaint: "Fever", medications: Array.from({ length: 16 }, (_, index) => ({ name: `Medicine ${index}` })) }).error || "", /15 medicines/);
+    for (const field of ["name", "dosage", "frequency", "duration", "instructions"] as const) {
+      const medication = { name: "Medicine", [field]: "x".repeat(201) };
+      assert.match(normalizeConsultationInput({ chiefComplaint: "Fever", medications: [medication] }).error || "", /200/);
+    }
+    assert.ok(normalizeConsultationInput({ chiefComplaint: "Fever".repeat(40), diagnosisNotes: "d".repeat(1000), investigations: Array.from({ length: 15 }, (_, index) => `Test ${index}`), medications: [{ name: "m".repeat(200), dosage: "d".repeat(200), frequency: "f".repeat(200), duration: "t".repeat(200), instructions: "i".repeat(200) }] }).data);
+  });
+
+  test("Completed visit access is restricted to the doctor's own appointments completed today", () => {
+    const now = new Date(2026, 5, 14, 12, 30, 0);
+    const { start, end } = getTodayDateRange(now);
+    const doctorId = new Types.ObjectId();
+    const otherDoctorId = new Types.ObjectId();
+    const allowedVisit = { doctorId, status: "COMPLETED", consultationEndedAt: start };
+    assert.equal(isCompletedVisitInScope(allowedVisit, doctorId, start, end), true);
+    assert.equal(isCompletedVisitInScope({ ...allowedVisit, consultationEndedAt: new Date(end.getTime() - 1) }, doctorId, start, end), true);
+    assert.equal(isCompletedVisitInScope({ ...allowedVisit, consultationEndedAt: end }, doctorId, start, end), false);
+    assert.equal(isCompletedVisitInScope({ ...allowedVisit, consultationEndedAt: new Date(start.getTime() - 1) }, doctorId, start, end), false);
+    assert.equal(isCompletedVisitInScope({ ...allowedVisit, doctorId: otherDoctorId }, doctorId, start, end), false);
+    assert.equal(isCompletedVisitInScope({ ...allowedVisit, status: "SCHEDULED", queueStatus: "WAITING" }, doctorId, start, end), false);
+
+    const filter = buildCompletedTodayFilter(doctorId, start, end);
+    assert.equal(filter.doctorId, doctorId);
+    assert.deepEqual(filter.consultationEndedAt, { $gte: start, $lt: end });
+    assert.deepEqual(filter.$or, [{ status: "COMPLETED" }, { queueStatus: "COMPLETED" }]);
+  });
+
+  test("Prescription and clinical details can only be read after today's completed visit scope passes", () => {
+    const { start, end } = getTodayDateRange(new Date(2026, 5, 14, 12));
+    const doctorId = new Types.ObjectId();
+    const visit = { doctorId, status: "COMPLETED", consultationEndedAt: new Date(start.getTime() + 1) };
+    // The API performs its prescription and clinical-record queries only after this server scope check.
+    assert.equal(isCompletedVisitInScope(visit, doctorId, start, end), true);
+    assert.equal(isCompletedVisitInScope({ ...visit, consultationEndedAt: new Date(start.getTime() - 1) }, doctorId, start, end), false);
+    assert.equal(isCompletedVisitInScope({ ...visit, doctorId: new Types.ObjectId() }, doctorId, start, end), false);
+    const appointmentId = new Types.ObjectId();
+    const patientId = new Types.ObjectId();
+    const doctorUserId = new Types.ObjectId();
+    const recordFilters = buildCompletedVisitRecordFilters(appointmentId, patientId, doctorUserId);
+    assert.deepEqual(recordFilters.clinicalRecord, { appointmentId, recordType: "Consultation" });
+    assert.deepEqual(recordFilters.prescription, { appointmentId, patientId, doctorId: doctorUserId });
+  });
+
   test("Consultation save accepts only called or in-consultation appointments and is duplicate-safe by index", () => {
     assert.equal(isAppointmentReadyForConsultation("CALLED", "CHECKED_IN"), true);
     assert.equal(isAppointmentReadyForConsultation("IN_CONSULTATION", "IN_PROGRESS"), true);
     assert.equal(isAppointmentReadyForConsultation("WAITING", "CHECKED_IN"), false);
-    assert.ok(ClinicalRecord.schema.indexes().some(([keys, options]) => keys.appointmentId === 1 && keys.recordType === 1 && options.unique));
+    assert.ok(ClinicalRecord.schema.indexes().some(([keys, options]) =>
+      keys.appointmentId === 1 && keys.recordType === 1 && options.unique &&
+      options.partialFilterExpression?.appointmentId?.$type === "objectId"
+    ));
     assert.ok(Prescription.schema.indexes().some(([keys, options]) => keys.appointmentId === 1 && options.unique && options.sparse));
   });
 

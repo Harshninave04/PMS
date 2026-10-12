@@ -8,12 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
-import { formatDoctorName } from "@/lib/name-formatter";
 import type { ConsultationAppointment } from "@/types/consultation";
 
 interface QueueResponse {
   data: ConsultationAppointment[];
-  metrics: { waiting?: number; inConsultation?: number; completed?: number };
+  metrics: { waiting?: number; inConsultation?: number };
 }
 
 const PRIORITY_RANK: Record<string, number> = { EMERGENCY: 0, URGENT: 1, VIP: 2, NORMAL: 3 };
@@ -43,7 +42,7 @@ function priorityClass(priority?: string): string {
 
 export default function DoctorDashboard() {
   const [queue, setQueue] = React.useState<ConsultationAppointment[]>([]);
-  const [metrics, setMetrics] = React.useState({ waiting: 0, inConsultation: 0, completed: 0 });
+  const [metrics, setMetrics] = React.useState<{ waiting: number; inConsultation: number; completed: number | null }>({ waiting: 0, inConsultation: 0, completed: null });
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -61,10 +60,20 @@ export default function DoctorDashboard() {
       if (!response.ok || !result.success) throw new Error(result.error || result.message || "Unable to load your queue.");
       const queueResult = result as QueueResponse;
       setQueue(queueResult.data ?? []);
+      let completedToday: number | null = null;
+      try {
+        const completedResponse = await fetch("/api/appointments/completed-today?countOnly=true");
+        const completedResult = await completedResponse.json();
+        if (completedResponse.ok && completedResult.success && typeof completedResult.count === "number") {
+          completedToday = completedResult.count;
+        }
+      } catch {
+        // Leave the completed count unavailable if its scoped request fails.
+      }
       setMetrics({
         waiting: queueResult.metrics?.waiting ?? 0,
         inConsultation: queueResult.metrics?.inConsultation ?? 0,
-        completed: queueResult.metrics?.completed ?? 0,
+        completed: completedToday,
       });
       setError("");
     } catch (loadError) {
@@ -94,10 +103,12 @@ export default function DoctorDashboard() {
 
   const startConsultation = async () => {
     if (!currentNextPatient) return;
+    const needsCall = currentNextPatient.queueStatus === "WAITING";
+    const needsStart = needsCall || currentNextPatient.queueStatus === "CALLED" || currentNextPatient.queueStatus === "TRIAGE";
     setActionInProgress(true);
     try {
       let appointment = currentNextPatient;
-      if (appointment.queueStatus === "WAITING") {
+      if (needsCall) {
         const response = await fetch("/api/appointments/queue", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -105,9 +116,11 @@ export default function DoctorDashboard() {
         });
         const result = await response.json();
         if (!response.ok || !result.success) throw new Error(result.error || "Unable to call this patient.");
-        appointment = result.data as ConsultationAppointment;
-        setQueue((current) => current.map((item) => item._id === appointment._id ? appointment : item));
-      } else if (appointment.queueStatus === "TRIAGE") {
+        const calledAppointment = result.data as ConsultationAppointment;
+        appointment = calledAppointment;
+        setQueue((current) => current.map((item) => item._id === calledAppointment._id ? calledAppointment : item));
+      }
+      if (needsStart) {
         const response = await fetch("/api/appointments/queue", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -115,8 +128,9 @@ export default function DoctorDashboard() {
         });
         const result = await response.json();
         if (!response.ok || !result.success) throw new Error(result.error || "Unable to start this consultation.");
-        appointment = result.data as ConsultationAppointment;
-        setQueue((current) => current.map((item) => item._id === appointment._id ? appointment : item));
+        const startedAppointment = result.data as ConsultationAppointment;
+        appointment = startedAppointment;
+        setQueue((current) => current.map((item) => item._id === startedAppointment._id ? startedAppointment : item));
       }
       setSelectedAppointment(appointment);
       setModalOpen(true);
@@ -151,14 +165,19 @@ export default function DoctorDashboard() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        {metricCards.map(({ label, value, icon: Icon, color }) => (
-          <Card key={label}>
-            <CardContent className="flex items-center gap-4 p-5">
-              <span className={`flex h-11 w-11 items-center justify-center rounded-xl ${color}`}><Icon className="h-5 w-5" /></span>
-              <div><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{loading ? "—" : value}</p></div>
-            </CardContent>
-          </Card>
-        ))}
+        {metricCards.map(({ label, value, icon: Icon, color }) => {
+          const card = (
+            <Card key={label}>
+              <CardContent className="flex items-center gap-4 p-5">
+                <span className={`flex h-11 w-11 items-center justify-center rounded-xl ${color}`}><Icon className="h-5 w-5" /></span>
+                <div><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{loading || value === null ? "N/A" : value}</p></div>
+              </CardContent>
+            </Card>
+          );
+          return label === "Completed Today" ? (
+            <Link key={label} href="/appointments/completed-today" className="block rounded-xl transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600">{card}</Link>
+          ) : card;
+        })}
       </div>
 
       {error && (
@@ -186,8 +205,6 @@ export default function DoctorDashboard() {
                 <div className="grid gap-3 rounded-xl bg-slate-50 p-4 text-sm dark:bg-slate-900 sm:grid-cols-2">
                   <div><span className="text-xs text-slate-500">Complaint</span><p className="mt-1 font-medium text-slate-800 dark:text-slate-200">{currentNextPatient.reason || "—"}</p></div>
                   <div><span className="text-xs text-slate-500">Wait time</span><p className="mt-1 flex items-center gap-1.5 font-medium text-slate-800 dark:text-slate-200"><CalendarClock className="h-4 w-4 text-slate-400" />{waitTimeLabel(currentNextPatient)}</p></div>
-                  <div><span className="text-xs text-slate-500">Attending physician</span><p className="mt-1 font-medium text-slate-800 dark:text-slate-200">{formatDoctorName(currentNextPatient.doctorId?.userId?.name || currentNextPatient.doctorId?.name) || "—"}</p></div>
-                  <div><span className="text-xs text-slate-500">Queue status</span><p className="mt-1 font-medium text-slate-800 dark:text-slate-200">{currentNextPatient.queueStatus?.replaceAll("_", " ") || currentNextPatient.status}</p></div>
                 </div>
                 <Button onClick={startConsultation} disabled={actionInProgress} className="w-full bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto">
                   {actionInProgress && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}

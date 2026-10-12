@@ -8,6 +8,7 @@ import { defaultPermissionsFor } from "@/lib/rbac/default-permissions";
 import { permissionsForRoute } from "@/lib/rbac/permissions.config";
 import { BASELINE_REFERENCE_PERMISSIONS, PERMISSION_KEYS, REFERENCE_DATA_MODULE } from "@/types/rbac";
 import { DEMO_USERS, demoEmail } from "@/seed";
+import { buildReceptionistDashboardData } from "@/services/dashboard.service";
 
 const DASHBOARD_ROOT = path.resolve(process.cwd(), "src/app/(dashboard)");
 
@@ -114,7 +115,7 @@ async function runMenuTests() {
 
   test("Each role sees only the modules its permissions grant", () => {
     const expected: Record<string, string[]> = {
-      DOCTOR: ["Dashboard", "OPD Queue"],
+      DOCTOR: ["Dashboard", "OPD Queue", "Today's Completed Patients"],
       NURSE: ["Dashboard", "Patients", "Consultation", "IPD / Admissions", "Wards & Beds", "Nursing"],
       RECEPTIONIST: ["Book Appointment", "All Patients", "All Appointments"],
       PHARMACIST: ["Dashboard", "Patients", "Consultation", "Pharmacy", "Reports"],
@@ -125,20 +126,15 @@ async function runMenuTests() {
     }
   });
 
-  test("Receptionist sidebar and dashboard offer the same three shortcuts", () => {
+  test("Receptionist keeps the same sidebar shortcuts without a dashboard quick-actions block", () => {
     const sidebar = visibleMenuItems("RECEPTIONIST");
-    const actions = resolveDashboardProfile("RECEPTIONIST").quickActions;
+    const profile = resolveDashboardProfile("RECEPTIONIST");
 
-    assert.deepEqual(
-      sidebar.map((m) => m.name),
-      actions.map((a) => a.title),
-      "Sidebar and dashboard titles must match"
-    );
-    assert.deepEqual(
-      sidebar.map((m) => m.path),
-      actions.map((a) => a.href),
-      "Sidebar and dashboard links must point at the same routes"
-    );
+    assert.deepEqual(sidebar.map((m) => m.name), ["Book Appointment", "All Patients", "All Appointments"]);
+    assert.deepEqual(sidebar.map((m) => m.path), ["/appointments/book", "/patients/list", "/appointments/list"]);
+    assert.deepEqual(profile.quickActions, [], "Receptionist dashboard must not render quick actions");
+    assert.deepEqual(profile.stats, [], "Receptionist dashboard must not use the generic KPI cards");
+    assert.equal(profile.showRecentPatients, false, "Receptionist dashboard must not render admissions activity");
     // Flat by design: no OPD section, no accordion groups.
     assert.ok(
       applyRoleNav("RECEPTIONIST", filterMenusByPermissions(MENUS, defaultPermissionsFor("RECEPTIONIST"))).every(
@@ -148,10 +144,30 @@ async function runMenuTests() {
     );
   });
 
-  test("Doctor sidebar is flat and contains only Dashboard and today's OPD queue", () => {
+  test("Receptionist dashboard data contains no admission or bed-occupancy fields", () => {
+    const data = buildReceptionistDashboardData(
+      { bookedToday: 1, waiting: 1, completedToday: 0, pendingPayment: 1 },
+      [{
+        tokenNumber: "1",
+        patientId: { _id: "patient-id", name: "Sample Patient" },
+        doctorId: { name: "Doctor Name" },
+        appointmentTime: "09:00",
+        status: "SCHEDULED",
+      }]
+    );
+
+    assert.deepEqual(Object.keys(data).sort(), ["appointments", "bookedToday", "completedToday", "pendingPayment", "waiting"]);
+    assert.equal("admissions" in data, false);
+    assert.equal("recentPatients" in data, false);
+    assert.equal("occupiedBeds" in data, false);
+    assert.equal("totalBeds" in data, false);
+    assert.equal("bedOccupancy" in data, false);
+  });
+
+  test("Doctor sidebar is flat and contains the dashboard, queue and today's completed patients", () => {
     const sidebar = visibleMenuItems("DOCTOR");
-    assert.deepEqual(sidebar.map((item) => item.name), ["Dashboard", "OPD Queue"]);
-    assert.deepEqual(sidebar.map((item) => item.path), ["/dashboard/main", "/appointments/queue"]);
+    assert.deepEqual(sidebar.map((item) => item.name), ["Dashboard", "OPD Queue", "Today's Completed Patients"]);
+    assert.deepEqual(sidebar.map((item) => item.path), ["/dashboard/main", "/appointments/queue", "/appointments/completed-today"]);
     const tree = applyRoleNav("DOCTOR", filterMenusByPermissions(MENUS, defaultPermissionsFor("DOCTOR")));
     assert.ok(tree.every((item) => !item.children || item.children.length === 0), "Doctor sidebar must not have nested duplicate links");
     const doctorPermissions = defaultPermissionsFor("DOCTOR");

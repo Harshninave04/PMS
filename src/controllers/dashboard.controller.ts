@@ -17,6 +17,15 @@ export class DashboardController {
         return NextResponse.json({ success: true, data });
       }
 
+      if (authResult.context.roleName.toUpperCase() === "RECEPTIONIST") {
+        const branchId = authResult.context.branchId || authResult.context.organizationId;
+        if (!branchId) {
+          return NextResponse.json({ success: false, message: "Receptionist account is not linked to a branch or organization" }, { status: 403 });
+        }
+        const data = await DashboardService.getReceptionistDashboardStats(branchId);
+        return NextResponse.json({ success: true, data });
+      }
+
       const data = await DashboardService.getDashboardStats();
       return NextResponse.json({ success: true, data });
     } catch (error: unknown) {

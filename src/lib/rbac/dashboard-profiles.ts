@@ -166,18 +166,9 @@ const profiles: Record<string, DashboardProfile> = {
     label: "Reception",
     subtitle: "Appointments, patients and front-desk records.",
     moduleDashboard: null,
-    stats: [
-      metric("todayAppointments", "Appointments Today", "Booked for today", CalendarCheck, TONE.emerald),
-      metric("totalAppointments", "Total Appointments", "All recorded bookings", Calendar, TONE.teal),
-      metric("totalPatients", "Total Patients", "All time registrations", Users, TONE.cyan),
-      bedOccupancy(TONE.violet)
-    ],
-    quickActions: [
-      { title: "Book Appointment", href: "/appointments/book", icon: CalendarPlus, color: ACTION.teal },
-      { title: "All Patients", href: "/patients/list", icon: Users, color: ACTION.emerald },
-      { title: "All Appointments", href: "/appointments/list", icon: Calendar, color: ACTION.cyan }
-    ],
-    showRecentPatients: true
+    stats: [],
+    quickActions: [],
+    showRecentPatients: false
   },
 
   pharmacy: {

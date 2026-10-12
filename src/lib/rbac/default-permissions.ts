@@ -23,6 +23,17 @@ const LEGACY_DOCTOR_DEFAULT_PERMISSIONS = [
     permissionKey("opd", "list", "update"),
 ];
 
+const PREVIOUS_DOCTOR_DEFAULT_PERMISSIONS = [
+    permissionKey("dashboard", "main", "view"),
+    permissionKey("opd", "queue", "view"),
+    permissionKey("opd", "queue", "update"),
+];
+
+const PREVIOUS_DOCTOR_DEFAULT_WITH_APPOINTMENT_LIST = [
+    ...PREVIOUS_DOCTOR_DEFAULT_PERMISSIONS,
+    permissionKey("opd", "list", "view"),
+];
+
 /** Shorthand: all four CRUD actions on a sub-item. */
 function crud(moduleKey: string, subItemKey: string): string[] {
     const actions: PermissionAction[] = ["view", "create", "update", "delete"];
@@ -60,6 +71,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]
         ...act("dashboard", "main", "view"),
 
         ...act("opd", "queue", "view", "update"),
+        ...act("opd", "completed-today", "view"),
     ],
 
     NURSE: [
@@ -215,9 +227,15 @@ export function defaultPermissionsFor(roleName: string): string[] {
     return normalizePermissions(DEFAULT_ROLE_PERMISSIONS[roleName] ?? []);
 }
 
-/** Recognizes the shipped Doctor defaults from before the queue-only dashboard. */
+/** Recognizes shipped Doctor defaults from before completed visits were added. */
 export function hasLegacyDoctorDefaults(permissions: Iterable<string> | null | undefined): boolean {
-    return permissionSignature(permissions) === permissionSignature(LEGACY_DOCTOR_DEFAULT_PERMISSIONS);
+    const signature = permissionSignature(permissions);
+    return [
+        LEGACY_DOCTOR_DEFAULT_PERMISSIONS,
+        PREVIOUS_DOCTOR_DEFAULT_PERMISSIONS,
+        PREVIOUS_DOCTOR_DEFAULT_WITH_APPOINTMENT_LIST,
+    ]
+        .some((defaults) => signature === permissionSignature(defaults));
 }
 
 /** Order-independent fingerprint used to decide whether a seed write is needed. */
