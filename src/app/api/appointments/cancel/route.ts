@@ -7,6 +7,7 @@ import User from "@/models/user.model";
 import Department from "@/models/department.model";
 import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { isDoctorActor } from "@/lib/rbac/doctor-scope";
 
 export async function GET(request: NextRequest) {
   const denied = await requirePermission(request, "opd.list:view");
@@ -22,7 +23,12 @@ export async function GET(request: NextRequest) {
         if (!User) {}
         if (!Department) {}
 
-        const cancelled = await Appointment.find({ status: "CANCELLED" })
+        const cancelled = await Appointment.find({
+            status: "CANCELLED",
+            ...(isDoctorActor(authResult.context)
+                ? { doctorId: authResult.context.doctorProfileId!.toString() }
+                : {})
+        })
             .populate('patientId', 'name contact uhid age gender')
             .populate({
                 path: 'doctorId',
@@ -71,11 +77,21 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        if (isDoctorActor(authResult.context)) {
+            const appt = await Appointment.findById(appointmentId).select("doctorId").lean();
+            if (!appt || appt.doctorId?.toString() !== authResult.context.doctorProfileId!.toString()) {
+                return NextResponse.json(
+                    { success: false, error: "Forbidden: You can only cancel your own appointments" },
+                    { status: 403 }
+                );
+            }
+        }
+
         const updated = await Appointment.findByIdAndUpdate(
             appointmentId,
             {
                 status: "CANCELLED",
-                queueStatus: "SKIPPED",
+                queueStatus: "CANCELLED",
                 cancellationReason: reason,
                 cancellationCategory: category || "Patient Request",
                 cancelledAt: new Date()

@@ -9,6 +9,14 @@ export class DashboardController {
       const authResult = await authorizeRequest(req, PERMISSION_KEYS.DASHBOARD_VIEW, "Dashboard");
       if (!authResult.isAuthorized) return authResult.response;
 
+      if (authResult.context.roleName.toUpperCase() === "DOCTOR") {
+        if (!authResult.context.doctorProfileId) {
+          return NextResponse.json({ success: false, message: "Doctor profile is not linked to this account" }, { status: 403 });
+        }
+        const data = await DashboardService.getDoctorDashboardStats(authResult.context.doctorProfileId);
+        return NextResponse.json({ success: true, data });
+      }
+
       const data = await DashboardService.getDashboardStats();
       return NextResponse.json({ success: true, data });
     } catch (error: unknown) {

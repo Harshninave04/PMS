@@ -143,9 +143,9 @@ export default function PatientsListPage() {
           <Button variant="outline" size="sm" onClick={exportCSV} className="gap-1.5">
             <Download className="h-4 w-4" /> Export CSV
           </Button>
-          <Button onClick={() => router.push("/patients/register")} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700">
+          {/* <Button onClick={() => router.push("/patients/register")} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700">
             <Plus className="h-4 w-4" /> Register Patient
-          </Button>
+          </Button> */}
         </div>
       </div>
 

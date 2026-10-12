@@ -5,7 +5,7 @@ export interface CreateAppointmentDto {
     doctorId: Types.ObjectId | string;
     branchId: Types.ObjectId | string;
     appointmentDate: Date | string;
-    appointmentTime: string;
+    appointmentTime?: string;
     status?: string;
     type?: string;
     reason: string;

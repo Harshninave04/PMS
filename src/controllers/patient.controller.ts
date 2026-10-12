@@ -5,6 +5,11 @@ import defaultPatientService, { PatientService } from "@/services/patient.servic
 import { CreatePatientDto, UpdatePatientDto, AddPatientDocumentDto } from "@/dto/patient.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import {
+    isDoctorActor,
+    getAssignedPatientIds,
+    isPatientAssignedToDoctor
+} from "@/lib/rbac/doctor-scope";
 
 export class PatientController {
     constructor(private patientService: PatientService = defaultPatientService) { }
@@ -69,11 +74,24 @@ export class PatientController {
                 effectiveBranchId = auth.context.branchId.toString();
             }
 
+            // Enforce doctor isolation: a doctor only sees patients assigned to them
+            let assignedPatientIds: Types.ObjectId[] | undefined;
+            if (isDoctorActor(auth.context)) {
+                assignedPatientIds = await getAssignedPatientIds(auth.context.doctorProfileId!);
+                if (assignedPatientIds.length === 0) {
+                    return NextResponse.json(
+                        { success: true, count: 0, data: [] },
+                        { status: 200 }
+                    );
+                }
+            }
+
             const patients = await this.patientService.searchPatients({
                 query,
                 branchId: effectiveBranchId,
                 status,
-                bloodGroup
+                bloodGroup,
+                patientIds: assignedPatientIds
             });
 
             return NextResponse.json(
@@ -125,6 +143,19 @@ export class PatientController {
                 }
             }
 
+            if (authResult && isDoctorActor(authResult.context)) {
+                const assigned = await isPatientAssignedToDoctor(
+                    authResult.context.doctorProfileId!,
+                    new Types.ObjectId(patient._id.toString())
+                );
+                if (!assigned) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Patient is not assigned to you" },
+                        { status: 403 }
+                    );
+                }
+            }
+
             return NextResponse.json(
                 { success: true, data: patient },
                 { status: 200 }
@@ -164,6 +195,19 @@ export class PatientController {
                 if (patientBranch && patientBranch !== auth.context.branchId.toString()) {
                     return NextResponse.json(
                         { success: false, message: "Forbidden: Cannot update patient belonging to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            if (isDoctorActor(auth.context)) {
+                const assigned = await isPatientAssignedToDoctor(
+                    auth.context.doctorProfileId!,
+                    new Types.ObjectId(existingPatient._id.toString())
+                );
+                if (!assigned) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Cannot update a patient not assigned to you" },
                         { status: 403 }
                     );
                 }
@@ -228,6 +272,19 @@ export class PatientController {
                 }
             }
 
+            if (authResult && isDoctorActor(authResult.context)) {
+                const assigned = await isPatientAssignedToDoctor(
+                    authResult.context.doctorProfileId!,
+                    new Types.ObjectId(existingPatient._id.toString())
+                );
+                if (!assigned) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Cannot delete a patient not assigned to you" },
+                        { status: 403 }
+                    );
+                }
+            }
+
             await this.patientService.deletePatient(new Types.ObjectId(id));
 
             return NextResponse.json(
@@ -272,6 +329,19 @@ export class PatientController {
                 if (patientBranch && patientBranch !== auth.context.branchId.toString()) {
                     return NextResponse.json(
                         { success: false, message: "Forbidden: Patient belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            if (isDoctorActor(auth.context)) {
+                const assigned = await isPatientAssignedToDoctor(
+                    auth.context.doctorProfileId!,
+                    new Types.ObjectId(existingPatient._id.toString())
+                );
+                if (!assigned) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Cannot upload documents for a patient not assigned to you" },
                         { status: 403 }
                     );
                 }
@@ -334,6 +404,19 @@ export class PatientController {
                 }
             }
 
+            if (isDoctorActor(auth.context)) {
+                const assigned = await isPatientAssignedToDoctor(
+                    auth.context.doctorProfileId!,
+                    new Types.ObjectId(existingPatient._id.toString())
+                );
+                if (!assigned) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Cannot delete documents for a patient not assigned to you" },
+                        { status: 403 }
+                    );
+                }
+            }
+
             const updated = await this.patientService.deleteDocument(new Types.ObjectId(patientId), documentId);
             return NextResponse.json(
                 { success: true, message: "Document deleted successfully", data: updated },
@@ -362,6 +445,19 @@ export class PatientController {
                     { success: false, message: "Valid patient ID is required" },
                     { status: 400 }
                 );
+            }
+
+            if (isDoctorActor(auth.context)) {
+                const assigned = await isPatientAssignedToDoctor(
+                    auth.context.doctorProfileId!,
+                    new Types.ObjectId(patientId)
+                );
+                if (!assigned) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Patient is not assigned to you" },
+                        { status: 403 }
+                    );
+                }
             }
 
             const history = await this.patientService.getPatientHistory(new Types.ObjectId(patientId));
@@ -393,7 +489,13 @@ export class PatientController {
                 effectiveBranchId = auth.context.branchId.toString();
             }
 
-            const stats = await this.patientService.getStats(effectiveBranchId);
+            // Doctor isolation: stats reflect only the doctor's assigned patients
+            let assignedPatientIds: Types.ObjectId[] | undefined;
+            if (isDoctorActor(auth.context)) {
+                assignedPatientIds = await getAssignedPatientIds(auth.context.doctorProfileId!);
+            }
+
+            const stats = await this.patientService.getStats(effectiveBranchId, assignedPatientIds);
 
             return NextResponse.json(
                 { success: true, data: stats },

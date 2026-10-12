@@ -1,0 +1,307 @@
+warning: in the working copy of 'src/app/(dashboard)/appointments/queue/page.tsx', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/src/app/(dashboard)/appointments/queue/page.tsx b/src/app/(dashboard)/appointments/queue/page.tsx[m
+[1mindex b9c67d0..8fc263d 100644[m
+[1m--- a/src/app/(dashboard)/appointments/queue/page.tsx[m
+[1m+++ b/src/app/(dashboard)/appointments/queue/page.tsx[m
+[36m@@ -4,21 +4,32 @@[m [mimport React, { useState, useEffect, useMemo } from "react";[m
+ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";[m
+ import { Button } from "@/components/ui/button";[m
+ import { Badge } from "@/components/ui/badge";[m
+[32m+[m[32mimport { Input } from "@/components/ui/input";[m
+[32m+[m[32mimport { Label } from "@/components/ui/label";[m
+[32m+[m[32mimport { Textarea } from "@/components/ui/textarea";[m
+[32m+[m[32mimport { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";[m
+ import { useToast } from "@/components/ui/toast";[m
+[32m+[m[32mimport { formatDoctorName } from "@/lib/name-formatter";[m
+[32m+[m[32mimport {[m
+[32m+[m[32m  COMMON_CHIEF_COMPLAINTS,[m
+[32m+[m[32m  COMMON_INVESTIGATIONS,[m
+[32m+[m[32m  MEDICATION_DOSAGE_OPTIONS,[m
+[32m+[m[32m  MEDICATION_FREQUENCY_OPTIONS,[m
+[32m+[m[32m  MEDICATION_DURATION_OPTIONS,[m
+[32m+[m[32m  MEDICATION_INSTRUCTIONS_OPTIONS,[m
+[32m+[m[32m} from "@/constants/consultation";[m
+[32m+[m[32mimport { useSession } from "next-auth/react";[m
+ import {[m
+[31m-  Users,[m
+   Clock,[m
+   CheckCircle2,[m
+[31m-  AlertCircle,[m
+   Play,[m
+[31m-  RotateCcw,[m
+[31m-  Volume2,[m
+[31m-  Tv,[m
+   ArrowRight,[m
+   Loader2,[m
+   Stethoscope,[m
+   RefreshCw,[m
+[31m-  XCircle,[m
+[32m+[m[32m  Plus,[m
+[32m+[m[32m  Trash2,[m
+[32m+[m[32m  Volume2,[m
+ } from "lucide-react";[m
+ [m
+ interface QueueItem {[m
+[36m@@ -53,39 +64,48 @@[m [minterface QueueItem {[m
+ [m
+ export default function AppointmentQueuePage() {[m
+   const [queue, setQueue] = useState<QueueItem[]>([]);[m
+[31m-  const [doctors, setDoctors] = useState<any[]>([]);[m
+[32m+[m[32m  const { data: session } = useSession();[m
+   const [metrics, setMetrics] = useState({[m
+[31m-    totalToday: 0,[m
+     waiting: 0,[m
+[31m-    called: 0,[m
+     inConsultation: 0,[m
+     completed: 0,[m
+[31m-    estimatedWaitTimeMins: 0,[m
+   });[m
+   const [loading, setLoading] = useState(true);[m
+[31m-  const [selectedDoctor, setSelectedDoctor] = useState("ALL");[m
+[31m-  const [tvMode, setTvMode] = useState(false);[m
+   const [processingId, setProcessingId] = useState<string | null>(null);[m
+[32m+[m[32m  const [consultationModalOpen, setConsultationModalOpen] = useState(false);[m
+[32m+[m[32m  const [selectedAppointment, setSelectedAppointment] = useState<QueueItem | null>(null);[m
+[32m+[m[32m  const [savingConsultation, setSavingConsultation] = useState(false);[m
+[32m+[m[32m  const [consultationForm, setConsultationForm] = useState({[m
+[32m+[m[32m    chiefComplaint: "",[m
+[32m+[m[32m    chiefComplaintOther: "",[m
+[32m+[m[32m    plan: "",[m
+[32m+[m[32m    investigations: "",[m
+[32m+[m[32m    investigationsOther: "",[m
+[32m+[m[32m  });[m
+[32m+[m[32m  const [medications, setMedications] = useState<any[]>([[m
+[32m+[m[32m    { name: "", dosage: "", frequency: "", duration: "", instructions: "" },[m
+[32m+[m[32m  ]);[m
+ [m
+   const { toast } = useToast();[m
+ [m
+   async function fetchQueue() {[m
+     try {[m
+       setLoading(true);[m
+[31m-      const url =[m
+[31m-        selectedDoctor && selectedDoctor !== "ALL"[m
+[31m-          ? `/api/appointments/queue?doctorId=${selectedDoctor}`[m
+[31m-          : "/api/appointments/queue";[m
+[32m+[m[32m      const url = "/api/appointments/queue";[m
+ [m
+[31m-      const [qRes, dRes] = await Promise.all([fetch(url), fetch("/api/doctor")]);[m
+[32m+[m[32m      const qRes = await fetch(url);[m
+       const qJson = await qRes.json();[m
+[31m-      const dJson = await dRes.json();[m
+ [m
+       if (qJson.success) {[m
+         setQueue(qJson.data || []);[m
+[31m-        if (qJson.metrics) setMetrics(qJson.metrics);[m
+[32m+[m[32m        if (qJson.metrics) {[m
+[32m+[m[32m          setMetrics({[m
+[32m+[m[32m            waiting: qJson.metrics.waiting || 0,[m
+[32m+[m[32m            inConsultation: qJson.metrics.inConsultation || 0,[m
+[32m+[m[32m            completed: qJson.metrics.completed || 0,[m
+[32m+[m[32m          });[m
+[32m+[m[32m        }[m
+       }[m
+[31m-      if (dJson.success) setDoctors(dJson.data || []);[m
+     } catch (err: any) {[m
+       toast({ title: "Error", description: "Failed to load queue.", variant: "destructive" });[m
+     } finally {[m
+[36m@@ -95,10 +115,9 @@[m [mexport default function AppointmentQueuePage() {[m
+ [m
+   useEffect(() => {[m
+     fetchQueue();[m
+[31m-    // Auto-refresh queue every 30 seconds[m
+     const interval = setInterval(fetchQueue, 30000);[m
+     return () => clearInterval(interval);[m
+[31m-  }, [selectedDoctor]);[m
+[32m+[m[32m  }, []);[m
+ [m
+   // Advance queue state[m
+   const handleQueueAction = async (appointmentId: string, action: string) => {[m
+[36m@@ -130,13 +149,13 @@[m [mexport default function AppointmentQueuePage() {[m
+       const res = await fetch("/api/appointments/queue", {[m
+         method: "POST",[m
+         headers: { "Content-Type": "application/json" },[m
+[31m-        body: JSON.stringify({ action: "CALL_NEXT", doctorId: selectedDoctor }),[m
+[32m+[m[32m        body: JSON.stringify({ action: "CALL_NEXT" }),[m
+       });[m
+       const data = await res.json();[m
+       if (data.success) {[m
+         toast({[m
+           title: "Patient Called",[m
+[31m-          description: `${data.data?.tokenNumber || "Token"} — ${data.data?.patientId?.name || "Patient"} called.`,[m
+[32m+[m[32m          description: `${data.data?.tokenNumber || "Token"} - ${data.data?.patientId?.name || "Patient"} called.`,[m
+         });[m
+         fetchQueue();[m
+       } else {[m
+[36m@@ -178,7 +197,7 @@[m [mexport default function AppointmentQueuePage() {[m
+       case "IN_CONSULTATION":[m
+         return <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px]">In Consultation</Badge>;[m
+       case "COMPLETED":[m
+[31m-        return <Badge className="bg-purple-600 hover:bg-purple-700 text-white text-[10px]">Completed</Badge>;[m
+[32m+[m[32m        return <Badge className="bg-green-600 hover:bg-green-700 text-white text-[10px]">Completed</Badge>;[m
+       case "NO_SHOW":[m
+         return <Badge variant="outline" className="text-red-500 border-red-400 text-[10px]">No Show</Badge>;[m
+       case "CANCELLED":[m
+[36m@@ -194,76 +213,9 @@[m [mexport default function AppointmentQueuePage() {[m
+       priority === "EMERGENCY" || priority === "URGENT"[m
+         ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"[m
+         : "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300";[m
+[31m-    return ([m
+[31m-      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${tone}`}>{priority}</span>[m
+[31m-    );[m
+[32m+[m[32m    return <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${tone}`}>{priority}</span>;[m
+   };[m
+ [m
+[31m-  // TV Display Mode Fullscreen[m
+[31m-  if (tvMode) {[m
+[31m-    return ([m
+[31m-      <div className="fixed inset-0 z-50 bg-slate-950 text-white p-8 flex flex-col justify-between">[m
+[31m-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">[m
+[31m-          <div className="flex items-center gap-3">[m
+[31m-            <div className="h-10 w-10 rounded-xl bg-emerald-500 flex items-center justify-center font-bold text-xl text-black">[m
+[31m-              M[m
+[31m-            </div>[m
+[31m-            <div>[m
+[31m-              <h1 className="text-2xl font-bold tracking-tight">Medistra Hospital OPD</h1>[m
+[31m-              <p className="text-sm text-slate-400">Live Outpatient Queue & Token Board</p>[m
+[31m-            </div>[m
+[31m-          </div>[m
+[31m-          <Button variant="outline" onClick={() => setTvMode(false)} className="text-xs bg-slate-900 border-slate-700 text-white">[m
+[31m-            Exit TV Mode[m
+[31m-          </Button>[m
+[31m-        </div>[m
+[31m-[m
+[31m-        {/* Big TV Token Board */}[m
+[31m-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 my-auto">[m
+[31m-          {/* NOW SERVING */}[m
+[31m-          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-8 text-center shadow-2xl flex flex-col justify-center items-center space-y-4">[m
+[31m-            <span className="text-sm font-semibold tracking-widest text-emerald-400 uppercase">[m
+[31m-              Now Serving in Room[m
+[31m-            </span>[m
+[31m-            <div className="text-8xl font-black font-mono tracking-tight text-emerald-400">[m
+[31m-              {currentServing?.tokenNumber || "---"}[m
+[31m-            </div>[m
+[31m-            <div className="text-3xl font-bold text-white">[m
+[31m-              {currentServing?.patientId?.name || "Consultation Room Idle"}[m
+[31m-            </div>[m
+[31m-            <p className="text-lg text-slate-400">[m
+[31m-              {currentServing[m
+[31m-                ? `Dr. ${currentServing.doctorId?.userId?.name || currentServing.doctorId?.name} • Room ${[m
+[31m-                    currentServing.doctorId?.roomNumber || "OPD"[m
+[31m-                  }`[m
+[31m-                : "Awaiting next patient call"}[m
+[31m-            </p>[m
+[31m-          </div>[m
+[31m-[m
+[31m-          {/* NEXT IN LINE */}[m
+[31m-          <div className="bg-slate-900 border border-blue-500/40 rounded-3xl p-8 text-center shadow-2xl flex flex-col justify-center items-center space-y-4">[m
+[31m-            <span className="text-sm font-semibold tracking-widest text-blue-400 uppercase">[m
+[31m-              Next Token In Line[m
+[31m-            </span>[m
+[31m-            <div className="text-8xl font-black font-mono tracking-tight text-blue-400">[m
+[31m-              {nextInLine?.tokenNumber || "---"}[m
+[31m-            </div>[m
+[31m-            <div className="text-3xl font-bold text-white">[m
+[31m-              {nextInLine?.patientId?.name || "No Patients in Queue"}[m
+[31m-            </div>[m
+[31m-            <p className="text-lg text-slate-400">Please be seated near consultation room</p>[m
+[31m-          </div>[m
+[31m-        </div>[m
+[31m-[m
+[31m-        <div className="border-t border-slate-800 pt-4 flex items-center justify-between text-slate-400 text-sm">[m
+[31m-          <span>Patients Waiting: {nextList.length}</span>[m
+[31m-          <span>Consultations Completed Today: {completedList.length}</span>[m
+[31m-          <span>Time: {new Date().toLocaleTimeString()}</span>[m
+[31m-        </div>[m
+[31m-      </div>[m
+[31m-    );[m
+[31m-  }[m
+[31m-[m
+   return ([m
+     <div className="space-y-6 max-w-7xl mx-auto">[m
+       {/* Header */}[m
+[36m@@ -286,58 +238,26 @@[m [mexport default function AppointmentQueuePage() {[m
+           >[m
+             <Volume2 className="h-3.5 w-3.5" /> CALL NEXT[m
+           </Button>[m
+[31m-          <Button[m
+[31m-            variant="outline"[m
+[31m-            size="sm"[m
+[31m-            onClick={() => setTvMode(true)}[m
+[31m-            className="gap-1.5 text-xs border-slate-300 dark:border-slate-700"[m
+[31m-          >[m
+[31m-            <Tv className="h-3.5 w-3.5 text-emerald-600" /> Waiting Room TV Mode[m
+[31m-          </Button>[m
+           <Button variant="outline" size="sm" onClick={fetchQueue} className="gap-1 text-xs">[m
+[31m-            <RefreshCw className="h-3.5 w-3.5" /> Refresh[m
+[32m+[m[32m            <RefreshCw className="h-3.5 w-3.5" />[m
+           </Button>[m
+         </div>[m
+       </div>[m
+ [m
+       {/* Metrics Row */}[m
+[31m-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">[m
+[31m-        <Card className="border-slate-200/80 dark:border-slate-800">[m
+[31m-          <CardContent className="p-4 flex items-center gap-4">[m
+[31m-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20">[m
+[31m-              <Users className="h-6 w-6" />[m
+[31m-            </div>[m
+[31m-            <div>[m
+[31m-              <p className="text-xs font-medium text-slate-500">Total Today</p>[m
+[31m-              <h3 className="text-2xl font-bold text-slate-900 dark:text-white">{metrics.totalToday}</h3>[m
+[31m-            </div>[m
+[31m-          </CardContent>[m
+[31m-        </Card>[m
+[31m-[m
+[32m+[m[32m      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">[m
+         <Card className="border-slate-200/80 dark:border-slate-800">[m
+           <CardContent className="p-4 flex items-center gap-4">[m
+             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20">[m
+               <Clock className="h-6 w-6" />[m
+             </div>[m
+             <div>[m
+[31m-              <p className="text-xs font-medium text-slate-500">Waiting in Reception</p>[m
+[32m+[m[32m              <p className="text-xs font-medium text-slate-500">Waiting</p>[m
+               <h3 className="text-2xl font-bold text-slate-900 dark:text-white">{metrics.waiting}</h3>[m
+             </div>[m
+           </CardContent>[m
+         </Card>[m
+ [m
+[31m-        <Card className="border-slate-200/80 dark:border-slate-800">[m
+[31m-          <CardContent className="p-4 flex items-center gap-4">[m
+[31m-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20">[m
+[31m-              <Volume2 className="h-6 w-6" />[m
+[31m-            </div>[m
+[31m-            <div>[m
+[31m-              <p className="text-xs font-medium text-slate-500">Called</p>[m
+[31m-              <h3 className="text-2xl font-bold text-slate-900 dark:text-white">{metrics.called}</h3>[m
+[31m-            </div>[m
+[31m-          </CardContent>[m
+[31m-        </Card>[m
+[31m-[m
+         <Card className="border-slate-200/80 dark:border-slate-800">[m
+           <CardContent className="p-4 flex items-center gap-4">[m
+             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20">[m
+[36m@@ -352,7 +272,7 @@[m [mexport default function AppointmentQueuePage() {[m
+ [m
+         <Card className="border-slate-200/80 dark:border-slate-800">[m
+           <CardContent className="p-4 flex items-center gap-4">[m
+[31m-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-50 text-purple-600 dark:bg-purple-500/10 border border-purple-100 dark:border-purple-500/20">[m
+[32m+[m[32m            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-50 text-green-600 dark:bg-green-500/10 border border-green-100 dark:border-green-500/20">[m
+               <CheckCircle2 className="h-6 w-6" />[m
+             </div>[m
+             <div>[m
+[36m@@ -363,22 +283,7 @@[m [mexport default function AppointmentQueuePage() {[m
+         </Card>[m
+       </div>[m
+ [m
+[31m-      {/* Doctor Filter[m
+[31m-      <div className="flex items-center gap-3">[m
+[31m-        <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Filter Clinic Queue:</span>[m
+[31m-        <select[m
+[31m-          className="h-9 rounded-md border border-input bg-background px-3 text-xs min-w-[240px]"[m
+[31m-          value={selectedDoctor}[m
+[31m-          onChange={(e) => setSelectedDoctor(e.target.value)}[m
+[31m-        >[m
+[31m-          <option value="ALL">All Consulting Doctors</option>[m
+[31m- 

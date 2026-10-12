@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from "mongoose";
 export interface IClinicalRecord extends Document {
   patient: mongoose.Types.ObjectId;
   doctor?: mongoose.Types.ObjectId;
+  appointmentId?: mongoose.Types.ObjectId;
   recordType: string; // e.g., "Consultation", "Progress Note", "Clinical Note", "Treatment Plan", "Medical History", "Allergy", "Clinical Order", "Referral", "Follow-Up", "Patient Problem"
   title?: string;
   category?: string;
@@ -29,6 +30,7 @@ const ClinicalRecordSchema: Schema = new Schema(
   {
     patient: { type: Schema.Types.ObjectId, ref: "Patient", required: true },
     doctor: { type: Schema.Types.ObjectId, ref: "User" },
+    appointmentId: { type: Schema.Types.ObjectId, ref: "Appointment" },
     recordType: { type: String, required: true, default: "Consultation" },
     title: { type: String },
     category: { type: String },
@@ -52,6 +54,8 @@ const ClinicalRecordSchema: Schema = new Schema(
   },
   { timestamps: true }
 );
+
+ClinicalRecordSchema.index({ appointmentId: 1, recordType: 1 }, { unique: true });
 
 export const ClinicalRecord =
   mongoose.models.ClinicalRecord ||

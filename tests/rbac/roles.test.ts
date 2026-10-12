@@ -98,10 +98,10 @@ async function runRoleTests() {
   });
 
   test("Doctor consults, prescribes and records vitals but cannot bill or dispense", () => {
-    for (const perm of [P.CLINICAL_RECORD_CREATE, P.CLINICAL_DIAGNOSIS_CREATE, P.CLINICAL_PRESCRIPTION_CREATE, P.NURSING_VITALS_CREATE, P.APPOINTMENT_UPDATE]) {
+    for (const perm of [P.CLINICAL_RECORD_CREATE, P.CLINICAL_PRESCRIPTION_CREATE, P.APPOINTMENT_UPDATE]) {
       assert.ok(can("DOCTOR", perm), `Doctor is missing ${perm}`);
     }
-    for (const perm of [P.BILLING_INVOICE_CREATE, P.PHARMACY_DISPENSE_CREATE, P.PATIENT_CREATE]) {
+    for (const perm of [P.CLINICAL_DIAGNOSIS_CREATE, P.NURSING_VITALS_CREATE, P.BILLING_INVOICE_CREATE, P.PHARMACY_DISPENSE_CREATE, P.PATIENT_CREATE]) {
       assert.ok(!can("DOCTOR", perm), `Doctor must not have ${perm}`);
     }
   });

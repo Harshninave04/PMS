@@ -134,21 +134,11 @@ const profiles: Record<string, DashboardProfile> = {
   clinical: {
     key: "clinical",
     label: "Doctor",
-    subtitle: "Your OPD patients, consultations and prescriptions for today.",
-    moduleDashboard: "/appointments/queue",
-    stats: [
-      metric("todayAppointments", "Today's Appointments", "Your OPD patients today", CalendarCheck, TONE.emerald),
-      metric("totalAppointments", "Total Appointments", "All your consultations", Calendar, TONE.teal),
-      metric("totalPatients", "Total Patients", "All time total", Users, TONE.cyan),
-      bedOccupancy(TONE.rose)
-    ],
-    quickActions: [
-      { title: "Today's Queue", href: "/appointments/queue", icon: ClipboardList, color: ACTION.emerald },
-      { title: "Consultations", href: "/clinical/consultations", icon: Stethoscope, color: ACTION.teal },
-      { title: "Prescriptions", href: "/clinical/prescriptions", icon: FileText, color: ACTION.cyan },
-      { title: "Admitted Patients", href: "/admissions/current", icon: Bed, color: ACTION.slate }
-    ],
-    showRecentPatients: true
+    subtitle: "Your OPD queue for today.",
+    moduleDashboard: null,
+    stats: [],
+    quickActions: [],
+    showRecentPatients: false
   },
 
   nursing: {
@@ -174,7 +164,7 @@ const profiles: Record<string, DashboardProfile> = {
   frontDesk: {
     key: "frontDesk",
     label: "Reception",
-    subtitle: "Registrations, OPD bookings and admissions.",
+    subtitle: "Appointments, patients and front-desk records.",
     moduleDashboard: null,
     stats: [
       metric("todayAppointments", "Appointments Today", "Booked for today", CalendarCheck, TONE.emerald),
@@ -183,10 +173,9 @@ const profiles: Record<string, DashboardProfile> = {
       bedOccupancy(TONE.violet)
     ],
     quickActions: [
-      { title: "Register Patient", href: "/patients/register", icon: UserPlus, color: ACTION.emerald },
       { title: "Book Appointment", href: "/appointments/book", icon: CalendarPlus, color: ACTION.teal },
-      { title: "New Admission", href: "/admissions/new", icon: PlusCircle, color: ACTION.cyan },
-      { title: "Today's Queue", href: "/appointments/queue", icon: ClipboardList, color: ACTION.slate }
+      { title: "All Patients", href: "/patients/list", icon: Users, color: ACTION.emerald },
+      { title: "All Appointments", href: "/appointments/list", icon: Calendar, color: ACTION.cyan }
     ],
     showRecentPatients: true
   },

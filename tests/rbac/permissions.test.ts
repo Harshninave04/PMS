@@ -43,6 +43,7 @@ import {
 import { ALL_ROLES, ADMIN_ROLE, buildRoleAccess } from "@/lib/rbac/role-access";
 import { MENUS, filterMenusByPermissions } from "@/lib/menu-data";
 import { expectedPermissionsFor } from "@/lib/rbac/canonical-sync";
+import { PERMISSION_KEYS } from "@/lib/rbac/permissions";
 
 /** Every `route.ts` under `src/app/api`. */
 function findRouteFiles(root: string): string[] {
@@ -155,6 +156,42 @@ async function runPermissionTests() {
         `reports.${report}:export is missing`
       );
     }
+  });
+
+  test("OPD consultation save requires queue access and both legacy clinical write grants", () => {
+    const doctor = resolveRolePermissions({
+      role: "DOCTOR",
+      permissions: defaultPermissionsFor("DOCTOR"),
+      permissionsCustomized: true,
+      access: buildRoleAccess("DOCTOR"),
+    });
+    const rule = findRouteRule(new Request(
+      "http://localhost/api/appointments/65f1c2a3b4c5d6e7f8091234/complete-consultation",
+      { method: "POST" }
+    ));
+    const doctorSubItems = new Set(doctor.subItem);
+    const doctorLegacy = new Set(doctor.legacy);
+
+    assert.equal(hasResolvedSubItemPermission(doctor, "opd.queue:update"), true);
+    assert.equal(authorizeRoutePermission(rule, doctorSubItems, doctorLegacy, PERMISSION_KEYS.CLINICAL_RECORD_CREATE), true);
+
+    const withoutRecordGrant = new Set(doctor.legacy);
+    withoutRecordGrant.delete(PERMISSION_KEYS.CLINICAL_RECORD_CREATE);
+    assert.equal(authorizeRoutePermission(rule, doctorSubItems, withoutRecordGrant, PERMISSION_KEYS.CLINICAL_RECORD_CREATE), false);
+
+    const withoutPrescriptionGrant = new Set(doctor.legacy);
+    withoutPrescriptionGrant.delete(PERMISSION_KEYS.CLINICAL_PRESCRIPTION_CREATE);
+    assert.equal(authorizeRoutePermission(rule, doctorSubItems, withoutPrescriptionGrant, PERMISSION_KEYS.CLINICAL_RECORD_CREATE), false);
+
+    const pharmacist = resolveRolePermissions({
+      role: "PHARMACIST",
+      permissions: defaultPermissionsFor("PHARMACIST"),
+      permissionsCustomized: true,
+      access: buildRoleAccess("PHARMACIST"),
+    });
+    assert.equal(hasResolvedSubItemPermission(pharmacist, "pharmacy.prescriptions:view"), true);
+    assert.equal(hasResolvedSubItemPermission(pharmacist, "pharmacy.dispensing:dispense"), true);
+    assert.equal(doctor.legacy.includes(PERMISSION_KEYS.CLINICAL_PRESCRIPTION_CREATE), true);
   });
 
   test("Routes map to the permission that guards them", () => {
@@ -289,6 +326,29 @@ async function runPermissionTests() {
     assert.deepEqual(expectedPermissionsFor("DOCTOR", noAccess), []);
     const rule = findRouteRule(new Request("http://localhost/api/patient", { method: "POST" }))!;
     assert.equal(routeRuleAllows(rule, new Set(resolveRolePermissions(noAccess).subItem)), false);
+  });
+
+  test("Doctor legacy permissions migrate to Dashboard and OPD Queue only unless customized", () => {
+    const legacyRole = { role: "DOCTOR", permissions: [], access: buildRoleAccess("DOCTOR") };
+    const defaults = defaultPermissionsFor("DOCTOR");
+    assert.deepEqual(expectedPermissionsFor("DOCTOR", legacyRole), defaults);
+    assert.deepEqual(resolveRolePermissions(legacyRole).subItem, defaults);
+    assert.ok(defaults.includes("dashboard.main:view"));
+    assert.ok(defaults.includes("opd.queue:view"));
+    assert.ok(!defaults.some((key) => key.startsWith("opd.list:")));
+    assert.ok(!defaults.some((key) => key.startsWith("opd.book:")));
+
+    const previouslyShipped = {
+      ...legacyRole,
+      permissionsCustomized: true,
+      permissions: ["dashboard.main:view", "opd.queue:view", "opd.queue:update", "opd.list:view", "opd.list:update"],
+    };
+    assert.deepEqual(expectedPermissionsFor("DOCTOR", previouslyShipped), defaults);
+    assert.deepEqual(resolveRolePermissions(previouslyShipped).subItem, defaults);
+
+    const customized = { ...legacyRole, permissionsCustomized: true, permissions: ["opd.list:view"] };
+    assert.deepEqual(expectedPermissionsFor("DOCTOR", customized), ["opd.list:view"]);
+    assert.deepEqual(resolveRolePermissions(customized).subItem, ["opd.list:view"]);
   });
 
   test("Legacy keys cannot satisfy an authoritative route rule", () => {

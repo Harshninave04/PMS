@@ -27,6 +27,7 @@ export class PatientService {
         branchId?: string;
         status?: string;
         bloodGroup?: string;
+        patientIds?: Types.ObjectId[];
     }): Promise<IPatient[]> {
         return await this.repository.search(params);
     }
@@ -111,8 +112,8 @@ export class PatientService {
         };
     }
 
-    async getStats(branchId?: string) {
-        return await this.repository.getStats(branchId);
+    async getStats(branchId?: string, patientIds?: Types.ObjectId[]) {
+        return await this.repository.getStats(branchId, patientIds);
     }
 }
 

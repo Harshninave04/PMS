@@ -7,6 +7,7 @@ import User from "@/models/user.model";
 import Department from "@/models/department.model";
 import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { isDoctorActor } from "@/lib/rbac/doctor-scope";
 
 export async function GET(request: NextRequest) {
   const denied = await requirePermission(request, "opd.list:view");
@@ -24,8 +25,13 @@ export async function GET(request: NextRequest) {
 
         const now = new Date();
 
+        // Doctor isolation: a doctor only sees their own no-shows
+        const doctorScope = isDoctorActor(authResult.context)
+            ? { doctorId: authResult.context.doctorProfileId!.toString() }
+            : {};
+
         // Fetch explicitly marked NO_SHOW appointments
-        const noShowList = await Appointment.find({ status: "NO_SHOW" })
+        const noShowList = await Appointment.find({ status: "NO_SHOW", ...doctorScope })
             .populate('patientId', 'name contact uhid age gender bloodGroup address')
             .populate({
                 path: 'doctorId',
@@ -40,7 +46,8 @@ export async function GET(request: NextRequest) {
         // Also identify overdue appointments that were scheduled in the past but never checked in
         const overdueUnchecked = await Appointment.find({
             status: "SCHEDULED",
-            appointmentDate: { $lt: now }
+            appointmentDate: { $lt: now },
+            ...doctorScope
         })
             .populate('patientId', 'name contact uhid age gender bloodGroup address')
             .populate({
@@ -53,7 +60,7 @@ export async function GET(request: NextRequest) {
             .sort({ appointmentDate: -1 })
             .lean();
 
-        const totalAppointments = await Appointment.countDocuments();
+        const totalAppointments = await Appointment.countDocuments(doctorScope);
         const noShowRate = totalAppointments > 0
             ? Math.round((noShowList.length / totalAppointments) * 100)
             : 0;
@@ -96,9 +103,16 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: false, error: "Appointment not found" }, { status: 404 });
         }
 
+        if (isDoctorActor(authResult.context) && appt.doctorId?.toString() !== authResult.context.doctorProfileId!.toString()) {
+            return NextResponse.json(
+                { success: false, error: "Forbidden: You can only manage your own appointments" },
+                { status: 403 }
+            );
+        }
+
         if (action === "MARK_NO_SHOW") {
             appt.status = "NO_SHOW";
-            appt.queueStatus = "SKIPPED";
+            appt.queueStatus = "NO_SHOW";
             appt.noShowRecordedAt = new Date();
             if (notes) {
                 appt.notes = appt.notes ? `${appt.notes} | No-Show Note: ${notes}` : `No-Show Note: ${notes}`;

@@ -6,6 +6,13 @@ import {
   PERMISSION_KEYS
 } from "@/types/rbac";
 import { ScopeResolver } from "@/lib/rbac/scope-resolver";
+import { canCompleteAppointment } from "@/lib/rbac/doctor-scope";
+import { supportsMongoTransactions } from "@/lib/mongo-transaction-support";
+import { COMMON_CHIEF_COMPLAINTS, COMMON_INVESTIGATIONS, MEDICATION_DOSAGE_OPTIONS, MEDICATION_DURATION_OPTIONS, MEDICATION_FREQUENCY_OPTIONS, MEDICATION_INSTRUCTIONS_OPTIONS, OTHER_OPTION } from "@/constants/consultation";
+import { buildConsultationDocuments, isAppointmentReadyForConsultation, normalizeConsultationInput } from "@/lib/consultation-save";
+import { createConsultationDraft, createMedicationDraft, validateConsultationDraft } from "@/lib/consultation-form";
+import { ClinicalRecord } from "@/models/clinical-record.model";
+import Prescription from "@/models/prescription.model";
 
 /**
  * Phase 3 Clinical & PII Security Test Suite
@@ -213,6 +220,73 @@ async function runClinicalRbacTests() {
     const canAccess = docId === myDocId;
 
     assert.equal(canAccess, false, "Doctor A must be forbidden from accessing Doctor B's appointment");
+  });
+
+  test("Appointment: Doctor can complete only their own and missing doctor profiles fail closed", () => {
+    assert.equal(canCompleteAppointment(doctorAContext, doctorADoctorId), true);
+    assert.equal(canCompleteAppointment(doctorAContext, doctorBDoctorId), false);
+    assert.equal(
+      canCompleteAppointment({ ...doctorAContext, doctorProfileId: undefined }, doctorADoctorId),
+      false
+    );
+    assert.equal(canCompleteAppointment(receptionistContext, doctorADoctorId), true);
+  });
+
+  test("MongoDB: Standalone topology skips unsupported multi-document transactions", () => {
+    assert.equal(supportsMongoTransactions("Single"), false);
+    assert.equal(supportsMongoTransactions(undefined), false);
+    assert.equal(supportsMongoTransactions("ReplicaSetWithPrimary"), true);
+    assert.equal(supportsMongoTransactions("Sharded"), true);
+    assert.equal(supportsMongoTransactions("LoadBalanced"), true);
+  });
+
+  test("Consultation form option lists match the Doctor workflow", () => {
+    assert.deepEqual(COMMON_CHIEF_COMPLAINTS, ["Fever", "Cough / Cold", "Headache / Migraine", "Abdominal pain", "Body ache / Weakness", "Follow-up visit", "Other"]);
+    assert.deepEqual(COMMON_INVESTIGATIONS, ["CBC", "Blood sugar", "X-ray", "ECG", "Urine routine", "Ultrasound (USG)", "Other"]);
+    assert.deepEqual(MEDICATION_DOSAGE_OPTIONS, ["1 Tablet", "2 Tablets", "1 Capsule", "5 ml", "10 ml", "As directed", "Other"]);
+    assert.deepEqual(MEDICATION_FREQUENCY_OPTIONS, ["Once daily (OD)", "Twice daily (BD)", "Thrice daily (TDS)", "Four times daily (QID)", "At bedtime (HS)", "S.O.S (as required)", "Other"]);
+    assert.deepEqual(MEDICATION_DURATION_OPTIONS, ["3 days", "5 days", "7 days", "10 days", "14 days", "1 month", "Other"]);
+    assert.deepEqual(MEDICATION_INSTRUCTIONS_OPTIONS, ["After meals", "Before meals", "With food", "On empty stomach", "Avoid alcohol", "As directed", "Other"]);
+  });
+
+  test("Consultation form requires a chief complaint and a name for every medicine row", () => {
+    const draft = createConsultationDraft({ _id: "a", status: "CHECKED_IN", reason: "Unknown complaint" });
+    assert.equal(draft.chiefComplaint, OTHER_OPTION);
+    assert.equal(draft.chiefComplaintOther, "Unknown complaint");
+    assert.equal(validateConsultationDraft({ ...draft, chiefComplaint: "", chiefComplaintOther: "" }, []), "Chief complaint is required.");
+    assert.equal(validateConsultationDraft({ ...draft, chiefComplaint: "Fever", chiefComplaintOther: "" }, [createMedicationDraft("m1")]), "Enter a drug name for medicine 1.");
+  });
+
+  test("Every Other prescription value requires its corresponding free-text input", () => {
+    const base = { chiefComplaint: "Fever", chiefComplaintOther: "", diagnosisNotes: "", investigations: [], investigationsOther: "" };
+    for (const field of ["dosage", "frequency", "duration", "instructions"] as const) {
+      const medication = { ...createMedicationDraft(field), name: "Medicine", [field]: OTHER_OPTION };
+      assert.match(validateConsultationDraft(base, [medication]) ?? "", /Other field/);
+    }
+  });
+
+  test("Consultation saves ignore spoofed client patient and doctor ids", () => {
+    const parsed = normalizeConsultationInput({ chiefComplaint: "Fever", patientId: "spoofed-patient", doctorId: "spoofed-doctor", medications: [] });
+    assert.ok(parsed.data);
+    const documents = buildConsultationDocuments(parsed.data!, { appointmentId: "trusted-appointment", patientId: "trusted-patient", doctorUserId: "trusted-doctor-user", branchId: "trusted-branch" });
+    assert.equal(documents.clinicalRecord.patient, "trusted-patient");
+    assert.equal(documents.clinicalRecord.doctor, "trusted-doctor-user");
+    assert.equal(documents.prescription, null);
+
+    const withPrescription = normalizeConsultationInput({ chiefComplaint: "Fever", patientId: "spoofed", doctorId: "spoofed", medications: [{ name: "Dolo 650", dosage: "1 Tablet" }] });
+    const pharmacyDocument = buildConsultationDocuments(withPrescription.data!, { appointmentId: "trusted-appointment", patientId: "trusted-patient", doctorUserId: "trusted-doctor-user", branchId: "trusted-branch" }).prescription;
+    assert.equal(pharmacyDocument?.doctorId, "trusted-doctor-user");
+    assert.equal(pharmacyDocument?.patientId, "trusted-patient");
+    assert.equal(pharmacyDocument?.branchId, "trusted-branch");
+    assert.deepEqual(pharmacyDocument?.medications, [{ name: "Dolo 650", dosage: "1 Tablet", frequency: undefined, duration: undefined, instructions: undefined }]);
+  });
+
+  test("Consultation save accepts only called or in-consultation appointments and is duplicate-safe by index", () => {
+    assert.equal(isAppointmentReadyForConsultation("CALLED", "CHECKED_IN"), true);
+    assert.equal(isAppointmentReadyForConsultation("IN_CONSULTATION", "IN_PROGRESS"), true);
+    assert.equal(isAppointmentReadyForConsultation("WAITING", "CHECKED_IN"), false);
+    assert.ok(ClinicalRecord.schema.indexes().some(([keys, options]) => keys.appointmentId === 1 && keys.recordType === 1 && options.unique));
+    assert.ok(Prescription.schema.indexes().some(([keys, options]) => keys.appointmentId === 1 && options.unique && options.sparse));
   });
 
   test("Appointment: Receptionist with BRANCH scope can view appointments for all doctors in branch", () => {

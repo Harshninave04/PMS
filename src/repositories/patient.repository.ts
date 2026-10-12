@@ -40,8 +40,13 @@ export class PatientRepository {
         branchId?: string;
         status?: string;
         bloodGroup?: string;
+        patientIds?: Types.ObjectId[];
     }): Promise<IPatient[]> {
         const filter: any = {};
+
+        if (params.patientIds && params.patientIds.length > 0) {
+            filter._id = { $in: params.patientIds };
+        }
 
         if (params.query && params.query.trim()) {
             const regex = new RegExp(params.query.trim(), "i");
@@ -159,10 +164,13 @@ export class PatientRepository {
         return { primary: updatedPrimary, secondary: updatedSecondary };
     }
 
-    async getStats(branchId?: string) {
+    async getStats(branchId?: string, patientIds?: Types.ObjectId[]) {
         const match: any = {};
         if (branchId && Types.ObjectId.isValid(branchId)) {
             match.branchId = new Types.ObjectId(branchId);
+        }
+        if (patientIds && patientIds.length > 0) {
+            match._id = { $in: patientIds };
         }
 
         const totalPatients = await Patient.countDocuments({ ...match, isMerged: { $ne: true } });

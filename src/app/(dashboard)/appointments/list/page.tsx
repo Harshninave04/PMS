@@ -92,7 +92,7 @@ export default function AppointmentsListPage() {
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("Patient Request");
-  const [rescheduleData, setRescheduleData] = useState({ date: "", time: "10:00", reason: "" });
+  const [rescheduleData, setRescheduleData] = useState({ date: "", reason: "" });
   const [submitting, setSubmitting] = useState(false);
 
   const { toast } = useToast();
@@ -215,7 +215,7 @@ export default function AppointmentsListPage() {
 
   // Reschedule handler
   const handleRescheduleSubmit = async () => {
-    if (!selectedAppt || !rescheduleData.date || !rescheduleData.time) return;
+    if (!selectedAppt || !rescheduleData.date) return;
     try {
       setSubmitting(true);
       const res = await fetch("/api/appointments/reschedule", {
@@ -224,7 +224,6 @@ export default function AppointmentsListPage() {
         body: JSON.stringify({
           appointmentId: selectedAppt._id,
           newDate: rescheduleData.date,
-          newTime: rescheduleData.time,
           reason: rescheduleData.reason || "Patient requested reschedule",
         }),
       });
@@ -575,7 +574,6 @@ export default function AppointmentsListPage() {
                               setSelectedAppt(apt);
                               setRescheduleData({
                                 date: new Date(apt.appointmentDate).toISOString().split("T")[0],
-                                time: apt.appointmentTime,
                                 reason: "",
                               });
                               setIsRescheduleOpen(true);
@@ -689,28 +687,18 @@ export default function AppointmentsListPage() {
           <DialogHeader>
             <DialogTitle>Reschedule Appointment</DialogTitle>
             <DialogDescription>
-              Select a new date and time for <strong>{selectedAppt?.patientId?.name}</strong>.
+              Select a new date for <strong>{selectedAppt?.patientId?.name}</strong>.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>New Date *</Label>
-                <Input
-                  type="date"
-                  min={new Date().toISOString().split("T")[0]}
-                  value={rescheduleData.date}
-                  onChange={(e) => setRescheduleData({ ...rescheduleData, date: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>New Time Slot *</Label>
-                <Input
-                  type="time"
-                  value={rescheduleData.time}
-                  onChange={(e) => setRescheduleData({ ...rescheduleData, time: e.target.value })}
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label>New Date *</Label>
+              <Input
+                type="date"
+                min={new Date().toISOString().split("T")[0]}
+                value={rescheduleData.date}
+                onChange={(e) => setRescheduleData({ ...rescheduleData, date: e.target.value })}
+              />
             </div>
 
             <div className="space-y-1.5">
