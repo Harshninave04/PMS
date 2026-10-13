@@ -107,6 +107,7 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     get("/appointments/no-show", K("opd", "list", "view")),
     post("/appointments/no-show", K("opd", "list", "update")),
     get("/appointments/queue", K("opd", "queue", "view")),
+    get("/appointments/completed-today", K("opd", "completed-today", "view")),
     post("/appointments/queue", K("opd", "queue", "update")),
     get("/appointments/consultation-medicines", K("opd", "queue", "view")),
     get("/appointments/reschedule", K("opd", "list", "view")),

@@ -62,6 +62,7 @@ const FLAT_NAV_FOR_ROLE: Record<string, readonly { path: string; icon: string; n
     DOCTOR: [
         { path: "/dashboard/main", icon: "LayoutDashboard" },
         { path: "/appointments/queue", icon: "CalendarClock", name: "OPD Queue" },
+        { path: "/appointments/completed-today", icon: "CheckCircle2" },
     ],
     RECEPTIONIST: [
         { path: "/appointments/book", icon: "CalendarPlus" },

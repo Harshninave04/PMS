@@ -36,6 +36,7 @@ export const MENUS: MenuSeed[] = [
         children: [
             { name: "Book Appointment", path: "/appointments/book" },
             { name: "Today's Queue", path: "/appointments/queue" },
+            { name: "Today's Completed Patients", path: "/appointments/completed-today" },
             { name: "All Appointments", path: "/appointments/list" }
         ]
     },

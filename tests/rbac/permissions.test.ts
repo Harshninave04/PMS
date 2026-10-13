@@ -201,6 +201,7 @@ async function runPermissionTests() {
     );
     assert.ok(permissionsForRoute("/finance/invoices").includes("billing.invoices:view"));
     assert.ok(permissionsForRoute("/appointments/queue").includes("opd.queue:view"));
+    assert.ok(permissionsForRoute("/appointments/completed-today").includes("opd.completed-today:view"));
     assert.deepEqual(permissionsForRoute("/no/such/route"), []);
   });
 
@@ -328,15 +329,32 @@ async function runPermissionTests() {
     assert.equal(routeRuleAllows(rule, new Set(resolveRolePermissions(noAccess).subItem)), false);
   });
 
-  test("Doctor legacy permissions migrate to Dashboard and OPD Queue only unless customized", () => {
+  test("Doctor legacy permissions migrate to Dashboard, OPD Queue and completed visits unless customized", () => {
     const legacyRole = { role: "DOCTOR", permissions: [], access: buildRoleAccess("DOCTOR") };
     const defaults = defaultPermissionsFor("DOCTOR");
     assert.deepEqual(expectedPermissionsFor("DOCTOR", legacyRole), defaults);
     assert.deepEqual(resolveRolePermissions(legacyRole).subItem, defaults);
     assert.ok(defaults.includes("dashboard.main:view"));
     assert.ok(defaults.includes("opd.queue:view"));
+    assert.ok(defaults.includes("opd.completed-today:view"));
+    assert.ok(!defaultPermissionsFor("RECEPTIONIST").includes("opd.completed-today:view"));
     assert.ok(!defaults.some((key) => key.startsWith("opd.list:")));
     assert.ok(!defaults.some((key) => key.startsWith("opd.book:")));
+
+    const previousDefault = {
+      ...legacyRole,
+      permissionsCustomized: true,
+      permissions: ["dashboard.main:view", "opd.queue:view", "opd.queue:update"],
+    };
+    assert.deepEqual(expectedPermissionsFor("DOCTOR", previousDefault), defaults);
+    assert.deepEqual(resolveRolePermissions(previousDefault).subItem, defaults);
+
+    const previousDefaultWithListView = {
+      ...previousDefault,
+      permissions: ["dashboard.main:view", "opd.list:view", "opd.queue:view", "opd.queue:update"],
+    };
+    assert.deepEqual(expectedPermissionsFor("DOCTOR", previousDefaultWithListView), defaults);
+    assert.deepEqual(resolveRolePermissions(previousDefaultWithListView).subItem, defaults);
 
     const previouslyShipped = {
       ...legacyRole,
@@ -522,7 +540,7 @@ async function runPermissionTests() {
       if (!handlers.length) continue;
 
       const guarded =
-        /requirePermission\(\s*request|requireAnyPermission\(\s*request|resolveRequestIdentity\(\)/.test(source) ||
+        /requirePermission\(\s*request|requireAnyPermission\(\s*request|resolveRequestIdentity\(\)|authorizeRequest\(/.test(source) ||
         delegatesToController(file);
       if (!guarded) {
         unguarded.push(path.relative(apiRoot, file).replace(/\\/g, "/"));

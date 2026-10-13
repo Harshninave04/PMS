@@ -257,7 +257,8 @@ export function expectedPermissionsFor(
     const defaults = defaultPermissionsFor(roleName);
     if (!existing) return defaults;
 
-    // The shipped Doctor role is intentionally the dashboard and OPD queue.
+    // The shipped Doctor role is intentionally limited to the dashboard, OPD queue,
+    // and their own completed visits for today.
     // Keep administrator-customized Doctor permissions, but migrate the old
     // default role away from its former patient, admission and appointment-list grants.
     if (roleName === "DOCTOR" && (!existing.permissionsCustomized || hasLegacyDoctorDefaults(existing.permissions))) return defaults;
