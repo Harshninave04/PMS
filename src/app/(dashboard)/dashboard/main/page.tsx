@@ -12,6 +12,7 @@ import {
 } from "@/lib/rbac/dashboard-profiles";
 import DoctorDashboard from "@/components/dashboard/doctor-dashboard";
 import ReceptionistDashboard from "@/components/dashboard/receptionist-dashboard";
+import PharmacistDashboard from "@/components/dashboard/pharmacist-dashboard";
 
 interface DashboardStats {
   totalPatients?: number;
@@ -62,7 +63,14 @@ export default function DashboardPage() {
   const [loadState, setLoadState] = React.useState<LoadState>("loading");
 
   React.useEffect(() => {
-    if (sessionStatus !== "authenticated" || roleName === "DOCTOR" || roleName === "RECEPTIONIST") return;
+    if (
+      sessionStatus !== "authenticated" ||
+      roleName === "DOCTOR" ||
+      roleName === "RECEPTIONIST" ||
+      roleName === "PHARMACIST"
+    ) {
+      return;
+    }
 
     let cancelled = false;
 
@@ -92,6 +100,7 @@ export default function DashboardPage() {
 
   if (roleName === "DOCTOR") return <DoctorDashboard />;
   if (roleName === "RECEPTIONIST") return <ReceptionistDashboard />;
+  if (roleName === "PHARMACIST") return <PharmacistDashboard />;
 
   const effectiveState: LoadState =
     sessionStatus === "unauthenticated" ? "error" : loadState;

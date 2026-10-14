@@ -1,13 +1,11 @@
 import {
   Bed,
-  Calendar,
   CalendarCheck,
   CalendarPlus,
   ClipboardList,
   FilePlus,
   FileText,
   HeartPulse,
-  Package,
   Pill,
   PlusCircle,
   Receipt,
@@ -175,19 +173,9 @@ const profiles: Record<string, DashboardProfile> = {
     key: "pharmacy",
     label: "Pharmacy",
     subtitle: "Prescriptions to dispense and medicine stock.",
-    moduleDashboard: "/pharmacy",
-    stats: [
-      metric("totalPatients", "Total Patients", "All time total", Users, TONE.emerald),
-      metric("todayAppointments", "OPD Today", "Patients seen today", CalendarCheck, TONE.teal),
-      metric("totalDoctors", "Doctors", "Prescribing doctors", Stethoscope, TONE.cyan),
-      bedOccupancy(TONE.violet)
-    ],
-    quickActions: [
-      { title: "Dispense Medicines", href: "/pharmacy/dispensing", icon: Pill, color: ACTION.emerald },
-      { title: "Prescriptions", href: "/pharmacy/prescriptions", icon: ClipboardList, color: ACTION.teal },
-      { title: "Stock", href: "/pharmacy/stock", icon: Package, color: ACTION.cyan },
-      { title: "Expiry", href: "/pharmacy/expiry", icon: Calendar, color: ACTION.slate }
-    ],
+    moduleDashboard: null,
+    stats: [],
+    quickActions: [],
     showRecentPatients: false
   },
 
