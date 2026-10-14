@@ -23,18 +23,6 @@ interface SidebarProps {
   setMobileOpen?: (open: boolean) => void;
 }
 
-/**
- * Client-side Home entry shown at the very top of the Receptionist sidebar.
- * Rendered locally so the API / menu catalogue stays untouched; it opens the
- * existing role-aware Dashboard page.
- */
-const HOME_MENU: MenuItem = {
-  _id: "receptionist-home",
-  name: "Home",
-  path: "/dashboard/main",
-  icon: "Home",
-};
-
 export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) => {
   const pathname = usePathname();
   const { data: session } = useSession();
@@ -91,12 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
   }, [pathname]);
 
 
-  const isReceptionist = session?.user?.roleName === "RECEPTIONIST";
-
-  const displayMenus = React.useMemo(() => {
-    if (!isReceptionist) return menus;
-    return [HOME_MENU, ...menus];
-  }, [menus, isReceptionist]);
+  const displayMenus = menus;
 
   // Home is active while the dashboard page is open. The real route is
   // /dashboard/main (the role-aware reception dashboard); "/dashboard" is

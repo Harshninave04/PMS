@@ -23,6 +23,12 @@ const prescriptionSchema = new Schema<IPrescription>(
             ref: 'Appointment',
             required: false
         },
+        admissionId: {
+            type: Types.ObjectId,
+            ref: 'Admission',
+            required: false,
+            index: true
+        },
         visitDate: {
             type: Date,
             required: true

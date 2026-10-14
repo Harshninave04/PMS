@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface IClinicalRecord extends Document {
   patient: mongoose.Types.ObjectId;
+  admissionId?: mongoose.Types.ObjectId;
   doctor?: mongoose.Types.ObjectId;
   appointmentId?: mongoose.Types.ObjectId;
   recordType: string; // e.g., "Consultation", "Progress Note", "Clinical Note", "Treatment Plan", "Medical History", "Allergy", "Clinical Order", "Referral", "Follow-Up", "Patient Problem"
@@ -22,6 +23,10 @@ export interface IClinicalRecord extends Document {
   instructions?: string;
   problemStatus?: string; // "Active" | "Chronic" | "Inactive" | "Resolved"
   resolutionDate?: Date;
+  // Ward-round visit detail (recordType "Progress Note" linked to a stay)
+  visitType?: string; // "Round" | "Admission Review" | "Pre-Discharge" | "Emergency"
+  painScore?: number; // 0-10
+  condition?: string; // "Improving" | "Stable" | "Deteriorating" | "Critical"
   dateRecorded: Date;
   status: "Draft" | "Final";
 }
@@ -29,6 +34,7 @@ export interface IClinicalRecord extends Document {
 const ClinicalRecordSchema: Schema = new Schema(
   {
     patient: { type: Schema.Types.ObjectId, ref: "Patient", required: true },
+    admissionId: { type: Schema.Types.ObjectId, ref: "Admission" },
     doctor: { type: Schema.Types.ObjectId, ref: "User" },
     appointmentId: { type: Schema.Types.ObjectId, ref: "Appointment" },
     recordType: { type: String, required: true, default: "Consultation" },
@@ -49,6 +55,9 @@ const ClinicalRecordSchema: Schema = new Schema(
     instructions: { type: String },
     problemStatus: { type: String },
     resolutionDate: { type: Date },
+    visitType: { type: String },
+    painScore: { type: Number, min: 0, max: 10 },
+    condition: { type: String },
     dateRecorded: { type: Date, default: Date.now },
     status: { type: String, enum: ["Draft", "Final"], default: "Final" },
   },
@@ -59,6 +68,8 @@ ClinicalRecordSchema.index(
   { appointmentId: 1, recordType: 1 },
   { unique: true, partialFilterExpression: { appointmentId: { $type: "objectId" } } }
 );
+ClinicalRecordSchema.index({ admissionId: 1, createdAt: -1 });
+ClinicalRecordSchema.index({ patient: 1, createdAt: -1 });
 
 export const ClinicalRecord =
   mongoose.models.ClinicalRecord ||

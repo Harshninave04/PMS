@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultAdmissionService, { AdmissionService } from "@/services/admission.service";
-import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto } from "@/dto/admission.dto";
+import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto, AssignCareTeamDto } from "@/dto/admission.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
@@ -25,6 +25,12 @@ export class AdmissionController {
             // Enforce branch multi-tenancy
             if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
                 data.branchId = auth.context.branchId.toString();
+            }
+            // Default the stay to the creator's hospital scope so team-scoped
+            // rosters (which match this field) keep seeing it. The form does
+            // not send a branch.
+            if (!data.branchId && (auth.context.branchId || auth.context.organizationId)) {
+                data.branchId = (auth.context.branchId || auth.context.organizationId)!.toString();
             }
 
             // Enforce doctor relational constraint: doctor with OWN scope can only admit for themselves
@@ -340,8 +346,71 @@ export class AdmissionController {
         }
     }
 
-    async updateAdmission(request: NextRequest, id: string): Promise<NextResponse> {
+    async assignCareTeam(request: NextRequest, id: string): Promise<NextResponse> {
         try {
+            await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_UPDATE, "Admission");
+            if (!auth.isAuthorized) return auth.response;
+
+            if (!Types.ObjectId.isValid(id)) {
+                return NextResponse.json(
+                    { success: false, message: "Invalid admission ID" },
+                    { status: 400 }
+                );
+            }
+
+            const existing = await this.admissionService.getAdmissionById(new Types.ObjectId(id));
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
+                if (admBranch && admBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Admission belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            const data: AssignCareTeamDto = await request.json();
+            if (data.nurseIds === undefined && data.doctorIds === undefined) {
+                return NextResponse.json(
+                    { success: false, message: "Provide nurseIds and/or doctorIds to assign" },
+                    { status: 400 }
+                );
+            }
+
+            // Heal stays recorded before branch stamping so the care team can
+            // actually see them in their rosters.
+            if (!existing.branchId && (auth.context.branchId || auth.context.organizationId)) {
+                await this.admissionService.updateAdmission(new Types.ObjectId(id), {
+                    branchId: (auth.context.branchId || auth.context.organizationId)!.toString(),
+                } as UpdateAdmissionDto);
+            }
+
+            const admission = await this.admissionService.assignCareTeam(
+                new Types.ObjectId(id),
+                data,
+                auth.context.userId
+            );
+
+            return NextResponse.json(
+                { success: true, message: "Care team updated successfully", data: admission },
+                { status: 200 }
+            );
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to update care team");
+            return NextResponse.json(
+                { success: false, message },
+                { status: err?.statusCode ?? 500 }
+            );
+        }
+    }
+
+    async updateAdmission(request: NextRequest, id: string): Promise<NextResponse> {        try {
             await dbConnect();
             const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_UPDATE, "Admission");
             if (!auth.isAuthorized) return auth.response;

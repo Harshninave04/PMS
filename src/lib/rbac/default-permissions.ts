@@ -72,6 +72,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]
 
         ...act("opd", "queue", "view", "update"),
         ...act("opd", "completed-today", "view"),
+
+        ...act("clinical", "rounds", "view", "create", "update"),
     ],
 
     NURSE: [
@@ -86,6 +88,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]
         ...crud("nursing", "medications"),
 
         ...act("clinical", "vitals", "view", "create", "update"),
+
+        ...act("clinical", "rounds", "view"),
 
         ...act("wards", "availability", "view"),
         ...act("wards", "list", "view"),

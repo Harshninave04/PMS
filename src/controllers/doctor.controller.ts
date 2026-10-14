@@ -25,7 +25,7 @@ export class DoctorController {
 
             // If user information is provided directly, find or create the User
             if (!userId && body.email && body.name) {
-                let existingUser = await User.findOne({ email: body.email.toLowerCase().trim() });
+                let existingUser = await User.findOne({ email: body.email.toLowerCase().trim() }).populate("role", "role");
                 if (!existingUser) {
                     let doctorRole = await Role.findOne({ role: "DOCTOR" });
                     if (!doctorRole) {
@@ -42,8 +42,28 @@ export class DoctorController {
                         gender: body.gender || "OTHER",
                         phone: body.phone,
                         role: doctorRole._id,
+                        // Stamp the hospital scope so branch-scoped pickers
+                        // (admit dropdown, care-team dialog) can see this user.
+                        organization: authResult.context.organizationId,
+                        branch: authResult.context.branchId,
                         isActive: true
                     });
+                } else {
+                    // Never silently attach a doctor profile to a nurse /
+                    // receptionist / pharmacist login: that login would show up
+                    // in the doctors list while signing in as another role.
+                    const existingRole = ((existingUser.role as unknown as { role?: string })?.role ?? "").toUpperCase();
+                    if (existingRole && existingRole !== "DOCTOR" && existingRole !== "ADMIN") {
+                        return NextResponse.json(
+                            { success: false, message: `This email belongs to a ${existingRole} login. Change their role to Doctor first (Admin → Users), or use a different email.` },
+                            { status: 400 }
+                        );
+                    }
+                    // Adopt scope for legacy users created without it.
+                    if (!existingUser.organization && authResult.context.organizationId) {
+                        existingUser.organization = authResult.context.organizationId;
+                        await existingUser.save();
+                    }
                 }
                 userId = existingUser._id.toString();
             }
@@ -111,6 +131,31 @@ export class DoctorController {
             const search = searchParams.get("search")?.toLowerCase().trim();
 
             let doctors = await this.doctorService.getAllDoctors();
+
+            // Hygiene: a doctor profile linked to a non-doctor login (created
+            // before the create guard) must not appear in the doctors list.
+            // One role lookup covers the whole roster.
+            const userIds = doctors
+                .map((d) => (d.userId as { _id?: unknown })?._id ?? d.userId)
+                .filter((v) => v && Types.ObjectId.isValid((v as object).toString()));
+            const roleByUserId = new Map<string, string>();
+            if (userIds.length > 0) {
+                const users = await User.find({ _id: { $in: userIds } })
+                    .populate("role", "role")
+                    .select("_id role")
+                    .lean();
+                for (const u of users) {
+                    const r = ((u.role as unknown as { role?: string })?.role ?? "").toUpperCase();
+                    roleByUserId.set((u._id as Types.ObjectId).toString(), r);
+                }
+            }
+            doctors = doctors.filter((d) => {
+                const uid = ((d.userId as { _id?: unknown })?._id ?? d.userId)?.toString?.() ?? "";
+                const role = roleByUserId.get(uid);
+                // Keep profiles whose user is gone (admin cleanup) or is a
+                // doctor/admin; hide nurse/receptionist/pharmacist logins.
+                return !role || role === "DOCTOR" || role === "ADMIN";
+            });
 
             // Scope filter check (e.g. department boundary)
             if (authResult.filter.departmentId) {
@@ -210,6 +255,23 @@ export class DoctorController {
                     { success: false, message: "Invalid user ID format" },
                     { status: 400 }
                 );
+            }
+
+            if (body.userId) {
+                const linked = await User.findById(body.userId).populate("role", "role").lean();
+                if (!linked) {
+                    return NextResponse.json(
+                        { success: false, message: "Linked user not found" },
+                        { status: 404 }
+                    );
+                }
+                const linkedRole = ((linked.role as unknown as { role?: string })?.role ?? "").toUpperCase();
+                if (linkedRole && linkedRole !== "DOCTOR" && linkedRole !== "ADMIN") {
+                    return NextResponse.json(
+                        { success: false, message: `That login belongs to a ${linkedRole}. Change their role to Doctor first (Admin → Users).` },
+                        { status: 400 }
+                    );
+                }
             }
 
             if (body.departmentId && !Types.ObjectId.isValid(body.departmentId)) {

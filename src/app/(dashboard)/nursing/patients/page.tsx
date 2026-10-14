@@ -21,7 +21,11 @@ import {
   Eye,
   ShieldAlert,
   Loader2,
-  BedDouble
+  BedDouble,
+  ClipboardList,
+  CheckCircle2,
+  Play,
+  Ban
 } from "lucide-react";
 
 export default function MyInpatientsPage() {
@@ -47,6 +51,14 @@ function MyInpatientsContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Doctor instructions for my allotted patients
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+
+  // Shared stay timeline (instructions + meds + vitals + notes)
+  const [timeline, setTimeline] = useState<any>(null);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [wardFilter, setWardFilter] = useState("ALL");
@@ -56,12 +68,23 @@ function MyInpatientsContent() {
 
   const loadData = async () => {
     try {
-      const res = await fetch("/api/nursing/my-patients");
-      const data = await res.json();
+      const [rosterRes, tasksRes] = await Promise.all([
+        fetch("/api/nursing/my-patients"),
+        fetch("/api/care-tasks"),
+      ]);
+      const data = await rosterRes.json();
       if (data.success) {
         setInpatients(data.data || []);
       } else {
         toast("Failed to load inpatients", "error");
+      }
+      try {
+        const tasksData = await tasksRes.json();
+        if (tasksRes.ok && tasksData.success) setTasks(tasksData.data || []);
+      } catch {
+        // Tasks are supplementary; roster is primary.
+      } finally {
+        setTasksLoading(false);
       }
     } catch (err) {
       toast("An error occurred while loading patient roster", "error");
@@ -77,8 +100,57 @@ function MyInpatientsContent() {
 
   const handleRefresh = () => {
     setRefreshing(true);
+    setTasksLoading(true);
     loadData();
   };
+
+  const openTimeline = async (patient: any) => {
+    setSelectedPatient(patient);
+    setTimeline(null);
+    setTimelineLoading(true);
+    try {
+      const res = await fetch(
+        `/api/care-tasks/timeline?admissionId=${patient.admissionId}`
+      );
+      const data = await res.json();
+      if (res.ok && data.success) setTimeline(data.data);
+    } catch {
+      // Timeline is supplementary.
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
+
+  const actOnTask = async (task: any, status: string) => {
+    try {
+      const res = await fetch(`/api/care-tasks/${task._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast(`Instruction ${status.toLowerCase()}`, "success");
+        setTasks((prev) =>
+          prev.map((t) => (t._id === task._id ? data.data : t))
+        );
+        if (selectedPatient) openTimeline(selectedPatient);
+      } else {
+        toast(data.message || "Failed to update instruction", "error");
+      }
+    } catch {
+      toast("Error updating instruction", "error");
+    }
+  };
+
+  const openTasks = useMemo(
+    () => tasks.filter((t) => ["NEW", "ACKNOWLEDGED", "IN_PROGRESS"].includes(t.status)),
+    [tasks]
+  );
+  const doneTasks = useMemo(
+    () => tasks.filter((t) => ["COMPLETED", "CANCELLED"].includes(t.status)),
+    [tasks]
+  );
 
   // Distinct Wards
   const availableWards = useMemo(() => {
@@ -174,10 +246,11 @@ function MyInpatientsContent() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             <Users className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
-            Ward Inpatient Care Roster
+            My Allotted Patients
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Admitted patient management, assigned beds, primary physician care orders, and bedside interventions.
+            Only patients allotted to you by the care-team desk. Doctor
+            instructions for these patients appear in your inbox below.
           </p>
         </div>
 
@@ -214,6 +287,123 @@ function MyInpatientsContent() {
         </div>
       </div>
 
+      {/* Doctor-instructions inbox */}
+      <Card className="border shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <ClipboardList className="h-5 w-5 text-emerald-600" />
+            Doctor Instructions
+            {openTasks.length > 0 && (
+              <Badge className="bg-amber-100 text-amber-800 border-amber-300">
+                {openTasks.length} open
+              </Badge>
+            )}
+          </CardTitle>
+          <CardDescription>
+            New instructions from doctors for your allotted patients. Acknowledge,
+            start and complete each one here.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {tasksLoading ? (
+            <div className="flex items-center gap-2 text-xs text-slate-500 py-4">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading instructions…
+            </div>
+          ) : tasks.length === 0 ? (
+            <p className="text-xs text-slate-500 py-4">
+              No instructions yet. When a doctor leaves a note for your patient,
+              it appears here — not in the general roster.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {openTasks.length === 0 && (
+                <p className="text-xs text-emerald-600 font-medium py-1">
+                  All caught up — {doneTasks.length} completed.
+                </p>
+              )}
+              {openTasks.slice(0, 10).map((t) => (
+                <div
+                  key={t._id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border p-3"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-xs text-slate-900 dark:text-white">
+                        {t.title}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className={
+                          t.priority === "STAT"
+                            ? "text-[10px] text-rose-600 border-rose-300"
+                            : t.priority === "Urgent"
+                              ? "text-[10px] text-amber-600 border-amber-300"
+                              : "text-[10px] text-slate-500"
+                        }
+                      >
+                        {t.priority}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px]">
+                        {t.status}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1 truncate">
+                      {t.patientId?.name ?? "Patient"} • by{" "}
+                      {t.authorId?.name ?? "Doctor"} •{" "}
+                      {t.createdAt ? new Date(t.createdAt).toLocaleString() : ""}
+                      {t.detail ? ` — ${t.detail}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {t.status === "NEW" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => actOnTask(t, "ACKNOWLEDGED")}
+                      >
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Acknowledge
+                      </Button>
+                    )}
+                    {(t.status === "NEW" || t.status === "ACKNOWLEDGED") && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => actOnTask(t, "IN_PROGRESS")}
+                      >
+                        <Play className="h-3 w-3 mr-1" />
+                        Start
+                      </Button>
+                    )}
+                    {(t.status === "ACKNOWLEDGED" || t.status === "IN_PROGRESS") && (
+                      <Button
+                        size="sm"
+                        className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() => actOnTask(t, "COMPLETED")}
+                      >
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Done
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-slate-400"
+                      title="Cancel instruction"
+                      onClick={() => actOnTask(t, "CANCELLED")}
+                    >
+                      <Ban className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Filter Bar */}
       <Card className="border shadow-sm">
         <CardContent className="p-3">
@@ -249,9 +439,9 @@ function MyInpatientsContent() {
       {/* Inpatients Table */}
       <Card className="border shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">Inpatients under Nursing Care</CardTitle>
+          <CardTitle className="text-base font-semibold">My Allotted Inpatients</CardTitle>
           <CardDescription>
-            Showing {filteredInpatients.length} of {inpatients.length} currently admitted ward patients
+            Showing {filteredInpatients.length} of {inpatients.length} patients allotted to you
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -272,7 +462,8 @@ function MyInpatientsContent() {
                 {filteredInpatients.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-slate-500 py-12 text-xs">
-                      No admitted inpatients found matching filter criteria.
+                      No patients allotted to you yet. The care-team desk (admissions)
+                      allots nurses to each stay — ask them to add you.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -330,7 +521,7 @@ function MyInpatientsContent() {
                             variant="outline"
                             size="sm"
                             className="h-7 px-2 text-xs flex items-center gap-1 text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                            onClick={() => setSelectedPatient(p)}
+                            onClick={() => openTimeline(p)}
                           >
                             <Eye className="h-3 w-3" />
                             Card
@@ -340,7 +531,7 @@ function MyInpatientsContent() {
                             variant="outline"
                             size="sm"
                             className="h-7 px-2 text-xs flex items-center gap-1 text-rose-600 border-rose-200 hover:bg-rose-50"
-                            onClick={() => router.push(`/nursing/vitals?patientId=${p.patientId}`)}
+                            onClick={() => router.push(`/nursing/vitals?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
                           >
                             <HeartPulse className="h-3 w-3" />
                             Vitals
@@ -350,7 +541,7 @@ function MyInpatientsContent() {
                             variant="outline"
                             size="sm"
                             className="h-7 px-2 text-xs flex items-center gap-1 text-purple-600 border-purple-200 hover:bg-purple-50"
-                            onClick={() => router.push(`/nursing/medications?patientId=${p.patientId}`)}
+                            onClick={() => router.push(`/nursing/medications?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
                           >
                             <Pill className="h-3 w-3" />
                             Meds
@@ -447,7 +638,7 @@ function MyInpatientsContent() {
                     className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 justify-start"
                     onClick={() => {
                       setSelectedPatient(null);
-                      router.push(`/nursing/vitals?patientId=${selectedPatient.patientId}`);
+                      router.push(`/nursing/vitals?patientId=${selectedPatient.patientId}&admissionId=${selectedPatient.admissionId}`);
                     }}
                   >
                     <HeartPulse className="h-3.5 w-3.5 mr-1.5" />
@@ -460,7 +651,7 @@ function MyInpatientsContent() {
                     className="text-xs text-purple-600 border-purple-200 hover:bg-purple-50 justify-start"
                     onClick={() => {
                       setSelectedPatient(null);
-                      router.push(`/nursing/medications?patientId=${selectedPatient.patientId}`);
+                      router.push(`/nursing/medications?patientId=${selectedPatient.patientId}&admissionId=${selectedPatient.admissionId}`);
                     }}
                   >
                     <Pill className="h-3.5 w-3.5 mr-1.5" />
@@ -473,13 +664,135 @@ function MyInpatientsContent() {
                     className="text-xs text-cyan-600 border-cyan-200 hover:bg-cyan-50 justify-start"
                     onClick={() => {
                       setSelectedPatient(null);
-                      router.push(`/nursing/notes?patientId=${selectedPatient.patientId}`);
+                      router.push(`/nursing/notes?patientId=${selectedPatient.patientId}&admissionId=${selectedPatient.admissionId}`);
                     }}
                   >
                     <FileText className="h-3.5 w-3.5 mr-1.5" />
                     Nurse Note
                   </Button>
                 </div>
+              </div>
+
+              {/* Shared stay timeline: doctor sees what nurse did and vice versa */}
+              <div className="p-3 border rounded-lg space-y-2">
+                <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                  Stay Timeline — instructions, meds given, vitals
+                </span>
+                {timelineLoading ? (
+                  <div className="flex items-center gap-2 text-[11px] text-slate-500 py-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading timeline…
+                  </div>
+                ) : !timeline ? (
+                  <p className="text-[11px] text-slate-500">Timeline unavailable.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {(timeline.tasks ?? []).length > 0 && (
+                      <div>
+                        <span className="text-[11px] font-semibold block mb-1">
+                          Doctor instructions ({timeline.tasks.length})
+                        </span>
+                        {(timeline.tasks ?? []).slice(0, 5).map((t: any) => (
+                          <div key={t._id} className="text-[11px] flex items-center justify-between gap-2 py-1 border-b last:border-0">
+                            <span className="truncate">
+                              {t.title} <span className="text-slate-400">• {t.status} • {t.authorId?.name ?? "Doctor"}</span>
+                            </span>
+                            {["NEW", "ACKNOWLEDGED", "IN_PROGRESS"].includes(t.status) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-6 px-2 text-[10px] shrink-0"
+                                onClick={() =>
+                                  actOnTask(
+                                    t,
+                                    t.status === "NEW"
+                                      ? "ACKNOWLEDGED"
+                                      : t.status === "ACKNOWLEDGED"
+                                        ? "IN_PROGRESS"
+                                        : "COMPLETED"
+                                  )
+                                }
+                              >
+                                {t.status === "NEW" ? "Ack" : t.status === "ACKNOWLEDGED" ? "Start" : "Done"}
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(timeline.medications ?? []).length > 0 && (
+                      <div>
+                        <span className="text-[11px] font-semibold block mb-1">
+                          Meds — at x time patient got y ({timeline.medications.length})
+                        </span>
+                        {(timeline.medications ?? []).slice(0, 5).map((m: any) => (
+                          <div key={m._id} className="text-[11px] py-1 border-b last:border-0">
+                            <span className="font-medium">{m.medicationName}</span> {m.dosage}
+                            <span className="text-slate-400">
+                              {" "}• {m.status}
+                              {m.administeredTime ? ` at ${new Date(m.administeredTime).toLocaleString()}` : ""}
+                              {m.administeredBy?.name ? ` by ${m.administeredBy.name}` : ""}
+                              {m.withheldReason ? ` (${m.withheldReason})` : ""}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(timeline.vitals ?? []).length > 0 && (
+                      <div>
+                        <span className="text-[11px] font-semibold block mb-1">
+                          Latest vitals ({timeline.vitals.length})
+                        </span>
+                        {(timeline.vitals ?? []).slice(0, 3).map((v: any) => (
+                          <div key={v._id} className="text-[11px] text-slate-600 py-0.5">
+                            {v.dateRecorded ? new Date(v.dateRecorded).toLocaleString() : ""} — BP{" "}
+                            {v.bloodPressure ?? "—"}, HR {v.heartRate ?? "—"}, SpO2{" "}
+                            {v.oxygenSaturation ?? "—"}
+                            {v.recordedBy?.name ? ` (by ${v.recordedBy.name})` : ""}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(timeline.visits ?? []).length > 0 && (
+                      <div>
+                        <span className="text-[11px] font-semibold block mb-1">
+                          Doctor visits ({timeline.visits.length})
+                        </span>
+                        {(timeline.visits ?? []).slice(0, 3).map((v: any) => (
+                          <div key={v._id} className="text-[11px] text-slate-600 py-0.5">
+                            {v.dateRecorded ? new Date(v.dateRecorded).toLocaleString() : ""} — {v.visitType ?? "Round"}
+                            {v.condition ? ` • ${v.condition}` : ""}
+                            {v.painScore !== undefined && v.painScore !== null ? ` • pain ${v.painScore}/10` : ""}
+                            {v.doctor?.name ? ` (Dr. ${v.doctor.name})` : ""}
+                            {v.assessment ? ` — ${v.assessment}` : ""}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(timeline.orders ?? []).length > 0 && (
+                      <div>
+                        <span className="text-[11px] font-semibold block mb-1">
+                          Timed medication orders ({timeline.orders.length})
+                        </span>
+                        {(timeline.orders ?? []).slice(0, 4).map((o: any) => (
+                          <div key={o._id} className="text-[11px] text-slate-600 py-0.5">
+                            {o.medicationName} {o.dosage} • {o.frequency}
+                            {o.timesOfDay?.length > 0 ? ` at ${o.timesOfDay.join(", ")}` : ""} • {o.status}
+                            {o.doseCounts && ` (given ${o.doseCounts.GIVEN ?? 0}, pending ${o.doseCounts.PENDING ?? 0})`}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(timeline.tasks ?? []).length === 0 &&
+                      (timeline.medications ?? []).length === 0 &&
+                      (timeline.vitals ?? []).length === 0 &&
+                      (timeline.visits ?? []).length === 0 &&
+                      (timeline.orders ?? []).length === 0 && (
+                        <p className="text-[11px] text-slate-500">
+                          Nothing recorded for this stay yet.
+                        </p>
+                      )}
+                  </div>
+                )}
               </div>
 
               <DialogFooter className="pt-2">

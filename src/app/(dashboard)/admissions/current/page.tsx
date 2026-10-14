@@ -44,6 +44,72 @@ export default function CurrentAdmissionsPage() {
   const [selectedAdmission, setSelectedAdmission] = useState<any>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
+  // Care-team assignment state (allocate nurses/doctors to a stay)
+  const [careTeamOpen, setCareTeamOpen] = useState(false);
+  const [careTeamAdmission, setCareTeamAdmission] = useState<any>(null);
+  const [directoryUsers, setDirectoryUsers] = useState<any[]>([]);
+  const [selectedNurseIds, setSelectedNurseIds] = useState<string[]>([]);
+  const [selectedDoctorIds, setSelectedDoctorIds] = useState<string[]>([]);
+  const [careTeamSaving, setCareTeamSaving] = useState(false);
+
+  const idOf = (v: any): string => v?._id?.toString?.() ?? v?.toString?.() ?? "";
+
+  const openCareTeam = async (admission: any) => {
+    setCareTeamAdmission(admission);
+    setSelectedNurseIds((admission.assignedNurses ?? []).map(idOf));
+    setSelectedDoctorIds((admission.assignedDoctors ?? []).map(idOf));
+    setCareTeamOpen(true);
+    try {
+      const res = await fetch("/api/user/directory");
+      const result = await res.json();
+      if (res.ok && result.success) setDirectoryUsers(result.data || []);
+    } catch {
+      // Directory is best-effort; dialog still shows current team.
+    }
+  };
+
+  const toggleId = (list: string[], id: string): string[] =>
+    list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+
+  const saveCareTeam = async () => {
+    if (!careTeamAdmission) return;
+    setCareTeamSaving(true);
+    try {
+      const res = await fetch(`/api/admission/${careTeamAdmission._id}/care-team`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nurseIds: selectedNurseIds, doctorIds: selectedDoctorIds }),
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        toast("Care team updated — nurses now see only their allotted patients", "success");
+        setCareTeamOpen(false);
+        setCareTeamAdmission(null);
+        fetchAdmissions();
+      } else {
+        toast(result.message || "Failed to update care team", "error");
+      }
+    } catch {
+      toast("An error occurred while updating the care team", "error");
+    } finally {
+      setCareTeamSaving(false);
+    }
+  };
+
+  const nurseCandidates = directoryUsers.filter((u) => {
+    // `/api/user/directory` populates `role` as { _id, role: "NURSE" }.
+    const raw = u.roleName ?? u.role?.role ?? u.role ?? "";
+    const role = (typeof raw === "string" ? raw : "").toUpperCase();
+    // Fail open: a user whose role cannot be resolved is still pickable —
+    // the server re-validates on save.
+    return !role || role.includes("NURSE") || role === "ADMIN";
+  });
+  const doctorCandidates = directoryUsers.filter((u) => {
+    const raw = u.roleName ?? u.role?.role ?? u.role ?? "";
+    const role = (typeof raw === "string" ? raw : "").toUpperCase();
+    return !role || role.includes("DOCTOR") || role === "ADMIN";
+  });
+
   const fetchAdmissions = async () => {
     try {
       const res = await fetch("/api/admission?status=ACTIVE");
@@ -423,6 +489,25 @@ export default function CurrentAdmissionsPage() {
                         <div className="text-xs text-slate-500 truncate max-w-[150px]">
                           {adm.doctorId?.email || ""}
                         </div>
+                        {(adm.assignedNurses?.length > 0 || adm.assignedDoctors?.length > 0) && (
+                          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5">
+                            Team:{" "}
+                            {[
+                              ...(adm.assignedNurses ?? []).map(
+                                (n: any) => n?.name ?? "Nurse"
+                              ),
+                              ...(adm.assignedDoctors ?? []).map(
+                                (d: any) => `Dr. ${d?.name ?? ""}`
+                              ),
+                            ]
+                              .filter(Boolean)
+                              .slice(0, 3)
+                              .join(", ")}
+                            {(adm.assignedNurses?.length ?? 0) +
+                              (adm.assignedDoctors?.length ?? 0) >
+                              3 && " +more"}
+                          </div>
+                        )}
                       </TableCell>
 
                       {/* Admission Date */}
@@ -469,6 +554,17 @@ export default function CurrentAdmissionsPage() {
                             onClick={() => openDetails(adm)}
                           >
                             <Eye className="h-4 w-4 text-slate-500" />
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs flex items-center gap-1"
+                            title="Allocate nurses / doctors to this stay"
+                            onClick={() => openCareTeam(adm)}
+                          >
+                            <UserPlus className="h-3 w-3" />
+                            Care Team
                           </Button>
 
                           <Button
@@ -551,6 +647,35 @@ export default function CurrentAdmissionsPage() {
                       {selectedAdmission.doctorId?.email}
                     </div>
                   </div>
+                </div>
+
+                {/* Care team (nurses/doctors allotted to this stay) */}
+                <div className="p-3 border rounded-lg space-y-2">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
+                    Care Team — only these nurses see this patient in their roster
+                  </span>
+                  {((selectedAdmission.assignedNurses?.length ?? 0) > 0 ||
+                    (selectedAdmission.assignedDoctors?.length ?? 0) > 0) ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {(selectedAdmission.assignedNurses ?? []).map((n: any) => (
+                        <Badge key={idOf(n)} variant="outline" className="text-xs">
+                          <User className="h-3 w-3 mr-1" />
+                          {n?.name ?? "Nurse"}
+                        </Badge>
+                      ))}
+                      {(selectedAdmission.assignedDoctors ?? []).map((d: any) => (
+                        <Badge key={idOf(d)} variant="outline" className="text-xs">
+                          <Shield className="h-3 w-3 mr-1" />
+                          Dr. {d?.name ?? ""}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      No nurses allotted yet — nurses see an empty roster until
+                      someone is assigned. Use “Care Team” below.
+                    </p>
+                  )}
                 </div>
 
                 {/* Admission Timestamps */}
@@ -665,6 +790,17 @@ export default function CurrentAdmissionsPage() {
                   Close
                 </Button>
                 <Button
+                  variant="outline"
+                  onClick={() => {
+                    const adm = selectedAdmission;
+                    setDetailsOpen(false);
+                    openCareTeam(adm);
+                  }}
+                >
+                  <UserPlus className="h-4 w-4 mr-1.5" />
+                  Care Team
+                </Button>
+                <Button
                   className="bg-emerald-600 hover:bg-emerald-700 text-white"
                   onClick={() => {
                     setDetailsOpen(false);
@@ -687,6 +823,107 @@ export default function CurrentAdmissionsPage() {
               </DialogFooter>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Care-team assignment dialog */}
+      <Dialog open={careTeamOpen} onOpenChange={setCareTeamOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-emerald-600" />
+              Allot Care Team
+            </DialogTitle>
+            <DialogDescription>
+              {careTeamAdmission?.patientId?.name ?? "Patient"} — tick nurses (and
+              extra doctors) who may handle this stay. Only allotted nurses see
+              this patient; you can allot more nurses any time.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2 text-xs">
+            <div>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
+                Nurses ({selectedNurseIds.length} allotted)
+              </span>
+              {nurseCandidates.length === 0 ? (
+                <p className="text-slate-500">Loading staff directory…</p>
+              ) : (
+                <div className="max-h-44 overflow-y-auto border rounded-lg divide-y">
+                  {nurseCandidates.map((u) => (
+                    <label
+                      key={u._id}
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedNurseIds.includes(u._id)}
+                        onChange={() =>
+                          setSelectedNurseIds(toggleId(selectedNurseIds, u._id))
+                        }
+                        className="h-4 w-4 accent-emerald-600"
+                      />
+                      <span className="font-medium text-slate-900 dark:text-white">
+                        {u.name}
+                      </span>
+                      <span className="text-slate-400">{u.email}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
+                Additional doctors ({selectedDoctorIds.length} allotted)
+              </span>
+              {doctorCandidates.length === 0 ? (
+                <p className="text-slate-500">Loading staff directory…</p>
+              ) : (
+                <div className="max-h-44 overflow-y-auto border rounded-lg divide-y">
+                  {doctorCandidates.map((u) => (
+                    <label
+                      key={u._id}
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedDoctorIds.includes(u._id)}
+                        onChange={() =>
+                          setSelectedDoctorIds(toggleId(selectedDoctorIds, u._id))
+                        }
+                        className="h-4 w-4 accent-emerald-600"
+                      />
+                      <span className="font-medium text-slate-900 dark:text-white">
+                        Dr. {u.name}
+                      </span>
+                      <span className="text-slate-400">{u.email}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => setCareTeamOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={saveCareTeam}
+              disabled={careTeamSaving}
+            >
+              {careTeamSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                "Save Care Team"
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

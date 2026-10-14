@@ -134,6 +134,8 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     post("/clinical/vitals", K("clinical", "vitals", "create")),
     del("/clinical/vitals/[id]", K("clinical", "vitals", "delete")),
     get("/clinical/stats", K("clinical", "consultations", "view")),
+    get("/clinical/visits", K("clinical", "rounds", "view")),
+    post("/clinical/visits", K("clinical", "rounds", "create")),
     { path: "/prescription", method: "GET", permission: K("clinical", "prescriptions", "view") },
     post("/prescription", K("clinical", "prescriptions", "prescribe")),
     { path: "/prescription/[id]", method: "GET", permission: K("clinical", "prescriptions", "view") },
@@ -149,6 +151,7 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     post("/admission/discharge", K("admissions", "discharge", "discharge")),
     post("/admission/transfer", K("admissions", "transfer", "create")),
     get("/admission/stats", K("admissions", "current", "view")),
+    { path: "/admission/[id]/care-team", method: "PUT", permission: K("admissions", "current", "update") },
 
     // Wards
     get("/ward", K("wards", "list", "view")),
@@ -176,6 +179,20 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     { path: "/nursing/medications/[id]", method: "PUT", permission: K("nursing", "medications", "update") },
     { path: "/nursing/medications/[id]", method: "DELETE", permission: K("nursing", "medications", "delete") },
 
+    // Inpatient medication orders (doctor prescribes timed courses; nurse
+    // executes the generated doses on the eMAR worklist).
+    get("/medication-orders", K("clinical", "rounds", "view")),
+    post("/medication-orders", K("clinical", "rounds", "create")),
+    { path: "/medication-orders/[id]", method: "PUT", permission: K("clinical", "rounds", "update") },
+
+    // Care-team coordination (doctor instructions + shared stay timeline).
+    // Nurses open these via their nursing permissions; doctors via OPD queue.
+    get("/care-tasks", K("nursing", "medications", "view")),
+    post("/care-tasks", K("nursing", "medications", "create")),
+    { path: "/care-tasks/[id]", method: "PUT", permission: K("nursing", "medications", "update") },
+    get("/care-tasks/my-inpatients", K("nursing", "patients", "view")),
+    get("/care-tasks/timeline", K("nursing", "patients", "view")),
+
     // Pharmacy
     get("/pharmacy/stats", K("pharmacy", "medicines", "view")),
     get("/pharmacy/prescriptions", K("pharmacy", "prescriptions", "view")),
@@ -197,6 +214,7 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     { path: "/pharmacy/categories/[id]", method: "DELETE", permission: K("pharmacy", "categories", "delete") },
     get("/pharmacy/stock", K("pharmacy", "stock", "view")),
     post("/pharmacy/stock", K("pharmacy", "stock", "update")),
+    get("/pharmacy/suggestions", K("pharmacy", "medicines", "view")),
 
     // Billing
     get("/invoice", K("billing", "invoices", "view")),
@@ -321,6 +339,17 @@ export const ROUTE_ALTERNATIVES: Readonly<Record<string, readonly string[]>> = {
     "GET /ward/[id]": [K("wards", "availability", "view"), K("admissions", "new", "view")],
     "GET /room": [K("wards", "availability", "view"), K("admissions", "new", "view")],
     "GET /room/[id]": [K("wards", "availability", "view"), K("admissions", "new", "view")],
+    "GET /care-tasks": [K("nursing", "patients", "view"), K("nursing", "notes", "view"), K("opd", "queue", "view"), K("clinical", "consultations", "view"), K("dashboard", "main", "view")],
+    "POST /care-tasks": [K("nursing", "notes", "create"), K("opd", "queue", "update"), K("clinical", "consultations", "create")],
+    "PUT /care-tasks/[id]": [K("nursing", "notes", "update"), K("opd", "queue", "update"), K("clinical", "consultations", "update")],
+    "GET /care-tasks/my-inpatients": [K("opd", "queue", "view"), K("dashboard", "main", "view")],
+    "GET /care-tasks/timeline": [K("nursing", "medications", "view"), K("nursing", "notes", "view"), K("opd", "queue", "view"), K("clinical", "consultations", "view"), K("dashboard", "main", "view")],
+    "GET /clinical/visits": [K("clinical", "consultations", "view"), K("nursing", "notes", "view"), K("dashboard", "main", "view")],
+    "POST /clinical/visits": [K("clinical", "consultations", "create")],
+    "GET /medication-orders": [K("clinical", "prescriptions", "view"), K("nursing", "medications", "view"), K("dashboard", "main", "view")],
+    "POST /medication-orders": [K("clinical", "prescriptions", "prescribe")],
+    "PUT /medication-orders/[id]": [K("clinical", "prescriptions", "update")],
+    "GET /pharmacy/medicines": [K("clinical", "rounds", "view")],
 };
 
 /**

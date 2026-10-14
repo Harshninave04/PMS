@@ -148,12 +148,34 @@ const admissionSchema = new Schema<IAdmission>(
         dischargeAdvice: {
             type: String
         },
+        // Care-team assignment: primary doctor stays in `doctorId`.
+        // Additional doctors/nurses share this stay. Nurses only see
+        // admissions where they are listed here (see NursingService).
+        assignedDoctors: {
+            type: [{ type: Types.ObjectId, ref: 'User' }],
+            default: []
+        },
+        assignedNurses: {
+            type: [{ type: Types.ObjectId, ref: 'User' }],
+            default: []
+        },
+        careTeamUpdatedAt: {
+            type: Date
+        },
+        careTeamUpdatedBy: {
+            type: Types.ObjectId,
+            ref: 'User'
+        },
         // Patient Transfer History
         transferHistory: {
             type: [transferHistorySchema],
             default: []
         }
     }, { timestamps: true });
+
+admissionSchema.index({ assignedNurses: 1, status: 1 });
+admissionSchema.index({ doctorId: 1, status: 1 });
+admissionSchema.index({ patientId: 1, status: 1 });
 
 const Admission = mongoose.models.Admission || model<IAdmission>('Admission', admissionSchema);
 export default Admission;

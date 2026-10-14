@@ -50,6 +50,7 @@ export default function MedicinesPage() {
   const [editingMedicine, setEditingMedicine] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
   const { toast } = useToast();
 
   const [formData, setFormData] = useState({
@@ -73,15 +74,23 @@ export default function MedicinesPage() {
   const fetchMedicines = async () => {
     try {
       setLoading(true);
-      const [medRes, catRes] = await Promise.all([
+      const [medRes, catRes, sugRes] = await Promise.all([
         fetch("/api/pharmacy/medicines"),
-        fetch("/api/pharmacy/categories")
+        fetch("/api/pharmacy/categories"),
+        fetch("/api/pharmacy/suggestions")
       ]);
       const medData = await medRes.json();
       if (medData.success) setMedicines(medData.data || []);
 
       const catData = await catRes.json();
       if (catData.success) setCategories(catData.data || []);
+
+      try {
+        const sugData = await sugRes.json();
+        if (sugRes.ok && sugData.success) setSuggestions(sugData.data || []);
+      } catch {
+        // Suggestions are supplementary.
+      }
     } catch (err) {
       console.error(err);
       toast("Failed to load medicines", "error");
@@ -113,9 +122,13 @@ export default function MedicinesPage() {
   }, [medicines, search, categoryFilter, dosageFilter]);
 
   const handleOpenCreate = () => {
+    openCreatePrefilled("");
+  };
+
+  const openCreatePrefilled = (name: string) => {
     setEditingMedicine(null);
     setFormData({
-      name: "",
+      name,
       category: categories[0]?.name || "Antibiotics",
       genericName: "",
       dosageForm: "TABLET",
@@ -131,7 +144,7 @@ export default function MedicinesPage() {
       unitPrice: 50,
       stockQuantity: 100,
       reorderLevel: 20,
-      description: ""
+      description: name ? `Added on doctor request (${name})` : ""
     });
     setIsOpen(true);
   };
@@ -291,8 +304,37 @@ export default function MedicinesPage() {
         </div>
       </div>
 
-      {/* Filter Toolbar */}
-      <Card className="border shadow-sm bg-white dark:bg-slate-900">
+      {/* Doctor requests: prescribed on rounds but missing from stock */}
+      {suggestions.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/30 shadow-sm">
+          <CardContent className="p-4">
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+              Requested by doctors — not in stock ({suggestions.length})
+            </p>
+            <p className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-400">
+              Add these to stock so ward orders can be dispensed.
+            </p>
+            <div className="mt-3 space-y-2">
+              {suggestions.slice(0, 8).map((s: any) => (
+                <div key={s.name} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white dark:bg-slate-900 px-3 py-2">
+                  <div className="text-xs">
+                    <span className="font-semibold">{s.name}</span>
+                    {s.exampleDosage && <span className="text-slate-500"> e.g. {s.exampleDosage}</span>}
+                    <span className="ml-2 text-[11px] text-amber-700">
+                      ordered {s.timesOrdered}x{s.lastOrderedAt ? `, last ${new Date(s.lastOrderedAt).toLocaleDateString()}` : ""}
+                    </span>
+                  </div>
+                  <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => openCreatePrefilled(s.name)}>
+                    <Plus className="h-3 w-3 mr-1" /> Add to stock
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Filter Toolbar */}      <Card className="border shadow-sm bg-white dark:bg-slate-900">
         <CardContent className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="relative">

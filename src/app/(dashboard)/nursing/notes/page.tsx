@@ -44,6 +44,7 @@ function NursingNotesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialPatientId = searchParams.get("patientId") || "";
+  const initialAdmissionId = searchParams.get("admissionId") || "";
   const { toast } = useToast();
 
   const [notes, setNotes] = useState<any[]>([]);
@@ -114,8 +115,13 @@ function NursingNotesContent() {
 
     setSubmitting(true);
     try {
+      const stayId =
+        initialAdmissionId ||
+        inpatients.find((p) => p.patientId === formData.patient)?.admissionId ||
+        undefined;
       const payload = {
         patient: formData.patient,
+        admissionId: stayId,
         recordType: "Nursing Note",
         title: formData.title,
         category: formData.category,
