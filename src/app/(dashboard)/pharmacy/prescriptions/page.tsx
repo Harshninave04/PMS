@@ -49,7 +49,13 @@ export default function PharmacyPrescriptionsPage() {
       const res = await fetch("/api/pharmacy/prescriptions");
       const data = await res.json();
       if (data.success) {
-        setPrescriptions(data.data || []);
+        const records = data.data || [];
+        setPrescriptions(records);
+        const requestedId = new URLSearchParams(window.location.search).get("prescriptionId");
+        if (requestedId) {
+          const requestedPrescription = records.find((prescription: { _id: string }) => prescription._id === requestedId);
+          if (requestedPrescription) setSelectedPrescription(requestedPrescription);
+        }
       }
     } catch (err) {
       toast("Failed to load prescriptions queue", "error");

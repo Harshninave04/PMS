@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import PharmacyService from "@/services/pharmacy.service";
+import PharmacyService, { PharmacyStatsRange } from "@/services/pharmacy.service";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
@@ -10,7 +10,27 @@ export class PharmacyController {
             const auth = await authorizeRequest(nextReq, PERMISSION_KEYS.PHARMACY_STOCK_VIEW, "Medicine");
             if (!auth.isAuthorized) return auth.response;
 
-            const stats = await PharmacyService.getPharmacyStats();
+            const { searchParams } = new URL(req.url);
+            const range: PharmacyStatsRange = {};
+
+            const fromParam = searchParams.get("from");
+            if (fromParam) {
+                const from = new Date(fromParam);
+                if (!isNaN(from.getTime())) range.from = from;
+            }
+
+            const toParam = searchParams.get("to");
+            if (toParam) {
+                const to = new Date(toParam);
+                if (!isNaN(to.getTime())) range.to = to;
+            }
+
+            const groupByParam = searchParams.get("groupBy");
+            if (groupByParam === "day" || groupByParam === "week" || groupByParam === "month") {
+                range.groupBy = groupByParam;
+            }
+
+            const stats = await PharmacyService.getPharmacyStats(range);
             return NextResponse.json({ success: true, data: stats }, { status: 200 });
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : "Failed to fetch stats";
@@ -29,7 +49,10 @@ export class PharmacyController {
             const filter: Record<string, unknown> = {};
             if (status) filter.paymentStatus = status;
 
-            const dispenses = await PharmacyService.getAllDispenses(filter);
+            const limitParam = Number(searchParams.get("limit"));
+            const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined;
+
+            const dispenses = await PharmacyService.getAllDispenses(filter, limit);
             return NextResponse.json({ success: true, count: dispenses.length, data: dispenses }, { status: 200 });
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : "Failed to fetch dispenses";

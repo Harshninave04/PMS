@@ -3,11 +3,33 @@ import MedicineCategory from "@/models/medicine-category.model";
 import PharmacyDispense from "@/models/pharmacy-dispense.model";
 import Prescription from "@/models/prescription.model";
 
+export type PharmacySalesGroupBy = "day" | "week" | "month";
+
+export interface PharmacyStatsRange {
+    /** Inclusive lower bound for the sales analytics window. */
+    from?: Date;
+    /** Inclusive upper bound for the sales analytics window. */
+    to?: Date;
+    /** Bucket granularity used to build the sales chart series. */
+    groupBy?: PharmacySalesGroupBy;
+}
+
+export interface PharmacySalesBucket {
+    /** ISO timestamp of the bucket start, stable React key. */
+    key: string;
+    /** Human readable bucket label, e.g. "05 Aug" or "Aug 2026". */
+    label: string;
+    /** Total collected amount for the bucket. */
+    sales: number;
+    /** Number of dispense bills in the bucket. */
+    count: number;
+}
+
 export class PharmacyService {
     /**
      * Get aggregate statistics for the Pharmacy module
      */
-    static async getPharmacyStats() {
+    static async getPharmacyStats(range: PharmacyStatsRange = {}) {
         const now = new Date();
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -51,12 +73,42 @@ export class PharmacyService {
         const allDispenses = await PharmacyDispense.find().select("totalAmount");
         const totalRevenue = allDispenses.reduce((acc, d) => acc + (d.totalAmount || 0), 0);
 
-        // Prescriptions pending dispense
+        // Prescriptions
+        const totalPrescriptions = await Prescription.countDocuments();
         const pendingPrescriptionsCount = await Prescription.countDocuments({
             dispenseStatus: { $in: ["PENDING", "PARTIAL", null] }
         });
 
         const totalCategories = await MedicineCategory.countDocuments({ isActive: true });
+
+        // Customers who purchased medicines: distinct patient per dispense, falling
+        // back to UHID or the recorded walk-in name when no patient is linked.
+        const customerAggregate = await PharmacyDispense.aggregate([
+            {
+                $group: {
+                    _id: { $ifNull: ["$patientId", { $ifNull: ["$uhid", "$patientName"] }] }
+                }
+            },
+            { $count: "count" }
+        ]);
+        const totalCustomers = customerAggregate[0]?.count ?? 0;
+
+        // Range sales analytics feeding the dashboard cards and chart.
+        const from = range.from && !isNaN(range.from.getTime()) ? range.from : startOfToday;
+        const to = range.to && !isNaN(range.to.getTime()) ? range.to : now;
+        const groupBy: PharmacySalesGroupBy = range.groupBy ?? "day";
+
+        const rangeDispenses = await PharmacyDispense.find({
+            createdAt: { $gte: from, $lte: to }
+        })
+            .select("totalAmount createdAt")
+            .lean();
+
+        const rangeTotalSales = rangeDispenses.reduce(
+            (acc, d) => acc + (d.totalAmount || 0),
+            0
+        );
+        const salesSeries = PharmacyService.buildSalesSeries(rangeDispenses, from, to, groupBy);
 
         return {
             totalMedicines,
@@ -70,9 +122,78 @@ export class PharmacyService {
             todayRevenue: Math.round(todayRevenue),
             totalDispensesCount,
             totalRevenue: Math.round(totalRevenue),
+            totalPrescriptions,
+            totalCustomers,
             pendingPrescriptionsCount,
-            totalCategories
+            totalCategories,
+            range: {
+                from: from.toISOString(),
+                to: to.toISOString(),
+                groupBy,
+                totalSales: Math.round(rangeTotalSales),
+                salesCount: rangeDispenses.length
+            },
+            salesSeries
         };
+    }
+
+    /**
+     * Buckets dispense records into a continuous, zero-filled series so the chart
+     * shows the shape of a quiet day as clearly as a busy one.
+     */
+    private static buildSalesSeries(
+        dispenses: Array<{ totalAmount?: number; createdAt?: Date | string }>,
+        from: Date,
+        to: Date,
+        groupBy: PharmacySalesGroupBy
+    ): PharmacySalesBucket[] {
+        const bucketOf = (value: Date): Date => {
+            const bucket = new Date(value.getFullYear(), value.getMonth(), value.getDate());
+            if (groupBy === "month") {
+                bucket.setDate(1);
+            } else if (groupBy === "week") {
+                // Weeks start on Monday.
+                bucket.setDate(bucket.getDate() - ((bucket.getDay() + 6) % 7));
+            }
+            return bucket;
+        };
+
+        const labelOf = (value: Date): string =>
+            groupBy === "month"
+                ? value.toLocaleDateString("en-IN", { month: "short", year: "numeric" })
+                : value.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+
+        const series: PharmacySalesBucket[] = [];
+        const indexByKey = new Map<number, number>();
+
+        const cursor = bucketOf(from);
+        const lastBucket = bucketOf(to);
+        let guard = 0;
+        while (cursor <= lastBucket && guard < 400) {
+            const time = cursor.getTime();
+            indexByKey.set(time, series.length);
+            series.push({
+                key: new Date(time).toISOString(),
+                label: labelOf(cursor),
+                sales: 0,
+                count: 0
+            });
+
+            if (groupBy === "month") cursor.setMonth(cursor.getMonth() + 1);
+            else if (groupBy === "week") cursor.setDate(cursor.getDate() + 7);
+            else cursor.setDate(cursor.getDate() + 1);
+            guard++;
+        }
+
+        for (const dispense of dispenses) {
+            if (!dispense.createdAt) continue;
+            const slot = indexByKey.get(bucketOf(new Date(dispense.createdAt)).getTime());
+            if (slot === undefined) continue;
+            series[slot].sales += dispense.totalAmount || 0;
+            series[slot].count += 1;
+        }
+
+        return series.map((bucket) => ({ ...bucket, sales: Math.round(bucket.sales) }));
     }
 
     /**
@@ -111,10 +232,12 @@ export class PharmacyService {
         return dispense;
     }
 
-    static async getAllDispenses(filter: any = {}) {
-        return PharmacyDispense.find(filter)
+    static async getAllDispenses(filter: any = {}, limit?: number) {
+        let query = PharmacyDispense.find(filter)
             .populate("prescriptionId")
             .sort({ createdAt: -1 });
+        if (limit && limit > 0) query = query.limit(Math.floor(limit));
+        return query;
     }
 
     static async getDispenseById(id: string) {
