@@ -21,10 +21,12 @@ export class ClinicalController {
       const { searchParams } = new URL(req.url);
       const patient = searchParams.get("patient");
       const recordType = searchParams.get("recordType");
+      const admissionId = searchParams.get("admissionId");
 
       const filter: Record<string, unknown> = {};
       if (patient) filter.patient = patient;
       if (recordType) filter.recordType = recordType;
+      if (admissionId) filter.admissionId = admissionId;
 
       // Doctor isolation: only records for patients assigned to the doctor
       if (isDoctorActor(authResult.context)) {
@@ -53,6 +55,20 @@ export class ClinicalController {
       if (!authResult.isAuthorized) return authResult.response;
 
       const body = await req.json();
+
+      // When linked to a stay, the admission must belong to the patient.
+      if (body.admissionId && body.patient) {
+        const { default: Admission } = await import("@/models/admission.model");
+        const adm = await Admission.findById(body.admissionId).select("patientId").lean() as { patientId?: unknown } | null;
+        const idOf = (v: unknown): string => {
+          const rec = v as { _id?: { toString(): string } };
+          if (rec && typeof rec === "object" && rec !== null && "_id" in rec && rec._id) return rec._id.toString();
+          return String(v ?? "");
+        };
+        if (!adm || idOf(adm.patientId) !== new Types.ObjectId(body.patient.toString()).toString()) {
+          return NextResponse.json({ success: false, error: "Admission does not belong to this patient" }, { status: 400 });
+        }
+      }
 
       // Doctor isolation: a doctor can only write records for assigned patients,
       // and the record is always attributed to them.
@@ -141,9 +157,11 @@ export class ClinicalController {
 
       const { searchParams } = new URL(req.url);
       const patient = searchParams.get("patient");
+      const admissionId = searchParams.get("admissionId");
 
       const filter: Record<string, unknown> = {};
       if (patient) filter.patient = patient;
+      if (admissionId) filter.admissionId = admissionId;
 
       // Doctor isolation: only vitals for patients assigned to the doctor
       if (isDoctorActor(authResult.context)) {
@@ -172,6 +190,19 @@ export class ClinicalController {
       if (!authResult.isAuthorized) return authResult.response;
 
       const body = await req.json();
+
+      if (body.admissionId && body.patient) {
+        const { default: Admission } = await import("@/models/admission.model");
+        const adm = await Admission.findById(body.admissionId).select("patientId").lean() as { patientId?: unknown } | null;
+        const idOf = (v: unknown): string => {
+          const rec = v as { _id?: { toString(): string } };
+          if (rec && typeof rec === "object" && rec !== null && "_id" in rec && rec._id) return rec._id.toString();
+          return String(v ?? "");
+        };
+        if (!adm || idOf(adm.patientId) !== new Types.ObjectId(body.patient.toString()).toString()) {
+          return NextResponse.json({ success: false, error: "Admission does not belong to this patient" }, { status: 400 });
+        }
+      }
 
       // Doctor isolation: vitals recorded by a doctor are attributed to them
       // and only allowed for their assigned patients

@@ -2,6 +2,8 @@ import mongoose, { Schema, Document, Types } from "mongoose";
 
 export interface INursingMedication extends Document {
   patient: Types.ObjectId;
+  admissionId?: Types.ObjectId;
+  orderId?: Types.ObjectId;
   administeredBy?: Types.ObjectId;
   medicationName: string;
   dosage: string;
@@ -18,6 +20,8 @@ export interface INursingMedication extends Document {
 const NursingMedicationSchema = new Schema(
   {
     patient: { type: Schema.Types.ObjectId, ref: "Patient", required: true },
+    admissionId: { type: Schema.Types.ObjectId, ref: "Admission", index: true },
+    orderId: { type: Schema.Types.ObjectId, ref: "MedicationOrder", index: true },
     administeredBy: { type: Schema.Types.ObjectId, ref: "User" },
     medicationName: { type: String, required: true },
     dosage: { type: String, required: true },

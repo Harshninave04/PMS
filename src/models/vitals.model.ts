@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface IVitals extends Document {
   patient: mongoose.Types.ObjectId;
+  admissionId?: mongoose.Types.ObjectId;
   recordedBy?: mongoose.Types.ObjectId;
   temperature?: number;
   heartRate?: number;
@@ -16,6 +17,7 @@ export interface IVitals extends Document {
 const VitalsSchema: Schema = new Schema(
   {
     patient: { type: Schema.Types.ObjectId, ref: "Patient", required: true },
+    admissionId: { type: Schema.Types.ObjectId, ref: "Admission", index: true },
     recordedBy: { type: Schema.Types.ObjectId, ref: "User" },
     temperature: { type: Number },
     heartRate: { type: Number },

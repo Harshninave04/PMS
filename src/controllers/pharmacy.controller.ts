@@ -1,9 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
+import dbConnect from "@/lib/dbConnect";
 import PharmacyService, { PharmacyStatsRange } from "@/services/pharmacy.service";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class PharmacyController {
+    /**
+     * Medicines doctors prescribed on ward rounds that match nothing in
+     * pharmacy stock — the pharmacist's restock todo list.
+     */
+    static async getOrderSuggestions(req: Request | NextRequest): Promise<NextResponse> {
+        try {
+            const nextReq = req instanceof NextRequest ? req : new NextRequest(req.url, { headers: req.headers });
+            const auth = await authorizeRequest(nextReq, PERMISSION_KEYS.PHARMACY_STOCK_VIEW, "Medicine");
+            if (!auth.isAuthorized) return auth.response;
+
+            const { MedicationOrder } = await import("@/models/medication-order.model");
+            const { default: Medicine } = await import("@/models/medicine.model");
+            await dbConnect();
+            const [stock, ordered] = await Promise.all([
+                Medicine.find({ isActive: { $ne: false } }).select("name").lean(),
+                MedicationOrder.aggregate([
+                    { $group: { _id: "$medicationName", timesOrdered: { $sum: 1 }, lastOrderedAt: { $max: "$createdAt" }, exampleDosage: { $first: "$dosage" } } },
+                    { $sort: { timesOrdered: -1 } },
+                    { $limit: 200 },
+                ]),
+            ]);
+            const stockNames = (stock as Array<{ name?: string }>).map((m) => (m.name ?? "").toLowerCase());
+            const matches = (orderName: string): boolean => {
+                const needle = orderName.toLowerCase().trim();
+                if (!needle) return true;
+                return stockNames.some((stockName) => stockName.includes(needle) || needle.includes(stockName));
+            };
+            const suggestions = (ordered as Array<{ _id: string; timesOrdered: number; lastOrderedAt: Date; exampleDosage?: string }>)
+                .filter((row) => !matches(row._id))
+                .map((row) => ({ name: row._id, timesOrdered: row.timesOrdered, lastOrderedAt: row.lastOrderedAt, exampleDosage: row.exampleDosage ?? "" }));
+            return NextResponse.json({ success: true, count: suggestions.length, data: suggestions }, { status: 200 });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to fetch suggestions";
+            return NextResponse.json({ success: false, message }, { status: 500 });
+        }
+    }
+
     static async getStats(req: Request | NextRequest): Promise<NextResponse> {
         try {
             const nextReq = req instanceof NextRequest ? req : new NextRequest(req.url, { headers: req.headers });

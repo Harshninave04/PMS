@@ -50,6 +50,11 @@ export interface IAdmission extends Document {
     dischargeAdvice?: string;
     // Transfer records
     transferHistory?: ITransferRecord[];
+    // Care-team assignment (primary doctor stays in `doctorId`)
+    assignedDoctors?: Types.ObjectId[] | any[];
+    assignedNurses?: Types.ObjectId[] | any[];
+    careTeamUpdatedAt?: Date;
+    careTeamUpdatedBy?: Types.ObjectId | any;
     createdAt?: Date;
     updatedAt?: Date;
 }

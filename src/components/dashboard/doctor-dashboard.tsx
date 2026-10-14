@@ -51,6 +51,29 @@ export default function DoctorDashboard() {
   const [modalOpen, setModalOpen] = React.useState(false);
   const { toast } = useToast();
 
+  // Inpatient coordination: stays where this doctor is on the care team.
+  // The full workspace (visits, timed orders, instructions, timeline) lives
+  // on the Ward Rounds page; the dashboard keeps a compact roster + link.
+  const [inpatients, setInpatients] = React.useState<any[]>([]);
+  const [inpatientsLoading, setInpatientsLoading] = React.useState(true);
+
+  const fetchInpatients = React.useCallback(async () => {
+    setInpatientsLoading(true);
+    try {
+      const response = await fetch("/api/care-tasks/my-inpatients");
+      const result = await response.json();
+      if (response.ok && result.success) setInpatients(result.data ?? []);
+    } catch {
+      // Inpatient section is supplementary; queue stays primary.
+    } finally {
+      setInpatientsLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void fetchInpatients();
+  }, [fetchInpatients]);
+
   const fetchQueue = React.useCallback(async (quiet = false) => {
     if (quiet) setRefreshing(true);
     else setLoading(true);
@@ -248,6 +271,47 @@ export default function DoctorDashboard() {
         }}
         onSaved={() => fetchQueue(true)}
       />
+
+      {/* My allotted stays — full workspace on Ward Rounds */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">My Inpatients{inpatients.length > 0 && ` (${inpatients.length})`}</CardTitle>
+            <p className="mt-1 text-xs text-slate-500">
+              Stays where you are on the care team.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void fetchInpatients()}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-2 p-4 pt-0">
+          {inpatientsLoading ? (
+            <p className="rounded-lg bg-slate-50 px-3 py-6 text-center text-sm text-slate-500 dark:bg-slate-900">Loading your inpatients…</p>
+          ) : inpatients.length === 0 ? (
+            <p className="rounded-lg bg-slate-50 px-3 py-6 text-center text-sm text-slate-500 dark:bg-slate-900">
+              No inpatients allotted to you yet. The admissions desk adds you to a stay&apos;s care team.
+            </p>
+          ) : (
+            <>
+              {inpatients.slice(0, 5).map((p) => (
+                <div key={String(p.admissionId)} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{p.name}</p>
+                    <p className="text-[11px] text-slate-500">Bed {p.bedNumber} • {p.wardName} • {p.diagnosis}</p>
+                  </div>
+                  <Link href="/clinical/rounds" className="shrink-0 text-xs font-semibold text-emerald-700 hover:underline dark:text-emerald-400">
+                    Open round
+                  </Link>
+                </div>
+              ))}
+              <Link href="/clinical/rounds" className="block rounded-lg bg-emerald-600 px-3 py-2.5 text-center text-sm font-medium text-white hover:bg-emerald-700">
+                Open Ward Rounds — visits, orders & instructions
+              </Link>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

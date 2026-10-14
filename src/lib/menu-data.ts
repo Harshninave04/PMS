@@ -54,20 +54,31 @@ export function restrictToCanonicalMenus<T extends MenuNode>(menus: readonly T[]
 /**
  * Fixed, flat sidebars for roles that do not get the grouped tree.
  *
- * The Receptionist works from three shortcuts only: no OPD section, no other
- * modules — the desk's whole world is booking, looking a patient up, and the
- * appointment roster, in that order.
+ * The Receptionist works from desk shortcuts that mirror exactly what the
+ * role may open (see DEFAULT_ROLE_PERMISSIONS): booking, patients,
+ * admissions, beds and front-desk billing — so nothing permitted needs a
+ * typed URL.
  */
 const FLAT_NAV_FOR_ROLE: Record<string, readonly { path: string; icon: string; name?: string }[]> = {
     DOCTOR: [
         { path: "/dashboard/main", icon: "LayoutDashboard" },
         { path: "/appointments/queue", icon: "CalendarClock", name: "OPD Queue" },
         { path: "/appointments/completed-today", icon: "CheckCircle2" },
+        { path: "/clinical/rounds", icon: "Stethoscope", name: "Ward Rounds" },
     ],
     RECEPTIONIST: [
+        { path: "/dashboard/main", icon: "Home", name: "Home" },
         { path: "/appointments/book", icon: "CalendarPlus" },
+        { path: "/patients/register", icon: "UserPlus" },
         { path: "/patients/list", icon: "Users" },
         { path: "/appointments/list", icon: "Calendar" },
+        { path: "/appointments/queue", icon: "CalendarClock", name: "OPD Queue" },
+        { path: "/admissions/new", icon: "PlusCircle" },
+        { path: "/admissions/current", icon: "BedDouble" },
+        { path: "/wards/availability", icon: "Bed" },
+        { path: "/finance/invoice/create", icon: "FilePlus" },
+        { path: "/finance/invoices", icon: "Receipt" },
+        { path: "/finance/payments", icon: "Wallet" },
     ],
 };
 

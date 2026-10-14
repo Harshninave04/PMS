@@ -46,6 +46,7 @@ export const MENUS: MenuSeed[] = [
         icon: "Stethoscope",
         children: [
             { name: "Consultations", path: "/clinical/consultations" },
+            { name: "Ward Rounds", path: "/clinical/rounds" },
             { name: "Prescriptions", path: "/clinical/prescriptions" },
             { name: "Vital Signs", path: "/clinical/vitals" },
             { name: "Medical History", path: "/clinical/history" }

@@ -1,8 +1,10 @@
 import admissionRepository, { AdmissionRepository } from "@/repositories/admission.repository";
 import { Types } from "mongoose";
 import { IAdmission } from "@/interfaces/admission.interface";
-import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto } from "@/dto/admission.dto";
+import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto, AssignCareTeamDto } from "@/dto/admission.dto";
 import Bed from "@/models/bed.model";
+import Admission from "@/models/admission.model";
+import User from "@/models/user.model";
 
 export class AdmissionService {
     constructor(private repository: AdmissionRepository = admissionRepository) { }
@@ -52,6 +54,83 @@ export class AdmissionService {
     
     async getAdmissionsByBedId(bedId: Types.ObjectId): Promise<IAdmission[]> {
         return await this.repository.findByBedId(bedId);
+    }
+
+    async assignCareTeam(
+        admissionId: Types.ObjectId | string,
+        dto: AssignCareTeamDto,
+        actorId: Types.ObjectId | string
+    ): Promise<IAdmission | null> {
+        const admission = await Admission.findById(new Types.ObjectId(admissionId.toString()));
+        if (!admission) {
+            throw { statusCode: 404, message: "Admission not found" };
+        }
+        if (admission.status === "DISCHARGED" || admission.status === "CANCELLED") {
+            throw { statusCode: 400, message: `Cannot change care team of a ${admission.status} admission` };
+        }
+
+        const normalizeIds = (ids?: Array<Types.ObjectId | string>): Types.ObjectId[] => {
+            if (!ids) return [];
+            const seen = new Set<string>();
+            const out: Types.ObjectId[] = [];
+            for (const raw of ids) {
+                if (!raw || !Types.ObjectId.isValid(raw.toString())) {
+                    throw { statusCode: 400, message: "Invalid user ID in care team" };
+                }
+                const key = raw.toString();
+                if (seen.has(key)) continue;
+                seen.add(key);
+                out.push(new Types.ObjectId(key));
+            }
+            return out;
+        };
+
+        const nurseIds = dto.nurseIds !== undefined ? normalizeIds(dto.nurseIds) : undefined;
+        const doctorIds = dto.doctorIds !== undefined ? normalizeIds(dto.doctorIds) : undefined;
+
+        // Validate users exist and are active. Nurses must hold a nurse-ish role,
+        // doctors a doctor-ish role; admins may appear on either list for cover.
+        const idsToCheck = [...(nurseIds ?? []), ...(doctorIds ?? [])];
+        if (idsToCheck.length > 0) {
+            const users = await User.find({ _id: { $in: idsToCheck } })
+                .populate("role", "role")
+                .lean();
+            if (users.length !== idsToCheck.length) {
+                throw { statusCode: 404, message: "One or more care-team users not found" };
+            }
+            for (const u of users) {
+                const rec = u as Record<string, any>;
+                if (rec.isActive === false) {
+                    throw { statusCode: 400, message: `User ${rec.email ?? rec._id} is deactivated` };
+                }
+            }
+            const byId = new Map(users.map((u: any) => [u._id.toString(), (u.role as any)?.role as string | undefined]));
+            if (nurseIds) {
+                for (const id of nurseIds) {
+                    const role = (byId.get(id.toString()) ?? "").toUpperCase();
+                    if (role && role !== "NURSE" && role !== "ADMIN") {
+                        throw { statusCode: 400, message: "Only nurses (or admins) can be assigned as nurses" };
+                    }
+                }
+            }
+            if (doctorIds) {
+                for (const id of doctorIds) {
+                    const role = (byId.get(id.toString()) ?? "").toUpperCase();
+                    if (role && role !== "DOCTOR" && role !== "ADMIN") {
+                        throw { statusCode: 400, message: "Only doctors (or admins) can be assigned as doctors" };
+                    }
+                }
+            }
+        }
+
+        const update: Record<string, unknown> = {
+            careTeamUpdatedAt: new Date(),
+            careTeamUpdatedBy: new Types.ObjectId(actorId.toString()),
+        };
+        if (nurseIds !== undefined) update.assignedNurses = nurseIds;
+        if (doctorIds !== undefined) update.assignedDoctors = doctorIds;
+
+        return await this.repository.update(new Types.ObjectId(admissionId.toString()), update);
     }
 
     async transferPatient(dto: TransferAdmissionDto): Promise<IAdmission | null> {

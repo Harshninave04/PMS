@@ -96,6 +96,26 @@ export class UserController {
             const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DIRECTORY_VIEW, "User");
             if (!authResult.isAuthorized) return authResult.response;
 
+            // Self-heal: logins created before hospital scope was stamped
+            // (no organization) are invisible to every branch-scoped picker.
+            // In a single-hospital deployment they can only belong here, so
+            // adopt them into the caller's hospital. Skipped when several
+            // hospitals share the database.
+            if (authResult.context.organizationId) {
+                try {
+                    const { default: Organization } = await import("@/models/organization.model");
+                    const orgCount = await Organization.countDocuments();
+                    if (orgCount === 1) {
+                        await User.updateMany(
+                            { organization: null },
+                            { $set: { organization: authResult.context.organizationId } }
+                        );
+                    }
+                } catch {
+                    // Healing is best-effort; the directory still returns.
+                }
+            }
+
             const users = await User.find({ ...authResult.filter, isActive: { $ne: false } })
                 .select("name email phone gender role organization branch isActive")
                 .populate("role", "role")

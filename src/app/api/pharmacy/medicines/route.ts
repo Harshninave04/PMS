@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { MedicineController } from "@/controllers/medicine.controller";
 import dbConnect from "@/lib/dbConnect";
-import { requirePermission } from "@/lib/rbac/guard";
+import { requireAnyPermission, requirePermission } from "@/lib/rbac/guard";
 
 export async function GET(request: Request) {
-    const denied = await requirePermission(request, "pharmacy.medicines:view");
+    // Doctors search live stock while prescribing on rounds; the controller
+    // still enforces its data-layer permission.
+    const denied = await requireAnyPermission(request, [
+        "pharmacy.medicines:view",
+        "clinical.rounds:view",
+    ]);
     if (denied) return denied;
 
     await dbConnect();

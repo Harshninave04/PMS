@@ -109,6 +109,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           phone: body.phone,
           role: userRole._id,
           organization: authResult.context.organizationId,
+          branch: authResult.context.branchId,
           isActive: true,
         });
       }

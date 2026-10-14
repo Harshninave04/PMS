@@ -44,6 +44,7 @@ function NursingVitalsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialPatientId = searchParams.get("patientId") || "";
+  const initialAdmissionId = searchParams.get("admissionId") || "";
   const { toast } = useToast();
 
   const [vitals, setVitals] = useState<any[]>([]);
@@ -112,8 +113,13 @@ function NursingVitalsContent() {
 
     setSubmitting(true);
     try {
+      const stayId =
+        initialAdmissionId ||
+        inpatients.find((p) => p.patientId === formData.patient)?.admissionId ||
+        undefined;
       const payload = {
         patient: formData.patient,
+        admissionId: stayId,
         bloodPressure: formData.bloodPressure,
         heartRate: formData.heartRate ? parseFloat(formData.heartRate) : undefined,
         oxygenSaturation: formData.oxygenSaturation ? parseFloat(formData.oxygenSaturation) : undefined,

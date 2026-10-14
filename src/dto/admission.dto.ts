@@ -59,6 +59,11 @@ export interface UpdateAdmissionDto {
     dischargeAdvice?: string;
 }
 
+export interface AssignCareTeamDto {
+    nurseIds?: Array<Types.ObjectId | string>;
+    doctorIds?: Array<Types.ObjectId | string>;
+}
+
 export interface TransferAdmissionDto {
     admissionId: Types.ObjectId | string;
     newBedId: Types.ObjectId | string;

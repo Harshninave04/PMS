@@ -5,6 +5,7 @@ export interface IPrescription extends Document {
     doctorId: Types.ObjectId;
     branchId?: Types.ObjectId;
     appointmentId?: Types.ObjectId;
+    admissionId?: Types.ObjectId;
     visitDate: Date;
     symptoms?: string;
     diagnosis?: string;

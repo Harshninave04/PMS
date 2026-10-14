@@ -35,7 +35,10 @@ const defaultPopulate = [
         }
     },
     { path: "transferHistory.fromDoctorId", select: "name email" },
-    { path: "transferHistory.toDoctorId", select: "name email" }
+    { path: "transferHistory.toDoctorId", select: "name email" },
+    { path: "assignedNurses", select: "name email" },
+    { path: "assignedDoctors", select: "name email" },
+    { path: "careTeamUpdatedBy", select: "name email" }
 ];
 
 export class AdmissionRepository {
