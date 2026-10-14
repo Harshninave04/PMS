@@ -8,6 +8,7 @@ import "@/models/ward.model";
 import "@/models/organization.model";
 import { IAdmission } from "@/interfaces/admission.interface";
 import { CreateAdmissionDto, UpdateAdmissionDto } from "@/dto/admission.dto";
+import { ClientSession } from "mongoose";
 
 const defaultPopulate = [
     { path: "patientId" },
@@ -39,9 +40,9 @@ const defaultPopulate = [
 ];
 
 export class AdmissionRepository {
-    async create(data: CreateAdmissionDto): Promise<IAdmission> {
-        const doc = await new Admission(data).save();
-        return await this.findById(doc._id) as IAdmission;
+    async create(data: CreateAdmissionDto, session?: ClientSession): Promise<IAdmission> {
+        const doc = await new Admission(data).save({ session });
+        return await this.findById(doc._id, session) as IAdmission;
     }
 
     async findAll(filter: any = {}): Promise<IAdmission[]> {
@@ -51,8 +52,9 @@ export class AdmissionRepository {
             .lean();
     }
 
-    async findById(id: Types.ObjectId): Promise<IAdmission | null> {
+    async findById(id: Types.ObjectId, session?: ClientSession): Promise<IAdmission | null> {
         return await Admission.findById(id)
+            .session(session || null)
             .populate(defaultPopulate)
             .lean();
     }

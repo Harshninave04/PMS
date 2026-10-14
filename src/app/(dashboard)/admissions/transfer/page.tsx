@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
+import { Can } from "@/components/permissions/can";
 import {
   ArrowRightLeft,
   Bed,
@@ -216,6 +217,7 @@ function PatientTransferContent() {
         </Button>
       </div>
 
+      <Can permission="admissions.transfer:create">
       <form onSubmit={handleTransferSubmit} className="space-y-6">
         {/* Section 1: Patient Selection */}
         <Card className="border shadow-sm">
@@ -420,6 +422,7 @@ function PatientTransferContent() {
           </Button>
         </div>
       </form>
+      </Can>
 
       {/* Recent Transfers Audit Log */}
       <Card className="border shadow-sm">

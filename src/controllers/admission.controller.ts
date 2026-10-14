@@ -5,6 +5,7 @@ import defaultAdmissionService, { AdmissionService } from "@/services/admission.
 import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto } from "@/dto/admission.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { admissionErrorDetails } from "@/services/admission-errors";
 
 interface PopulatedEntity {
     _id?: Types.ObjectId;
@@ -20,7 +21,14 @@ export class AdmissionController {
             const auth = await authorizeRequest(request, PERMISSION_KEYS.ADMISSION_CREATE, "Admission");
             if (!auth.isAuthorized) return auth.response;
 
-            const data: CreateAdmissionDto = await request.json();
+            const body: unknown = await request.json();
+            if (!body || typeof body !== "object" || Array.isArray(body)) {
+                return NextResponse.json(
+                    { success: false, message: "Admission request body must be a JSON object" },
+                    { status: 400 }
+                );
+            }
+            const data = body as CreateAdmissionDto;
 
             // Enforce branch multi-tenancy
             if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
@@ -32,22 +40,6 @@ export class AdmissionController {
                 data.doctorId = auth.context.userId.toString();
             }
 
-            if (!data.patientId || !data.doctorId || !data.bedId || !data.admissionDate) {
-                return NextResponse.json(
-                    { success: false, message: "Patient, Doctor, Bed, and Admission Date are required" },
-                    { status: 400 }
-                );
-            }
-
-            if (!Types.ObjectId.isValid(data.patientId.toString()) || 
-                !Types.ObjectId.isValid(data.doctorId.toString()) || 
-                !Types.ObjectId.isValid(data.bedId.toString())) {
-                return NextResponse.json(
-                    { success: false, message: "Invalid ID format for patient, doctor, or bed" },
-                    { status: 400 }
-                );
-            }
-
             if (data.branchId && !Types.ObjectId.isValid(data.branchId.toString())) {
                 return NextResponse.json(
                     { success: false, message: "Invalid ID format for branch" },
@@ -55,17 +47,17 @@ export class AdmissionController {
                 );
             }
 
-            const admission = await this.admissionService.createAdmission(data);
+            const admission = await this.admissionService.createAdmission(data, auth.context.userId);
 
             return NextResponse.json(
                 { success: true, message: "Admission created successfully", data: admission },
                 { status: 201 }
             );
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to create admission";
+            const { message, statusCode } = admissionErrorDetails(error, "Failed to create admission");
             return NextResponse.json(
                 { success: false, message },
-                { status: 500 }
+                { status: statusCode }
             );
         }
     }
@@ -249,10 +241,10 @@ export class AdmissionController {
                 { status: 200 }
             );
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to transfer patient";
+            const { message, statusCode } = admissionErrorDetails(error, "Failed to transfer patient");
             return NextResponse.json(
                 { success: false, message },
-                { status: 500 }
+                { status: statusCode }
             );
         }
     }
@@ -311,10 +303,10 @@ export class AdmissionController {
                 { status: 200 }
             );
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to discharge patient";
+            const { message, statusCode } = admissionErrorDetails(error, "Failed to discharge patient");
             return NextResponse.json(
                 { success: false, message },
-                { status: 500 }
+                { status: statusCode }
             );
         }
     }

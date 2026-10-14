@@ -1,6 +1,14 @@
 import { Types } from "mongoose";
 
 export interface CreateAdmissionDto {
+    ipdNumber?: string;
+    admittedBy?: Types.ObjectId | string;
+    admissionSource?: "OPD" | "EMERGENCY" | "REFERRAL" | "DIRECT";
+    paymentType?: "CASH" | "INSURANCE" | "CORPORATE";
+    advanceDeposit?: number;
+    consentSigned?: boolean;
+    consentPending?: boolean;
+    wardType?: "GENERAL" | "SEMI_PRIVATE" | "PRIVATE" | "ICU" | "EMERGENCY";
     patientId: Types.ObjectId | string;
     doctorId: Types.ObjectId | string;
     branchId?: Types.ObjectId | string;
@@ -63,6 +71,7 @@ export interface TransferAdmissionDto {
     admissionId: Types.ObjectId | string;
     newBedId: Types.ObjectId | string;
     newDoctorId?: Types.ObjectId | string;
+    transferredBy?: Types.ObjectId | string;
     reason: string;
     transferDate?: Date | string;
     notes?: string;

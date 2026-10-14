@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { Can } from "@/components/permissions/can";
 import {
   Clock,
   Search,
@@ -243,15 +244,17 @@ export default function AdmissionHistoryPage() {
             Refresh
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={exportCSV}
-            className="flex items-center gap-1.5"
-          >
-            <Download className="h-4 w-4" />
-            Export CSV
-          </Button>
+          <Can permission="admissions.history:export">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportCSV}
+              className="flex items-center gap-1.5"
+            >
+              <Download className="h-4 w-4" />
+              Export CSV
+            </Button>
+          </Can>
         </div>
       </div>
 
@@ -507,6 +510,7 @@ export default function AdmissionHistoryPage() {
                             Details
                           </Button>
                           {adm.status === "DISCHARGED" && (
+                            <Can permission="admissions.summary:view">
                             <Button
                               size="sm"
                               variant="outline"
@@ -516,6 +520,7 @@ export default function AdmissionHistoryPage() {
                               <FileText className="h-3.5 w-3.5 mr-1" />
                               Summary
                             </Button>
+                            </Can>
                           )}
                         </div>
                       </TableCell>
@@ -634,6 +639,7 @@ export default function AdmissionHistoryPage() {
                   Close
                 </Button>
                 {selectedAdmission.status === "DISCHARGED" && (
+                  <Can permission="admissions.summary:view">
                   <Button
                     className="bg-emerald-600 text-white"
                     onClick={() => {
@@ -644,6 +650,7 @@ export default function AdmissionHistoryPage() {
                     <FileText className="h-4 w-4 mr-1.5" />
                     View Discharge Summary
                   </Button>
+                  </Can>
                 )}
               </DialogFooter>
             </div>

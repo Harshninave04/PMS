@@ -146,7 +146,7 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     { path: "/admission/[id]", method: "GET", permission: K("admissions", "current", "view") },
     { path: "/admission/[id]", method: "PUT", permission: K("admissions", "current", "update") },
     { path: "/admission/[id]", method: "DELETE", permission: K("admissions", "current", "delete") },
-    post("/admission/discharge", K("admissions", "discharge", "discharge")),
+    post("/admission/discharge", K("admissions", "discharge", "update")),
     post("/admission/transfer", K("admissions", "transfer", "create")),
     get("/admission/stats", K("admissions", "current", "view")),
 
@@ -310,6 +310,12 @@ export function resolveRoutePath(pathname: string): string {
  * admission forms read the ward/room lists).
  */
 export const ROUTE_ALTERNATIVES: Readonly<Record<string, readonly string[]>> = {
+    // Admission's patient picker and quick-registration modal reuse the patient
+    // API, so the admission workflow grants the same narrowly scoped access.
+    "GET /patient": [K("admissions", "new", "view")],
+    "POST /patient": [K("admissions", "new", "create")],
+    "GET /admission": [K("admissions", "summary", "view"), K("admissions", "history", "view")],
+    "GET /admission/[id]": [K("admissions", "summary", "view"), K("admissions", "history", "view")],
     "GET /clinical/records": [K("nursing", "notes", "view")],
     "POST /clinical/records": [K("nursing", "notes", "create")],
     "PUT /clinical/records/[id]": [K("nursing", "notes", "update")],

@@ -101,6 +101,9 @@ const SPECIAL_ACTIONS_BY_ROUTE: Readonly<Record<string, readonly SpecialActionDe
     "/patients/documents": [{ action: "upload", label: "Upload" }],
     "/clinical/prescriptions": [{ action: "prescribe", label: "Prescribe" }],
     "/admissions/discharge": [{ action: "discharge", label: "Discharge" }],
+    "/admissions/summary": [{ action: "print", label: "Print" }],
+    "/admissions/current": [{ action: "export", label: "Export" }],
+    "/admissions/history": [{ action: "export", label: "Export" }],
     "/pharmacy/dispensing": [{ action: "dispense", label: "Dispense" }],
     "/finance/payments": [{ action: "refund", label: "Refund" }],
 };

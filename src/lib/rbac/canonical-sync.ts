@@ -257,6 +257,27 @@ export function expectedPermissionsFor(
     const defaults = defaultPermissionsFor(roleName);
     if (!existing) return defaults;
 
+    // The Receptionist's six IPD permissions are a product-level baseline.
+    // Refresh only those sub-items in an existing stored role; preserve every
+    // other customized permission exactly as the administrator saved it.
+    if (roleName === "RECEPTIONIST") {
+        const stored = existing.permissionsCustomized || existing.permissions?.length
+            ? [...(existing.permissions ?? [])]
+            : migrateLegacyAccess((existing.access ?? []).flatMap((item) => item?.permissions ?? []));
+        const ipdSubItems = new Set(["new", "current", "transfer", "discharge", "summary", "history"]);
+        const outsideIpd = stored.filter((permission) => {
+            const [target] = permission.toLowerCase().split(":");
+            const [moduleKey, subItem] = target.split(".");
+            return moduleKey !== "admissions" || !ipdSubItems.has(subItem);
+        });
+        const ipdDefaults = defaults.filter((permission) => {
+            const [target] = permission.split(":");
+            const [moduleKey, subItem] = target.split(".");
+            return moduleKey === "admissions" && ipdSubItems.has(subItem);
+        });
+        return normalizePermissions([...outsideIpd, ...ipdDefaults]);
+    }
+
     // The shipped Doctor role is intentionally limited to the dashboard, OPD queue,
     // and their own completed visits for today.
     // Keep administrator-customized Doctor permissions, but migrate the old

@@ -3,7 +3,7 @@ import AdmissionController from "@/controllers/admission.controller";
 import { requirePermission } from "@/lib/rbac/guard";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-    const denied = await requirePermission(request, "admissions.discharge:discharge");
+    const denied = await requirePermission(request, "admissions.discharge:update");
     if (denied) return denied;
 
     try {

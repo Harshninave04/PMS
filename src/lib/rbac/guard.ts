@@ -16,7 +16,7 @@ import {
 import { ScopeResolver } from "@/lib/rbac/scope-resolver";
 import { hasResolvedSubItemPermission, resolveRolePermissions, type ResolvedRolePermissions } from "@/lib/rbac/role-permissions";
 import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
-import { authorizeRoutePermission, findRouteRule } from "@/lib/rbac/route-permissions";
+import { authorizeRoutePermission, findRouteRule, routeRuleAllows } from "@/lib/rbac/route-permissions";
 
 /**
  * Closed-loop authorization guard for API route controllers.
@@ -340,7 +340,7 @@ export async function resolveRequestIdentity(): Promise<
  * user and role pickers read from.
  */
 export async function requirePermission(
-  _request: Request,
+  request: Request,
   permission: string | null
 ): Promise<NextResponse | null> {
   const resolved = await resolveRequestIdentity();
@@ -349,6 +349,12 @@ export async function requirePermission(
 
   const { permissions } = resolved.identity;
   if (hasResolvedSubItemPermission(permissions, permission)) return null;
+
+  // Some pages deliberately reuse a neighboring module's API. Honor the
+  // authoritative route alternatives as well as the route's primary grant so
+  // forms remain usable with only their own sub-item permissions.
+  const routeRule = findRouteRule(request);
+  if (routeRule?.permission === permission && routeRuleAllows(routeRule, new Set(permissions.subItem))) return null;
 
   return denied(
     403,

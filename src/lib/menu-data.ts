@@ -52,11 +52,10 @@ export function restrictToCanonicalMenus<T extends MenuNode>(menus: readonly T[]
 }
 
 /**
- * Fixed, flat sidebars for roles that do not get the grouped tree.
+ * Fixed sidebars for roles that do not get the full grouped tree.
  *
- * The Receptionist works from three shortcuts only: no OPD section, no other
- * modules — the desk's whole world is booking, looking a patient up, and the
- * appointment roster, in that order.
+ * The Receptionist gets three front-desk shortcuts plus the permission-filtered
+ * IPD group. The Doctor keeps a compact flat sidebar.
  */
 const FLAT_NAV_FOR_ROLE: Record<string, readonly { path: string; icon: string; name?: string }[]> = {
     DOCTOR: [
@@ -94,11 +93,18 @@ export function applyRoleNav<T extends MenuNode>(
         }
     }
 
-    return flat.flatMap(({ path, icon, name }) => {
+    const shortcuts = flat.flatMap(({ path, icon, name }) => {
         const item = byPath.get(path.toLowerCase());
         if (!item) return [];
         return [{ ...item, name: name ?? item.name, children: undefined, icon }];
     });
+
+    if ((roleName ?? "").trim().toUpperCase() !== "RECEPTIONIST") return shortcuts;
+
+    // Keep the three front-desk shortcuts and include the permission-filtered
+    // Admissions group. Its children were already filtered by view/create.
+    const admissions = menus.find((menu) => menu.path?.toLowerCase() === "/admissions");
+    return admissions ? [...shortcuts, admissions] : shortcuts;
 }
 
 /**

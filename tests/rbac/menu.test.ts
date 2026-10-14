@@ -6,7 +6,7 @@ import { ADMIN_ROLE, ALL_ROLES, buildRoleAccess, withBaselineAccess } from "@/li
 import { MENUS, applyRoleNav, filterMenusByPermissions, getMenuModuleKey } from "@/lib/menu-data";
 import { defaultPermissionsFor } from "@/lib/rbac/default-permissions";
 import { permissionsForRoute } from "@/lib/rbac/permissions.config";
-import { BASELINE_REFERENCE_PERMISSIONS, PERMISSION_KEYS, REFERENCE_DATA_MODULE } from "@/types/rbac";
+import { BASELINE_REFERENCE_PERMISSIONS, PERMISSION_KEYS } from "@/types/rbac";
 import { DEMO_USERS, demoEmail } from "@/seed";
 import { buildReceptionistDashboardData } from "@/services/dashboard.service";
 
@@ -102,14 +102,14 @@ async function runMenuTests() {
     for (const role of ALL_ROLES) {
       assert.ok(accessibleRoutes(role).has("/dashboard/main"), `${role} cannot open /dashboard/main`);
     }
-    // The Receptionist sidebar is the three shortcuts only, so it carries no
+    // The Receptionist sidebar keeps its shortcuts and IPD group, but carries no
     // Dashboard section; every other role keeps it.
     for (const role of ALL_ROLES.filter((r) => r !== "RECEPTIONIST")) {
       assert.ok(visibleMenuNames(role).includes("Dashboard"), `${role} must see the Dashboard section`);
     }
     assert.ok(
       !visibleMenuNames("RECEPTIONIST").includes("Dashboard"),
-      "The Receptionist sidebar must stay the three shortcuts"
+      "The Receptionist sidebar must not gain a Dashboard section"
     );
   });
 
@@ -117,7 +117,7 @@ async function runMenuTests() {
     const expected: Record<string, string[]> = {
       DOCTOR: ["Dashboard", "OPD Queue", "Today's Completed Patients"],
       NURSE: ["Dashboard", "Patients", "Consultation", "IPD / Admissions", "Wards & Beds", "Nursing"],
-      RECEPTIONIST: ["Book Appointment", "All Patients", "All Appointments"],
+      RECEPTIONIST: ["Book Appointment", "All Patients", "All Appointments", "IPD / Admissions"],
       PHARMACIST: ["Dashboard", "Patients", "Consultation", "Pharmacy", "Reports"],
       ACCOUNTANT: ["Dashboard", "Patients", "IPD / Admissions", "Billing", "Reports"],
     };
@@ -126,22 +126,35 @@ async function runMenuTests() {
     }
   });
 
-  test("Receptionist keeps the same sidebar shortcuts without a dashboard quick-actions block", () => {
+  test("Receptionist keeps the three shortcuts and sees all permission-granted IPD items", () => {
     const sidebar = visibleMenuItems("RECEPTIONIST");
     const profile = resolveDashboardProfile("RECEPTIONIST");
 
-    assert.deepEqual(sidebar.map((m) => m.name), ["Book Appointment", "All Patients", "All Appointments"]);
-    assert.deepEqual(sidebar.map((m) => m.path), ["/appointments/book", "/patients/list", "/appointments/list"]);
+    assert.deepEqual(sidebar.slice(0, 3).map((m) => m.name), ["Book Appointment", "All Patients", "All Appointments"]);
+    assert.deepEqual(sidebar.slice(0, 3).map((m) => m.path), ["/appointments/book", "/patients/list", "/appointments/list"]);
+    assert.equal(sidebar[3].name, "IPD / Admissions");
+    assert.equal(sidebar[3].path, "/admissions");
+    const admissions = MENUS.find((m) => m.path === "/admissions")!;
+    assert.deepEqual(
+      (admissions.children ?? []).map((item) => item.path),
+      [
+        "/admissions/new",
+        "/admissions/current",
+        "/admissions/transfer",
+        "/admissions/discharge",
+        "/admissions/summary",
+        "/admissions/history",
+      ]
+    );
+    assert.deepEqual(
+      (filterMenusByPermissions(MENUS, defaultPermissionsFor("RECEPTIONIST")).find((m) => m.path === "/admissions")?.children ?? []).map((item) => item.path),
+      (admissions.children ?? []).map((item) => item.path)
+    );
     assert.deepEqual(profile.quickActions, [], "Receptionist dashboard must not render quick actions");
     assert.deepEqual(profile.stats, [], "Receptionist dashboard must not use the generic KPI cards");
     assert.equal(profile.showRecentPatients, false, "Receptionist dashboard must not render admissions activity");
-    // Flat by design: no OPD section, no accordion groups.
-    assert.ok(
-      applyRoleNav("RECEPTIONIST", filterMenusByPermissions(MENUS, defaultPermissionsFor("RECEPTIONIST"))).every(
-        (m) => !m.children || m.children.length === 0
-      ),
-      "The Receptionist sidebar must be flat links, never groups"
-    );
+    const tree = applyRoleNav("RECEPTIONIST", filterMenusByPermissions(MENUS, defaultPermissionsFor("RECEPTIONIST")));
+    assert.equal(tree.filter((m) => m.children?.length).length, 1, "Only the IPD group should be nested");
   });
 
   test("Receptionist dashboard data contains no admission or bed-occupancy fields", () => {

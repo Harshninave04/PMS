@@ -62,6 +62,27 @@ There are six fixed roles. Each one only sees its own menus.
 | **Pharmacist** | Dashboard, Patients (view), Pharmacy |
 | **Accountant** | Dashboard, Patients (view), Billing, Reports |
 
+### Receptionist IPD / Admissions permissions
+
+The Receptionist sidebar keeps its three existing shortcuts and shows the **IPD / Admissions** group when its page permissions are present. The six existing pages use this permission matrix:
+
+| IPD / Admissions sub-item | Receptionist permissions |
+| --- | --- |
+| New Admission | View, Create |
+| Admitted Patients | View |
+| Transfer Bed | View, Create |
+| Discharge | View, Update |
+| Discharge Summary | View, Print |
+| Admission History | View |
+
+Startup RBAC reconciliation updates these six grants on the stored Receptionist role while preserving its other permissions. Summary and History API reads accept their own view permission. CSV exports on Admitted Patients and Admission History are separately permission-gated and are not granted to Receptionist.
+
+### New Admission intake
+
+The existing New Admission page searches patients in the patient selector and can register a patient from a short modal (name, age, gender, and phone); the new record is selected automatically. The modal supplies the registration API's required address, emergency contact, blood group, and branch values from the phone/session context. The form filters beds by selected ward type and `AVAILABLE` status, records admission source, payment type, optional advance deposit, insurance details when applicable, consent, and the signed-in admitting user. Emergency Admission locks the admission type and source to Emergency, keeps only patient, doctor, and bed as required inputs, and marks consent pending unless it is signed.
+
+Admission creation remains server-validated: it rejects a patient with an active admission and verifies the patient, doctor, and available bed. IPD number allocation, admission creation, and bed occupation run in one MongoDB transaction. Run `npx tsx scripts/migrate-admission-fields.ts --apply` once for an existing database before using IPD numbering; the migration is dry-run unless `--apply` is passed. MongoDB transactions require a replica set or sharded cluster.
+
 Where these are defined:
 
 - `src/lib/rbac/roles.ts` — what each role can do
@@ -228,5 +249,6 @@ src/
 scripts/
 ├── repair-rbac-access.ts   # Upgrade an existing database to the six roles
 └── provision-demo-users.ts # Add demo logins without wiping data
-tests/rbac/                 # npm test
+tests/rbac/                 # RBAC test suites
+tests/admissions/           # Admission form and backend rule tests
 ```

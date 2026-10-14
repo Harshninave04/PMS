@@ -142,6 +142,8 @@ async function runPermissionTests() {
       "pharmacy.dispensing:dispense": "Pharmacy",
       "clinical.prescriptions:prescribe": "Consultation",
       "admissions.discharge:discharge": "IPD / Admissions",
+      "admissions.summary:print": "IPD / Admissions",
+      "admissions.history:export": "IPD / Admissions",
       "billing.payments:refund": "Billing",
     };
     for (const [key, moduleLabel] of Object.entries(expected)) {
@@ -233,6 +235,106 @@ async function runPermissionTests() {
         !defaultPermissionsFor(role).includes("admin.roles:update"),
         `${role} must not be able to edit roles`
       );
+    }
+  });
+
+  test("Receptionist receives only the requested IPD permission matrix", () => {
+    const requested = [
+      "admissions.current:view",
+      "admissions.discharge:update",
+      "admissions.discharge:view",
+      "admissions.history:view",
+      "admissions.new:create",
+      "admissions.new:view",
+      "admissions.summary:print",
+      "admissions.summary:view",
+      "admissions.transfer:create",
+      "admissions.transfer:view",
+    ];
+    const held = defaultPermissionsFor("RECEPTIONIST");
+    assert.deepEqual(held.filter((key) => key.startsWith("admissions.")).sort(), requested);
+    assert.ok(!held.includes("admissions.history:export"));
+    assert.ok(!held.includes("admissions.current:export"));
+    assert.ok(!held.includes("admissions.current:update"));
+    assert.ok(!held.includes("admissions.discharge:discharge"));
+  });
+
+  test("The other roles' IPD defaults are unchanged", () => {
+    const expected: Record<string, string[]> = {
+      DOCTOR: [],
+      NURSE: ["admissions.current:view"],
+      PHARMACIST: [],
+      ACCOUNTANT: ["admissions.current:view"],
+    };
+    for (const [role, permissions] of Object.entries(expected)) {
+      assert.deepEqual(
+        defaultPermissionsFor(role).filter((key) => key.startsWith("admissions.")).sort(),
+        permissions,
+        `${role} IPD permissions changed`
+      );
+    }
+  });
+
+  test("Stored Receptionist roles refresh only the six IPD sub-items", () => {
+    const existing = {
+      permissionsCustomized: true,
+      permissions: [
+        "patients.list:view",
+        "opd.queue:view",
+        "admissions.new:view",
+        "admissions.current:view",
+        "admissions.current:update",
+        "admissions.discharge:discharge",
+      ],
+    };
+    const updated = expectedPermissionsFor("RECEPTIONIST", existing);
+    assert.ok(updated.includes("patients.list:view"));
+    assert.ok(updated.includes("opd.queue:view"));
+    assert.deepEqual(
+      updated.filter((key) => key.startsWith("admissions.")).sort(),
+      defaultPermissionsFor("RECEPTIONIST").filter((key) => key.startsWith("admissions.")).sort()
+    );
+  });
+
+  test("IPD pages and read APIs require their own view permission and deny missing grants", () => {
+    for (const [page, permission] of [
+      ["/admissions/new", "admissions.new:view"],
+      ["/admissions/current", "admissions.current:view"],
+      ["/admissions/transfer", "admissions.transfer:view"],
+      ["/admissions/discharge", "admissions.discharge:view"],
+      ["/admissions/summary", "admissions.summary:view"],
+      ["/admissions/history", "admissions.history:view"],
+    ]) {
+      assert.equal(canOpenPage(permissionsForPage(page), { all: new Set([permission]) }), true, `${page} should open`);
+      assert.equal(canOpenPage(permissionsForPage(page), { all: new Set() }), false, `${page} should deny without permission`);
+    }
+
+    for (const [url, permission] of [
+      ["/api/admission", "admissions.history:view"],
+      ["/api/admission/65f1c2a3b4c5d6e7f8091234", "admissions.summary:view"],
+    ]) {
+      const rule = findRouteRule(new Request(`http://localhost${url}`, { method: "GET" }))!;
+      assert.equal(routeRuleAllows(rule, new Set([permission])), true, `${url} must accept its page view permission`);
+      assert.equal(routeRuleAllows(rule, new Set()), false, `${url} must deny without permission`);
+    }
+
+    const discharge = findRouteRule(new Request("http://localhost/api/admission/discharge", { method: "POST" }))!;
+    assert.equal(discharge.permission, "admissions.discharge:update");
+    assert.equal(routeRuleAllows(discharge, new Set(["admissions.discharge:update"])), true);
+    assert.equal(routeRuleAllows(discharge, new Set(["admissions.discharge:discharge"])), false);
+  });
+
+  test("IPD action controls are permission-gated in the existing pages", () => {
+    const root = path.resolve(process.cwd(), "src/app/(dashboard)/admissions");
+    const checks: [string, string][] = [
+      ["current/page.tsx", "admissions.transfer:create"],
+      ["current/page.tsx", "admissions.discharge:update"],
+      ["current/page.tsx", "admissions.current:export"],
+      ["summary/page.tsx", "admissions.summary:print"],
+      ["history/page.tsx", "admissions.history:export"],
+    ];
+    for (const [file, permission] of checks) {
+      assert.ok(fs.readFileSync(path.join(root, file), "utf8").includes(permission), `${file} does not gate ${permission}`);
     }
   });
 
@@ -380,6 +482,16 @@ async function runPermissionTests() {
       access: [{ moduleName: "patient", permissions: ["patients.register:create", "patient.patient.create"] }],
     });
     assert.equal(hasResolvedSubItemPermission(legacyOnly, "patients.register:create"), false);
+  });
+
+  test("Admission permissions authorize the patient picker and quick registration APIs", () => {
+    const getPatients = findRouteRule(new Request("http://localhost/api/patient", { method: "GET" }))!;
+    const createPatient = findRouteRule(new Request("http://localhost/api/patient", { method: "POST" }))!;
+
+    assert.equal(routeRuleAllows(getPatients, new Set(["admissions.new:view"])), true);
+    assert.equal(routeRuleAllows(createPatient, new Set(["admissions.new:create"])), true);
+    assert.equal(routeRuleAllows(getPatients, new Set(["admissions.current:view"])), false);
+    assert.equal(routeRuleAllows(createPatient, new Set(["admissions.new:view"])), false);
   });
 
   test("Default role API flows pass route and controller authorization", () => {
@@ -691,18 +803,18 @@ async function runPermissionTests() {
       const keys = permissionsForRoute(menu.path);
       assert.ok(keys.length > 0, `No permission module for sidebar path ${menu.path}`);
 
-      const module = PERMISSION_MODULES.find((m) => keys.every((k) => m.subItems.some((s) => k.startsWith(`${m.key}.${s.key}:`))));
-      assert.ok(module, `Sidebar group ${menu.name} maps to no permission module`);
+      const permissionModule = PERMISSION_MODULES.find((m) => keys.every((k) => m.subItems.some((s) => k.startsWith(`${m.key}.${s.key}:`))));
+      assert.ok(permissionModule, `Sidebar group ${menu.name} maps to no permission module`);
 
-      assert.equal(module!.label, menu.name, `Label drift on ${menu.path}`);
-      assert.equal(module!.route, menu.path, `Route drift on ${menu.path}`);
+      assert.equal(permissionModule!.label, menu.name, `Label drift on ${menu.path}`);
+      assert.equal(permissionModule!.route, menu.path, `Route drift on ${menu.path}`);
       assert.deepEqual(
-        module!.subItems.map((s) => s.label),
+        permissionModule!.subItems.map((s) => s.label),
         (menu.children ?? []).map((c) => c.name),
         `Sub-item order or names drift on ${menu.path}`
       );
       assert.deepEqual(
-        module!.subItems.map((s) => s.route),
+        permissionModule!.subItems.map((s) => s.route),
         (menu.children ?? []).map((c) => c.path),
         `Sub-item route drift on ${menu.path}`
       );

@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
+import { Can } from "@/components/permissions/can";
 import {
   FileText,
   Printer,
@@ -115,15 +116,17 @@ function DischargeSummaryContent() {
       <div className="print:hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2 text-slate-500"
-              onClick={() => router.push("/admissions/history")}
-            >
-              <ArrowLeft className="h-4 w-4 mr-1" />
-              Admission History
-            </Button>
+            <Can permission="admissions.history:view">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-slate-500"
+                onClick={() => router.push("/admissions/history")}
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                Admission History
+              </Button>
+            </Can>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2 mt-1">
             <FileText className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
@@ -136,6 +139,7 @@ function DischargeSummaryContent() {
 
         <div className="flex items-center gap-2">
           {admission && (
+            <Can permission="admissions.summary:print">
             <Button
               onClick={handlePrint}
               className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5"
@@ -143,6 +147,7 @@ function DischargeSummaryContent() {
               <Printer className="h-4 w-4" />
               Print Summary
             </Button>
+            </Can>
           )}
         </div>
       </div>

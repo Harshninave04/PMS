@@ -9,7 +9,8 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - MONGODB_URI=mongodb://mongodb:27017/medistra-hms
+      # replicaSet=rs0 is required: admission create/transfer use MongoDB transactions
+      - MONGODB_URI=mongodb://mongodb:27017/medistra-hms?replicaSet=rs0
       - NEXTAUTH_URL=http://localhost:3000
       - NEXTAUTH_SECRET=medistra_super_secret_production_jwt_key_2026_hms
       - DEFAULT_ADMIN_EMAIL=admin@hospital.com
@@ -28,6 +29,8 @@ services:
     image: mongo:7.0
     container_name: medistra-mongodb
     restart: unless-stopped
+    # Single-node replica set (needed for transactions).
+    command: ["--replSet", "rs0", "--bind_ip_all"]
     environment:
       - MONGO_INITDB_DATABASE=medistra-hms
     volumes:
@@ -38,11 +41,12 @@ services:
     # connects to localhost:27017 can then silently write to the wrong
     # database. Use `docker exec medistra-mongodb mongosh medistra-hms` instead.
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      # Initiates the replica set on first run, then reports healthy once it is PRIMARY.
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongodb:27017'}]}).ok }"]
       interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
     networks:
       medistra-network:
         aliases:
@@ -56,7 +60,7 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - ME_CONFIG_MONGODB_URL=mongodb://mongodb:27017/
+      - ME_CONFIG_MONGODB_URL=mongodb://mongodb:27017/?replicaSet=rs0
       - ME_CONFIG_MONGODB_SERVER=mongodb
       - ME_CONFIG_MONGODB_PORT=27017
       - ME_CONFIG_MONGODB_ENABLE_ADMIN=true

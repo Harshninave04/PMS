@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { Can } from "@/components/permissions/can";
 import {
   Bed,
   Search,
@@ -213,15 +214,17 @@ export default function CurrentAdmissionsPage() {
             Refresh
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={exportCSV}
-            className="flex items-center gap-1.5"
-          >
-            <Download className="h-4 w-4" />
-            Export CSV
-          </Button>
+          <Can permission="admissions.current:export">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportCSV}
+              className="flex items-center gap-1.5"
+            >
+              <Download className="h-4 w-4" />
+              Export CSV
+            </Button>
+          </Can>
 
           <Button
             size="sm"
@@ -471,29 +474,33 @@ export default function CurrentAdmissionsPage() {
                             <Eye className="h-4 w-4 text-slate-500" />
                           </Button>
 
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 text-xs flex items-center gap-1"
-                            onClick={() =>
-                              router.push(`/admissions/transfer?admissionId=${adm._id}`)
-                            }
-                          >
-                            <ArrowRightLeft className="h-3 w-3" />
-                            Transfer
-                          </Button>
+                          <Can permission="admissions.transfer:create">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs flex items-center gap-1"
+                              onClick={() =>
+                                router.push(`/admissions/transfer?admissionId=${adm._id}`)
+                              }
+                            >
+                              <ArrowRightLeft className="h-3 w-3" />
+                              Transfer
+                            </Button>
+                          </Can>
 
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="h-8 text-xs flex items-center gap-1"
-                            onClick={() =>
-                              router.push(`/admissions/discharge?admissionId=${adm._id}`)
-                            }
-                          >
-                            <LogOut className="h-3 w-3" />
-                            Discharge
-                          </Button>
+                          <Can permission="admissions.discharge:update">
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="h-8 text-xs flex items-center gap-1"
+                              onClick={() =>
+                                router.push(`/admissions/discharge?admissionId=${adm._id}`)
+                              }
+                            >
+                              <LogOut className="h-3 w-3" />
+                              Discharge
+                            </Button>
+                          </Can>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -664,26 +671,30 @@ export default function CurrentAdmissionsPage() {
                 <Button variant="outline" onClick={() => setDetailsOpen(false)}>
                   Close
                 </Button>
-                <Button
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                  onClick={() => {
-                    setDetailsOpen(false);
-                    router.push(`/admissions/transfer?admissionId=${selectedAdmission._id}`);
-                  }}
-                >
-                  <ArrowRightLeft className="h-4 w-4 mr-1.5" />
-                  Transfer Patient
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    setDetailsOpen(false);
-                    router.push(`/admissions/discharge?admissionId=${selectedAdmission._id}`);
-                  }}
-                >
-                  <LogOut className="h-4 w-4 mr-1.5" />
-                  Discharge Patient
-                </Button>
+                <Can permission="admissions.transfer:create">
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => {
+                      setDetailsOpen(false);
+                      router.push(`/admissions/transfer?admissionId=${selectedAdmission._id}`);
+                    }}
+                  >
+                    <ArrowRightLeft className="h-4 w-4 mr-1.5" />
+                    Transfer Patient
+                  </Button>
+                </Can>
+                <Can permission="admissions.discharge:update">
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      setDetailsOpen(false);
+                      router.push(`/admissions/discharge?admissionId=${selectedAdmission._id}`);
+                    }}
+                  >
+                    <LogOut className="h-4 w-4 mr-1.5" />
+                    Discharge Patient
+                  </Button>
+                </Can>
               </DialogFooter>
             </div>
           )}

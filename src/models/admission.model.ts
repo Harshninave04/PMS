@@ -3,6 +3,10 @@ import { IAdmission } from "@/interfaces/admission.interface";
 
 const transferHistorySchema = new Schema(
     {
+        transferredBy: {
+            type: Types.ObjectId,
+            ref: 'User'
+        },
         fromBedId: {
             type: Types.ObjectId,
             ref: 'Bed',
@@ -49,6 +53,22 @@ const dischargeMedicationSchema = new Schema(
 
 const admissionSchema = new Schema<IAdmission>(
     {
+        ipdNumber: { type: String, trim: true },
+        admittedBy: { type: Types.ObjectId, ref: 'User' },
+        admissionSource: {
+            type: String,
+            enum: ["OPD", "EMERGENCY", "REFERRAL", "DIRECT"],
+            default: "DIRECT"
+        },
+        paymentType: { type: String, enum: ["CASH", "INSURANCE", "CORPORATE"] },
+        advanceDeposit: { type: Number, min: 0 },
+        consentSigned: { type: Boolean, default: false },
+        consentPending: { type: Boolean, default: false },
+        wardType: {
+            type: String,
+            enum: ["GENERAL", "SEMI_PRIVATE", "PRIVATE", "ICU", "EMERGENCY"],
+            default: "GENERAL"
+        },
         patientId: {
             type: Types.ObjectId,
             ref: 'Patient',
@@ -156,4 +176,12 @@ const admissionSchema = new Schema<IAdmission>(
     }, { timestamps: true });
 
 const Admission = mongoose.models.Admission || model<IAdmission>('Admission', admissionSchema);
+Admission.schema.index(
+    { ipdNumber: 1 },
+    {
+        unique: true,
+        partialFilterExpression: { ipdNumber: { $type: "string" } },
+        name: "admission_ipd_number_unique"
+    }
+);
 export default Admission;

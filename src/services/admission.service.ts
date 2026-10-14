@@ -1,25 +1,97 @@
 import admissionRepository, { AdmissionRepository } from "@/repositories/admission.repository";
-import { Types } from "mongoose";
+import { ClientSession, Types } from "mongoose";
 import { IAdmission } from "@/interfaces/admission.interface";
 import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto } from "@/dto/admission.dto";
 import Bed from "@/models/bed.model";
+import { AdmissionError } from "@/services/admission-errors";
+import { AdmissionPersistence, admissionPersistence } from "@/services/admission.persistence";
+
+const ADMISSION_SOURCES = ["OPD", "EMERGENCY", "REFERRAL", "DIRECT"];
+const PAYMENT_TYPES = ["CASH", "INSURANCE", "CORPORATE"];
+const WARD_TYPES = ["GENERAL", "SEMI_PRIVATE", "PRIVATE", "ICU", "EMERGENCY"];
+const ADMISSION_TYPES = ["EMERGENCY", "ELECTIVE", "TRANSFER", "DAYCARE"];
 
 export class AdmissionService {
-    constructor(private repository: AdmissionRepository = admissionRepository) { }
+    constructor(
+        private repository: AdmissionRepository = admissionRepository,
+        private persistence: AdmissionPersistence = admissionPersistence
+    ) { }
 
-    async createAdmission(data: CreateAdmissionDto): Promise<IAdmission> {
-        // Create the admission
-        const admission = await this.repository.create({
-            ...data,
-            status: data.status || "ADMITTED"
-        });
-
-        // Automatically update bed status to OCCUPIED
-        if (data.bedId && Types.ObjectId.isValid(data.bedId.toString())) {
-            await Bed.findByIdAndUpdate(data.bedId, { status: "OCCUPIED" });
+    async createAdmission(data: CreateAdmissionDto, admittedBy: Types.ObjectId | string): Promise<IAdmission> {
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+            throw new AdmissionError("Admission request body must be a JSON object", 400);
+        }
+        if (!data.patientId || !data.doctorId || !data.bedId || !data.admissionDate) {
+            throw new AdmissionError("Patient, doctor, bed, and admission date are required", 400);
         }
 
-        return admission;
+        const patientId = this.toObjectId(data.patientId, "patient");
+        const doctorId = this.toObjectId(data.doctorId, "doctor");
+        const bedId = this.toObjectId(data.bedId, "bed");
+        const admittedById = this.toObjectId(admittedBy, "admitting user");
+        const admissionDate = new Date(data.admissionDate);
+        if (Number.isNaN(admissionDate.getTime())) {
+            throw new AdmissionError("Admission date is invalid", 400);
+        }
+
+        if (data.admissionType && !ADMISSION_TYPES.includes(data.admissionType)) {
+            throw new AdmissionError("Admission type is invalid", 400);
+        }
+        if (data.admissionSource && !ADMISSION_SOURCES.includes(data.admissionSource)) {
+            throw new AdmissionError("Admission source must be OPD, EMERGENCY, REFERRAL, or DIRECT", 400);
+        }
+        if (data.paymentType && !PAYMENT_TYPES.includes(data.paymentType)) {
+            throw new AdmissionError("Payment type must be CASH, INSURANCE, or CORPORATE", 400);
+        }
+        if (data.wardType && !WARD_TYPES.includes(data.wardType)) {
+            throw new AdmissionError("Ward type is invalid", 400);
+        }
+        if (data.advanceDeposit !== undefined && (!Number.isFinite(data.advanceDeposit) || data.advanceDeposit < 0)) {
+            throw new AdmissionError("Advance deposit must be a non-negative number", 400);
+        }
+        if ((data.consentSigned !== undefined && typeof data.consentSigned !== "boolean") ||
+            (data.consentPending !== undefined && typeof data.consentPending !== "boolean")) {
+            throw new AdmissionError("Consent fields must be boolean values", 400);
+        }
+
+        return this.persistence.withTransaction(async (session: ClientSession) => {
+            const patientExists = await this.persistence.patientExists(patientId, session);
+            const doctorExists = await this.persistence.doctorExists(doctorId, session);
+            if (!patientExists) throw new AdmissionError("Patient was not found", 404);
+            if (!doctorExists) throw new AdmissionError("Doctor was not found", 404);
+            if (await this.persistence.activeAdmissionExists(patientId, session)) {
+                throw new AdmissionError("Patient already has an active admission", 409);
+            }
+
+            const bed = await this.persistence.findBed(bedId, session);
+            if (!bed) throw new AdmissionError("Bed was not found", 404);
+            if (bed.status !== "AVAILABLE") throw new AdmissionError("Bed is not available", 409);
+
+            const ipdNumber = await this.persistence.nextIpdNumber(admissionDate.getFullYear(), session);
+            const occupied = await this.persistence.occupyAvailableBed(bedId, session);
+            if (!occupied) throw new AdmissionError("Bed is no longer available", 409);
+
+            const payload: CreateAdmissionDto = {
+                ...data,
+                patientId,
+                doctorId,
+                bedId,
+                admissionDate,
+                ipdNumber,
+                admittedBy: admittedById,
+                status: "ADMITTED"
+            };
+            const created = await this.persistence.createAdmission(payload, session) as { _id?: Types.ObjectId };
+            if (!created?._id) throw new Error("Admission was not created");
+            return await this.repository.findById(created._id, session) as IAdmission;
+        });
+    }
+
+    private toObjectId(value: Types.ObjectId | string, label: string): Types.ObjectId {
+        if (!Types.ObjectId.isValid(value.toString())) {
+            throw new AdmissionError(`Invalid ${label} ID`, 400);
+        }
+        return new Types.ObjectId(value.toString());
     }
 
     async getAllAdmissions(filter: any = {}): Promise<IAdmission[]> {

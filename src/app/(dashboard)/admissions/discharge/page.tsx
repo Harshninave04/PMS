@@ -8,6 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
+import { Can } from "@/components/permissions/can";
+import { usePermissions } from "@/components/permissions/permission-context";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,6 +58,8 @@ function DischargeContent() {
   const searchParams = useSearchParams();
   const initialAdmissionId = searchParams.get("admissionId") || "";
   const { toast } = useToast();
+  const { can } = usePermissions();
+  const canDischarge = can("admissions.discharge:update");
 
   const [admissions, setAdmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,7 +92,7 @@ function DischargeContent() {
       if (res.ok && result.success) {
         const list = result.data || [];
         setAdmissions(list);
-        if (initialAdmissionId) {
+        if (initialAdmissionId && canDischarge) {
           const match = list.find((a: any) => a._id === initialAdmissionId);
           if (match) {
             handleDischargeClick(match);
@@ -106,7 +110,7 @@ function DischargeContent() {
 
   useEffect(() => {
     fetchAdmissions();
-  }, []);
+  }, [canDischarge]);
 
   const handleDischargeClick = (admission: any) => {
     setSelectedAdmission(admission);
@@ -326,15 +330,17 @@ function DischargeContent() {
                       </TableCell>
 
                       <TableCell className="text-right">
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          className="h-7 px-3 text-xs"
-                          onClick={() => handleDischargeClick(adm)}
-                        >
-                          <LogOut className="h-3 w-3 mr-1" />
-                          Initiate Discharge
-                        </Button>
+                        <Can permission="admissions.discharge:update">
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-7 px-3 text-xs"
+                            onClick={() => handleDischargeClick(adm)}
+                          >
+                            <LogOut className="h-3 w-3 mr-1" />
+                            Initiate Discharge
+                          </Button>
+                        </Can>
                       </TableCell>
                     </TableRow>
                   ))
@@ -346,7 +352,7 @@ function DischargeContent() {
       </Card>
 
       {/* Complete Discharge Processing Modal */}
-      <Dialog open={dischargeOpen} onOpenChange={setDischargeOpen}>
+      <Dialog open={canDischarge && dischargeOpen} onOpenChange={setDischargeOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           {selectedAdmission && (
             <form onSubmit={handleDischargeSubmit}>

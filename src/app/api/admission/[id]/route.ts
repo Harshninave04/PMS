@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import AdmissionController from "@/controllers/admission.controller";
-import { requirePermission } from "@/lib/rbac/guard";
+import { requireAnyPermission, requirePermission } from "@/lib/rbac/guard";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, { params }: Params): Promise<NextResponse> {
-    const denied = await requirePermission(request, "admissions.current:view");
+    const denied = await requireAnyPermission(request, [
+        "admissions.current:view",
+        "admissions.summary:view",
+        "admissions.history:view",
+    ]);
     if (denied) return denied;
 
     try {

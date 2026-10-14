@@ -2,6 +2,7 @@ import { Document, Types } from "mongoose";
 
 export interface ITransferRecord {
     _id?: Types.ObjectId | string;
+    transferredBy?: Types.ObjectId | any;
     fromBedId: Types.ObjectId | any;
     toBedId: Types.ObjectId | any;
     fromDoctorId?: Types.ObjectId | any;
@@ -20,6 +21,14 @@ export interface IDischargeMedication {
 }
 
 export interface IAdmission extends Document {
+    ipdNumber?: string;
+    admittedBy?: Types.ObjectId | any;
+    admissionSource?: "OPD" | "EMERGENCY" | "REFERRAL" | "DIRECT";
+    paymentType?: "CASH" | "INSURANCE" | "CORPORATE";
+    advanceDeposit?: number;
+    consentSigned?: boolean;
+    consentPending?: boolean;
+    wardType?: "GENERAL" | "SEMI_PRIVATE" | "PRIVATE" | "ICU" | "EMERGENCY";
     patientId: Types.ObjectId | any;
     doctorId: Types.ObjectId | any;
     branchId?: Types.ObjectId | any;
