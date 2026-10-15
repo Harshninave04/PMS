@@ -9,7 +9,7 @@ export class WardService {
     async createWard(data: CreateWardDto): Promise<IWard> {
         const existing = await this.repository.findByWardCode(data.wardCode);
         if (existing) {
-            throw { statusCode: 409, message: `Ward with code '${data.wardCode}' already exists` };
+            throw { statusCode: 409, message: `Ward code ${data.wardCode} already exists` };
         }
         return await this.repository.create(data);
     }
@@ -34,7 +34,7 @@ export class WardService {
         if (data.wardCode) {
             const existing = await this.repository.findByWardCode(data.wardCode);
             if (existing && existing._id.toString() !== id.toString()) {
-                throw { statusCode: 409, message: `Ward with code '${data.wardCode}' already exists` };
+                throw { statusCode: 409, message: `Ward code ${data.wardCode} already exists` };
             }
         }
         return await this.repository.update(id, data);
