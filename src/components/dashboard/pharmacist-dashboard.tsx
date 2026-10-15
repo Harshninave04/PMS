@@ -139,6 +139,9 @@ function getPersonName(person: PopulatedPerson | string | undefined, fallback: s
 
 export default function PharmacistDashboard() {
   const { can } = usePermissions();
+  const canViewMedicines = can("pharmacy.medicines:view");
+  const stockHref = can("pharmacy.stock:view") ? "/pharmacy/stock" : "/pharmacy/medicines";
+  const expiryHref = can("pharmacy.expiry:view") ? "/pharmacy/expiry" : "/pharmacy/medicines";
   const [stats, setStats] = React.useState<PharmacyStats | null>(null);
   const [medicines, setMedicines] = React.useState<Medicine[]>([]);
   const [prescriptions, setPrescriptions] = React.useState<Prescription[]>([]);
@@ -159,7 +162,9 @@ export default function PharmacistDashboard() {
     const params = new URLSearchParams({ from: range.from.toISOString(), to: range.to.toISOString(), groupBy });
     const requests = [
       fetchJson<PharmacyStats>(`/api/pharmacy/stats?${params}`),
-      fetchJson<Medicine[]>("/api/pharmacy/stock"),
+      canViewMedicines
+        ? fetchJson<Medicine[]>("/api/pharmacy/medicines")
+        : Promise.resolve([] as Medicine[]),
       fetchJson<Prescription[]>("/api/pharmacy/prescriptions"),
       fetchJson<PharmacySale[]>("/api/pharmacy/dispense?limit=5"),
     ] as const;
@@ -172,13 +177,16 @@ export default function PharmacistDashboard() {
       if (result.status === "fulfilled") {
         setters[index](result.value as never);
       } else {
-        const message = result.reason instanceof Error ? result.reason.message : "Unable to load this section.";
+        const rawMessage = result.reason instanceof Error ? result.reason.message : "Unable to load this section.";
+        const message = section === "stock" && /forbidden|permission|403/i.test(rawMessage)
+          ? "You don’t have permission to view medicine stock details."
+          : rawMessage;
         setErrors((previous) => ({ ...previous, [section]: message }));
       }
       setLoading((previous) => ({ ...previous, [section]: false }));
     });
     setRefreshing(false);
-  }, [range.from, range.to, groupBy]);
+  }, [range.from, range.to, groupBy, canViewMedicines]);
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => void loadData(), 0);
@@ -187,6 +195,15 @@ export default function PharmacistDashboard() {
 
   const quickActions = React.useMemo(() => QUICK_ACTIONS.filter((action) => can(action.permission)), [can]);
   const activeMedicines = medicines.filter((medicine) => medicine.isActive !== false);
+  const lowStockCount = activeMedicines.filter((medicine) => medicine.stockQuantity <= (medicine.reorderLevel ?? 10)).length;
+  const outOfStockCount = activeMedicines.filter((medicine) => medicine.stockQuantity <= 0).length;
+  const expiredCount = activeMedicines.filter((medicine) => medicine.expiryDate && new Date(medicine.expiryDate) < new Date()).length;
+  const expiringIn30DaysCount = activeMedicines.filter((medicine) => {
+    if (!medicine.expiryDate) return false;
+    const expiry = new Date(medicine.expiryDate);
+    const now = new Date();
+    return expiry >= now && expiry <= new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  }).length;
   const now = new Date();
   const expiredMedicines = activeMedicines.filter((medicine) => medicine.expiryDate && new Date(medicine.expiryDate) < now).slice(0, 4);
   const expiringSoon = activeMedicines.filter((medicine) => {
@@ -283,24 +300,24 @@ export default function PharmacistDashboard() {
           ) : <EmptyState text="No sales recorded for this period." />}
         </Panel>
 
-        <Panel title="Medicine stock" subtitle="Inventory and items needing attention" icon={Package} error={errors.stock} loading={loading.stock}>
+        {canViewMedicines && <Panel title="Medicine stock" subtitle="Inventory and items needing attention" icon={Package} error={errors.stock} loading={loading.stock}>
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
-            <StockMetric label="Total medicines" value={stats?.totalMedicines} loading={loading.stats} error={errors.stats} />
-            <StockMetric label="Low stock" value={stats?.lowStockCount} tone="amber" loading={loading.stats} error={errors.stats} />
-            <StockMetric label="Out of stock" value={stats?.outOfStockCount} tone="rose" loading={loading.stats} error={errors.stats} />
-            <StockMetric label="Expiring soon" value={stats?.expiringIn30DaysCount} tone="amber" loading={loading.stats} error={errors.stats} />
-            <StockMetric label="Expired" value={stats?.expiredCount} tone="rose" loading={loading.stats} error={errors.stats} />
+            <StockMetric label="Total medicines" value={activeMedicines.length} loading={loading.stock} error={errors.stock} />
+            <StockMetric label="Low stock" value={lowStockCount} tone="amber" loading={loading.stock} error={errors.stock} />
+            <StockMetric label="Out of stock" value={outOfStockCount} tone="rose" loading={loading.stock} error={errors.stock} />
+            <StockMetric label="Expiring soon" value={expiringIn30DaysCount} tone="amber" loading={loading.stock} error={errors.stock} />
+            <StockMetric label="Expired" value={expiredCount} tone="rose" loading={loading.stock} error={errors.stock} />
           </div>
           {errors.stock ? <InlineError message={errors.stock} /> : (
             <div className="mt-4 space-y-2">
-              {lowStockItems.length > 0 && <Link href="/pharmacy/stock" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span><strong>{(stats?.lowStockCount ?? 0) + (stats?.outOfStockCount ?? 0)} medicines need restocking.</strong> {lowStockItems.map((medicine) => medicine.name).join(", ")}</span></Link>}
-              {expiringSoon.length > 0 && <Link href="/pharmacy/expiry" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span><strong>{stats?.expiringIn30DaysCount ?? expiringSoon.length} medicines expire within 30 days.</strong> {expiringSoon.map((medicine) => medicine.name).join(", ")}</span></Link>}
-              {expiredMedicines.length > 0 && <Link href="/pharmacy/expiry" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span><strong>{stats?.expiredCount ?? expiredMedicines.length} expired medicines need review.</strong> {expiredMedicines.map((medicine) => medicine.name).join(", ")}</span></Link>}
+              {lowStockItems.length > 0 && <Link href={stockHref} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span><strong>{lowStockCount} medicines need restocking.</strong> {lowStockItems.map((medicine) => medicine.name).join(", ")}</span></Link>}
+              {expiringSoon.length > 0 && <Link href={expiryHref} className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span><strong>{expiringIn30DaysCount} medicines expire within 30 days.</strong> {expiringSoon.map((medicine) => medicine.name).join(", ")}</span></Link>}
+              {expiredMedicines.length > 0 && <Link href={expiryHref} className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span><strong>{expiredCount} expired medicines need review.</strong> {expiredMedicines.map((medicine) => medicine.name).join(", ")}</span></Link>}
               {!lowStockItems.length && !expiringSoon.length && !expiredMedicines.length && <p className="rounded-lg bg-emerald-50 px-3 py-2.5 text-xs text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">No low-stock or expiry alerts.</p>}
             </div>
           )}
-          <Link href="/pharmacy/stock" className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-800 dark:text-emerald-400">Open stock <ArrowRight className="h-3.5 w-3.5" /></Link>
-        </Panel>
+          <Link href={stockHref} className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-800 dark:text-emerald-400">{can("pharmacy.stock:view") ? "Open stock" : "Open medicine catalog"} <ArrowRight className="h-3.5 w-3.5" /></Link>
+        </Panel>}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">

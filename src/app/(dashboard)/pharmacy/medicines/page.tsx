@@ -15,7 +15,7 @@ import {
   MapPin,
   Calendar,
   IndianRupee,
-  RefreshCw
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,7 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow
+  TableRow,
 } from "@/components/ui/table";
 import {
   Dialog,
@@ -35,7 +35,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogFooter
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
@@ -50,7 +50,12 @@ export default function MedicinesPage() {
   const [editingMedicine, setEditingMedicine] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [selectedMedicineId, setSelectedMedicineId] = useState<string | null>(
+    null,
+  );
+  const [detailTab, setDetailTab] = useState("Details");
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
   const { toast } = useToast();
 
   const [formData, setFormData] = useState({
@@ -68,7 +73,7 @@ export default function MedicinesPage() {
     unitPrice: 0,
     stockQuantity: 0,
     reorderLevel: 10,
-    description: ""
+    description: "",
   });
 
   const fetchMedicines = async () => {
@@ -77,7 +82,6 @@ export default function MedicinesPage() {
       const [medRes, catRes, sugRes] = await Promise.all([
         fetch("/api/pharmacy/medicines"),
         fetch("/api/pharmacy/categories"),
-        fetch("/api/pharmacy/suggestions")
       ]);
       const medData = await medRes.json();
       if (medData.success) setMedicines(medData.data || []);
@@ -121,6 +125,41 @@ export default function MedicinesPage() {
     });
   }, [medicines, search, categoryFilter, dosageFilter]);
 
+  const levocetirizine = medicines.find((m) =>
+    m.name?.toLowerCase().includes("levocetirizine"),
+  );
+  const selectedMedicine =
+    medicines.find((m) => m._id === selectedMedicineId) ||
+    levocetirizine ||
+    filteredMedicines[0] ||
+    medicines[0];
+  const displayedMedicines = [...filteredMedicines].sort((a, b) => {
+    const aIsLevocetirizine = a.name?.toLowerCase().includes("levocetirizine");
+    const bIsLevocetirizine = b.name?.toLowerCase().includes("levocetirizine");
+    return Number(bIsLevocetirizine) - Number(aIsLevocetirizine);
+  });
+  const totalPages = Math.max(1, Math.ceil(displayedMedicines.length / pageSize));
+  const pageMedicines = displayedMedicines.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, categoryFilter, dosageFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+  const lowStockCount = medicines.filter(
+    (m) => Number(m.stockQuantity || 0) <= Number(m.reorderLevel || 10),
+  ).length;
+  const expiringSoonCount = medicines.filter((m) => {
+    if (!m.expiryDate) return false;
+    const days = (new Date(m.expiryDate).getTime() - Date.now()) / 86400000;
+    return days >= 0 && days <= 30;
+  }).length;
+
   const handleOpenCreate = () => {
     openCreatePrefilled("");
   };
@@ -144,7 +183,7 @@ export default function MedicinesPage() {
       unitPrice: 50,
       stockQuantity: 100,
       reorderLevel: 20,
-      description: name ? `Added on doctor request (${name})` : ""
+      description: "",
     });
     setIsOpen(true);
   };
@@ -162,11 +201,13 @@ export default function MedicinesPage() {
       shelfNumber: med.shelfNumber || "Shelf 1",
       hsnCode: med.hsnCode || "30049099",
       gstRate: med.gstRate || 12,
-      expiryDate: med.expiryDate ? new Date(med.expiryDate).toISOString().slice(0, 10) : "",
+      expiryDate: med.expiryDate
+        ? new Date(med.expiryDate).toISOString().slice(0, 10)
+        : "",
       unitPrice: med.unitPrice || 0,
       stockQuantity: med.stockQuantity || 0,
       reorderLevel: med.reorderLevel || 10,
-      description: med.description || ""
+      description: med.description || "",
     });
     setIsOpen(true);
   };
@@ -183,13 +224,15 @@ export default function MedicinesPage() {
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(formData),
       });
       const data = await res.json();
       if (data.success) {
         toast(
-          editingMedicine ? "Medicine updated successfully" : "Medicine added successfully",
-          "success"
+          editingMedicine
+            ? "Medicine updated successfully"
+            : "Medicine added successfully",
+          "success",
         );
         setIsOpen(false);
         fetchMedicines();
@@ -206,7 +249,9 @@ export default function MedicinesPage() {
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to delete ${name}?`)) return;
     try {
-      const res = await fetch(`/api/pharmacy/medicines/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/pharmacy/medicines/${id}`, {
+        method: "DELETE",
+      });
       const data = await res.json();
       if (data.success) {
         toast("Medicine deleted", "success");
@@ -230,7 +275,7 @@ export default function MedicinesPage() {
       "Unit Price (INR)",
       "Stock Quantity",
       "Reorder Level",
-      "Expiry Date"
+      "Expiry Date",
     ];
     const rows = filteredMedicines.map((m) => [
       `"${m.name}"`,
@@ -242,7 +287,7 @@ export default function MedicinesPage() {
       m.unitPrice || 0,
       m.stockQuantity || 0,
       m.reorderLevel || 10,
-      m.expiryDate ? new Date(m.expiryDate).toLocaleDateString() : ""
+      m.expiryDate ? new Date(m.expiryDate).toLocaleDateString() : "",
     ]);
 
     const csvContent =
@@ -251,7 +296,10 @@ export default function MedicinesPage() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `medistra_medicines_catalog_${Date.now()}.csv`);
+    link.setAttribute(
+      "download",
+      `medistra_medicines_catalog_${Date.now()}.csv`,
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -259,16 +307,78 @@ export default function MedicinesPage() {
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-5 pb-12">
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.55fr_1fr_1fr_1fr]">
+        <div className="relative flex min-h-[112px] items-center overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-teal-50 to-white px-6 py-5 shadow-sm dark:border-emerald-900 dark:from-emerald-950/50 dark:to-slate-900">
+          <div className="relative z-10">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">
+              Pharmacy
+            </p>
+            <h1 className="mt-1 text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+              Medicines Catalog
+            </h1>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+              Manage formulations, pricing, stock and expiry in one place.
+            </p>
+          </div>
+          <div
+            aria-hidden="true"
+            className="absolute -right-3 -top-8 h-40 w-40 rounded-full bg-emerald-200/40 blur-2xl"
+          />
+          <div
+            aria-hidden="true"
+            className="absolute right-9 top-7 hidden h-12 w-24 rotate-[-32deg] rounded-full border border-white/80 bg-gradient-to-br from-emerald-300 to-emerald-600 shadow-lg sm:block"
+          >
+            <span className="absolute left-1/2 h-full border-l border-white/60" />
+          </div>
+        </div>
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+            <Boxes className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="text-[11px] text-slate-500">Total medicines</p>
+            <p className="text-xl font-bold text-slate-900 dark:text-white">
+              {medicines.length}
+            </p>
+            <p className="text-[10px] text-emerald-600">Catalog items</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300">
+            <AlertTriangle className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="text-[11px] text-slate-500">Low stock</p>
+            <p className="text-xl font-bold text-slate-900 dark:text-white">
+              {lowStockCount}
+            </p>
+            <p className="text-[10px] text-amber-600">Needs attention</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-300">
+            <Calendar className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="text-[11px] text-slate-500">Expiring soon</p>
+            <p className="text-xl font-bold text-slate-900 dark:text-white">
+              {expiringSoonCount}
+            </p>
+            <p className="text-[10px] text-rose-600">Within 30 days</p>
+          </div>
+        </div>
+      </div>
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             <Pill className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
-            Medicines Master Catalog
-          </h1>
+            Medicines Catalog
+          </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Formulations, batch serials, unit pricing in ₹, shelf locations, and stock reorder thresholds.
+            Formulations, batch serials, unit pricing in ₹, shelf locations, and
+            stock reorder thresholds.
           </p>
         </div>
 
@@ -279,7 +389,9 @@ export default function MedicinesPage() {
             onClick={fetchMedicines}
             className="text-xs flex items-center gap-1.5"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+            />
             Refresh
           </Button>
 
@@ -383,144 +495,327 @@ export default function MedicinesPage() {
         </CardContent>
       </Card>
 
-      {/* Medicines Table */}
-      <Card className="border shadow-sm bg-white dark:bg-slate-900">
-        <CardHeader className="p-4 pb-2 border-b flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-bold flex items-center gap-2">
-            <Boxes className="h-4 w-4 text-emerald-600" />
-            Catalog Directory ({filteredMedicines.length} Formulations)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
-          <Table className="text-xs">
-            <TableHeader>
-              <TableRow className="bg-slate-50 dark:bg-slate-800/50">
-                <TableHead>Medicine Name</TableHead>
-                <TableHead>Formulation</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Batch &amp; Rack</TableHead>
-                <TableHead>Expiry</TableHead>
-                <TableHead className="text-right">Unit Price (₹)</TableHead>
-                <TableHead className="text-right">Current Stock</TableHead>
-                <TableHead className="text-center">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredMedicines.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-10 text-slate-400">
-                    No medicines match the search criteria.
-                  </TableCell>
+      <div className="grid min-w-0 grid-cols-1 items-start gap-3 xl:grid-cols-[minmax(0,3fr)_minmax(260px,1fr)]">
+        {/* Medicines Table */}
+        <Card className="border shadow-sm bg-white dark:bg-slate-900">
+          <CardHeader className="p-4 pb-2 border-b flex flex-row items-center justify-between">
+            <CardTitle className="text-sm font-bold flex items-center gap-2">
+              <Boxes className="h-4 w-4 text-emerald-600" />
+              Catalog Directory ({filteredMedicines.length} Formulations)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 overflow-x-auto">
+            <Table className="text-xs">
+              <TableHeader>
+                <TableRow className="bg-slate-50 dark:bg-slate-800/50">
+                  <TableHead>Medicine Name</TableHead>
+                  <TableHead>Formulation</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Batch &amp; Rack</TableHead>
+                  <TableHead>Expiry</TableHead>
+                  <TableHead className="text-right">Unit Price (₹)</TableHead>
+                  <TableHead className="text-right">Current Stock</TableHead>
+                  <TableHead className="text-center">Actions</TableHead>
                 </TableRow>
-              ) : (
-                filteredMedicines.map((med) => {
-                  const isLow = med.stockQuantity <= (med.reorderLevel || 10);
-                  const isNil = med.stockQuantity === 0;
-                  const isExpired = med.expiryDate && new Date(med.expiryDate) < new Date();
+              </TableHeader>
+              <TableBody>
+                {pageMedicines.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={8}
+                      className="text-center py-10 text-slate-400"
+                    >
+                      No medicines match the search criteria.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  pageMedicines.map((med) => {
+                    const isLow = med.stockQuantity <= (med.reorderLevel || 10);
+                    const isNil = med.stockQuantity === 0;
+                    const isExpired =
+                      med.expiryDate && new Date(med.expiryDate) < new Date();
 
-                  return (
-                    <TableRow key={med._id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                      <TableCell>
-                        <div className="font-semibold text-slate-900 dark:text-white">
-                          {med.name}
-                        </div>
-                        {med.genericName && (
-                          <div className="text-[11px] text-slate-500 italic">
-                            {med.genericName}
+                    return (
+                      <TableRow
+                        key={med._id}
+                        onClick={() => setSelectedMedicineId(med._id)}
+                        className={`cursor-pointer hover:bg-emerald-50/50 dark:hover:bg-slate-800/40 ${selectedMedicine?._id === med._id ? "bg-emerald-50/50 dark:bg-emerald-950/20" : ""}`}
+                      >
+                        <TableCell>
+                          <div className="font-semibold text-slate-900 dark:text-white">
+                            {med.name}
                           </div>
-                        )}
-                        {med.manufacturer && (
-                          <div className="text-[10px] text-slate-400">
-                            Mfg: {med.manufacturer}
-                          </div>
-                        )}
-                      </TableCell>
+                          {med.genericName && (
+                            <div className="text-[11px] text-slate-500 italic">
+                              {med.genericName}
+                            </div>
+                          )}
+                          {med.manufacturer && (
+                            <div className="text-[10px] text-slate-400">
+                              Mfg: {med.manufacturer}
+                            </div>
+                          )}
+                        </TableCell>
 
-                      <TableCell>
-                        <Badge variant="outline" className="text-[10px] font-mono">
-                          {med.dosageForm || "TABLET"}
-                        </Badge>
-                      </TableCell>
-
-                      <TableCell>
-                        <span className="text-slate-700 dark:text-slate-300 font-medium">
-                          {med.category}
-                        </span>
-                      </TableCell>
-
-                      <TableCell>
-                        <div className="font-mono text-[11px] text-slate-700 dark:text-slate-300">
-                          {med.batchNumber || "N/A"}
-                        </div>
-                        <div className="text-[10px] text-slate-500 flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {med.rackLocation || "Rack A-01"}
-                        </div>
-                      </TableCell>
-
-                      <TableCell>
-                        <div className={`text-[11px] ${isExpired ? "text-rose-600 font-bold" : "text-slate-600 dark:text-slate-300"}`}>
-                          {med.expiryDate ? new Date(med.expiryDate).toLocaleDateString() : "N/A"}
-                        </div>
-                        {isExpired && (
-                          <Badge variant="destructive" className="text-[9px] px-1 py-0">
-                            EXPIRED
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] font-mono"
+                          >
+                            {med.dosageForm || "TABLET"}
                           </Badge>
-                        )}
-                      </TableCell>
+                        </TableCell>
 
-                      <TableCell className="text-right font-bold text-slate-900 dark:text-white">
-                        ₹{(med.unitPrice || 0).toLocaleString("en-IN")}
-                      </TableCell>
+                        <TableCell>
+                          <span className="text-slate-700 dark:text-slate-300 font-medium">
+                            {med.category}
+                          </span>
+                        </TableCell>
 
-                      <TableCell className="text-right">
-                        <Badge
-                          className={`text-[10px] ${
-                            isNil
-                              ? "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
-                              : isLow
-                              ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
-                              : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
-                          }`}
-                        >
-                          {med.stockQuantity} in stock
-                        </Badge>
-                        <div className="text-[9px] text-slate-400 mt-0.5">
-                          Min: {med.reorderLevel || 10}
-                        </div>
-                      </TableCell>
+                        <TableCell>
+                          <div className="font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                            {med.batchNumber || "N/A"}
+                          </div>
+                          <div className="text-[10px] text-slate-500 flex items-center gap-1">
+                            <MapPin className="h-3 w-3" />
+                            {med.rackLocation || "Rack A-01"}
+                          </div>
+                        </TableCell>
 
-                      <TableCell className="text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0"
-                            onClick={() => handleOpenEdit(med)}
-                            title="Edit Medicine"
+                        <TableCell>
+                          <div
+                            className={`text-[11px] ${isExpired ? "text-rose-600 font-bold" : "text-slate-600 dark:text-slate-300"}`}
                           >
-                            <Edit2 className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
-                          </Button>
+                            {med.expiryDate
+                              ? new Date(med.expiryDate).toLocaleDateString()
+                              : "N/A"}
+                          </div>
+                          {isExpired && (
+                            <Badge
+                              variant="destructive"
+                              className="text-[9px] px-1 py-0"
+                            >
+                              EXPIRED
+                            </Badge>
+                          )}
+                        </TableCell>
 
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 text-rose-600 hover:text-rose-700"
-                            onClick={() => handleDelete(med._id, med.name)}
-                            title="Delete Medicine"
+                        <TableCell className="text-right font-bold text-slate-900 dark:text-white">
+                          ₹{(med.unitPrice || 0).toLocaleString("en-IN")}
+                        </TableCell>
+
+                        <TableCell className="text-right">
+                          <Badge
+                            className={`text-[10px] ${
+                              isNil
+                                ? "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
+                                : isLow
+                                  ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                                  : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                            }`}
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
+                            {med.stockQuantity} in stock
+                          </Badge>
+                          <div className="text-[9px] text-slate-400 mt-0.5">
+                            Min: {med.reorderLevel || 10}
+                          </div>
+                        </TableCell>
+
+                        <TableCell className="text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleOpenEdit(med)}
+                              title="Edit Medicine"
+                            >
+                              <Edit2 className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-rose-600 hover:text-rose-700"
+                              onClick={() => handleDelete(med._id, med.name)}
+                              title="Delete Medicine"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 text-xs text-slate-500 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            Showing {displayedMedicines.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, displayedMedicines.length)} of {displayedMedicines.length} medicines
+          </span>
+          <div className="flex items-center gap-1 self-end sm:self-auto">
+            <Button variant="outline" size="sm" className="h-8 px-2" disabled={currentPage === 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} aria-label="Previous page">‹</Button>
+            {Array.from({ length: totalPages }, (_, index) => index + 1)
+              .slice(Math.max(0, Math.min(currentPage - 2, totalPages - 3)), Math.max(3, Math.min(currentPage + 1, totalPages)))
+              .map((page) => <Button key={page} variant={currentPage === page ? "default" : "outline"} size="sm" className={`h-8 min-w-8 px-2 ${currentPage === page ? "bg-emerald-600 text-white hover:bg-emerald-700" : ""}`} onClick={() => setCurrentPage(page)}>{page}</Button>)}
+            <Button variant="outline" size="sm" className="h-8 px-2" disabled={currentPage === totalPages} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} aria-label="Next page">›</Button>
+          </div>
+        </div>
+        </Card>
+
+        {selectedMedicine && (
+          <Card className="overflow-hidden border-slate-200 shadow-sm xl:sticky xl:top-4 dark:border-slate-800">
+            <CardHeader className="p-4 pb-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <CardTitle className="text-base">
+                    {selectedMedicine.name}
+                  </CardTitle>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {selectedMedicine.genericName || selectedMedicine.name}
+                  </p>
+                  <Badge className="mt-2 bg-emerald-50 text-emerald-700">
+                    {Number(selectedMedicine.stockQuantity || 0) <= Number(selectedMedicine.reorderLevel || 10) ? "Low Stock" : "In Stock"}
+                  </Badge>
+                </div>
+                <div
+                  aria-label={`${selectedMedicine.name} tablet`}
+                  className="flex h-[68px] w-[68px] shrink-0 items-center justify-center rounded-2xl border border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/60"
+                >
+                  <span className="block h-7 w-12 rotate-[-42deg] rounded-full border border-amber-200 bg-gradient-to-br from-white via-orange-50 to-amber-200 shadow-[0_3px_7px_rgba(120,80,30,0.22)]" />
+                </div>
+              </div>
+            </CardHeader>
+            <div className="grid grid-cols-4 border-b border-slate-200 px-2 dark:border-slate-800">
+              {["Details", "Stock", "Pricing", "History"].map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setDetailTab(tab)}
+                  className={`border-b-2 px-1 py-2.5 text-[11px] font-medium transition-colors ${detailTab === tab ? "border-emerald-600 text-emerald-700 dark:text-emerald-300" : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+            <CardContent className="min-h-[292px] p-4 text-xs">
+              {detailTab === "Details" && (
+                <div className="space-y-0">
+                  {[
+                    ["Category", selectedMedicine.category],
+                    ["Formulation", selectedMedicine.dosageForm || "Tablet"],
+                    ["Batch No.", selectedMedicine.batchNumber || "—"],
+                    ["Rack Location", selectedMedicine.rackLocation || "—"],
+                    [
+                      "Expiry Date",
+                      selectedMedicine.expiryDate
+                        ? new Date(
+                            selectedMedicine.expiryDate,
+                          ).toLocaleDateString("en-IN")
+                        : "—",
+                    ],
+                    [
+                      "Unit Price",
+                      `₹${Number(selectedMedicine.unitPrice || 0).toLocaleString("en-IN")}`,
+                    ],
+                    ["Current Stock", `${selectedMedicine.stockQuantity ?? 0}`],
+                    ["Minimum Stock", `${selectedMedicine.reorderLevel ?? 10}`],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="flex items-center justify-between gap-3 border-b border-slate-100 py-2.5 dark:border-slate-800"
+                    >
+                      <p className="text-slate-500">{label}</p>
+                      <p className="text-right font-medium text-slate-800 dark:text-slate-100">
+                        {value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              {detailTab === "Stock" && (
+                <div className="space-y-3 pt-1">
+                  <p className="font-semibold text-slate-800 dark:text-slate-100">
+                    Stock overview
+                  </p>
+                  <div className="rounded-xl bg-emerald-50 p-4 dark:bg-emerald-950/40">
+                    <p className="text-slate-500">Available units</p>
+                    <p className="mt-1 text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+                      {selectedMedicine.stockQuantity ?? 0}
+                    </p>
+                  </div>
+                  <p className="text-slate-500">
+                    Minimum stock level{" "}
+                    <span className="float-right font-medium text-slate-800 dark:text-slate-100">
+                      {selectedMedicine.reorderLevel ?? 10} units
+                    </span>
+                  </p>
+                  <p className="text-slate-500">
+                    Storage location{" "}
+                    <span className="float-right font-medium text-slate-800 dark:text-slate-100">
+                      {selectedMedicine.rackLocation || "—"}
+                    </span>
+                  </p>
+                </div>
+              )}
+              {detailTab === "Pricing" && (
+                <div className="space-y-3 pt-1">
+                  <p className="font-semibold text-slate-800 dark:text-slate-100">
+                    Pricing information
+                  </p>
+                  <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                    <p className="text-slate-500">Unit price</p>
+                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+                      ₹
+                      {Number(selectedMedicine.unitPrice || 0).toLocaleString(
+                        "en-IN",
+                      )}
+                    </p>
+                  </div>
+                  <p className="text-slate-500">
+                    GST rate{" "}
+                    <span className="float-right font-medium text-slate-800 dark:text-slate-100">
+                      {selectedMedicine.gstRate ?? 0}%
+                    </span>
+                  </p>
+                </div>
+              )}
+              {detailTab === "History" && (
+                <div className="flex min-h-[240px] flex-col items-center justify-center text-center">
+                  <Calendar className="mb-2 h-5 w-5 text-slate-400" />
+                  <p className="font-medium text-slate-700 dark:text-slate-200">
+                    No stock history available
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Stock movement records will appear here.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+            <div className="flex gap-2 border-t border-slate-100 p-4 dark:border-slate-800">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={() => handleOpenEdit(selectedMedicine)}
+              >
+                <Edit2 className="mr-2 h-3.5 w-3.5" />
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1 bg-emerald-600 text-white hover:bg-emerald-700"
+                onClick={() => handleOpenEdit(selectedMedicine)}
+              >
+                <Boxes className="mr-2 h-3.5 w-3.5" />
+                Update Stock
+              </Button>
+            </div>
+          </Card>
+        )}
+      </div>
 
       {/* Add / Edit Dialog Modal */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -528,7 +823,9 @@ export default function MedicinesPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pill className="h-5 w-5 text-emerald-600" />
-              {editingMedicine ? "Edit Medicine Formulation" : "Add New Medicine"}
+              {editingMedicine
+                ? "Edit Medicine Formulation"
+                : "Add New Medicine"}
             </DialogTitle>
           </DialogHeader>
 
@@ -543,7 +840,9 @@ export default function MedicinesPage() {
                   required
                   placeholder="e.g. Paracetamol 650mg (Dolo)"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
                   className="text-xs"
                 />
               </div>
@@ -556,7 +855,9 @@ export default function MedicinesPage() {
                   id="genericName"
                   placeholder="e.g. Paracetamol"
                   value={formData.genericName}
-                  onChange={(e) => setFormData({ ...formData, genericName: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, genericName: e.target.value })
+                  }
                   className="text-xs"
                 />
               </div>
@@ -569,7 +870,9 @@ export default function MedicinesPage() {
                   id="dosageForm"
                   className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
                   value={formData.dosageForm}
-                  onChange={(e) => setFormData({ ...formData, dosageForm: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, dosageForm: e.target.value })
+                  }
                 >
                   <option value="TABLET">Tablet</option>
                   <option value="CAPSULE">Capsule</option>
@@ -590,7 +893,9 @@ export default function MedicinesPage() {
                   id="category"
                   className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
                   value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, category: e.target.value })
+                  }
                 >
                   {categories.map((c: any) => (
                     <option key={c._id} value={c.name}>
@@ -608,7 +913,9 @@ export default function MedicinesPage() {
                   id="manufacturer"
                   placeholder="e.g. Micro Labs, GSK, Cipla"
                   value={formData.manufacturer}
-                  onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, manufacturer: e.target.value })
+                  }
                   className="text-xs"
                 />
               </div>
@@ -622,7 +929,9 @@ export default function MedicinesPage() {
                   required
                   placeholder="e.g. ML-PAR-2401"
                   value={formData.batchNumber}
-                  onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, batchNumber: e.target.value })
+                  }
                   className="text-xs font-mono"
                 />
               </div>
@@ -636,7 +945,9 @@ export default function MedicinesPage() {
                   type="date"
                   required
                   value={formData.expiryDate}
-                  onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, expiryDate: e.target.value })
+                  }
                   className="text-xs"
                 />
               </div>
@@ -649,7 +960,9 @@ export default function MedicinesPage() {
                   id="rackLocation"
                   placeholder="e.g. Rack A-01, Shelf 2"
                   value={formData.rackLocation}
-                  onChange={(e) => setFormData({ ...formData, rackLocation: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, rackLocation: e.target.value })
+                  }
                   className="text-xs"
                 />
               </div>
@@ -665,7 +978,12 @@ export default function MedicinesPage() {
                   step="0.5"
                   required
                   value={formData.unitPrice}
-                  onChange={(e) => setFormData({ ...formData, unitPrice: Number(e.target.value) })}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      unitPrice: Number(e.target.value),
+                    })
+                  }
                   className="text-xs"
                 />
               </div>
@@ -680,7 +998,12 @@ export default function MedicinesPage() {
                   min="0"
                   required
                   value={formData.stockQuantity}
-                  onChange={(e) => setFormData({ ...formData, stockQuantity: Number(e.target.value) })}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      stockQuantity: Number(e.target.value),
+                    })
+                  }
                   className="text-xs"
                 />
               </div>
@@ -695,7 +1018,12 @@ export default function MedicinesPage() {
                   min="0"
                   required
                   value={formData.reorderLevel}
-                  onChange={(e) => setFormData({ ...formData, reorderLevel: Number(e.target.value) })}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      reorderLevel: Number(e.target.value),
+                    })
+                  }
                   className="text-xs"
                 />
               </div>
@@ -717,7 +1045,11 @@ export default function MedicinesPage() {
                 disabled={submitting}
                 className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
               >
-                {submitting ? "Saving..." : editingMedicine ? "Update Medicine" : "Save Medicine"}
+                {submitting
+                  ? "Saving..."
+                  : editingMedicine
+                    ? "Update Medicine"
+                    : "Save Medicine"}
               </Button>
             </DialogFooter>
           </form>
