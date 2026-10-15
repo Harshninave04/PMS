@@ -43,6 +43,7 @@ import { useToast } from "@/components/ui/toast";
 export default function MedicinesPage() {
   const [medicines, setMedicines] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [dosageFilter, setDosageFilter] = useState("ALL");
@@ -79,7 +80,7 @@ export default function MedicinesPage() {
   const fetchMedicines = async () => {
     try {
       setLoading(true);
-      const [medRes, catRes, sugRes] = await Promise.all([
+      const [medRes, catRes] = await Promise.all([
         fetch("/api/pharmacy/medicines"),
         fetch("/api/pharmacy/categories"),
       ]);
@@ -90,10 +91,14 @@ export default function MedicinesPage() {
       if (catData.success) setCategories(catData.data || []);
 
       try {
+        const sugRes = await fetch("/api/pharmacy/suggestions");
         const sugData = await sugRes.json();
-        if (sugRes.ok && sugData.success) setSuggestions(sugData.data || []);
+        setSuggestions(
+          sugRes.ok && sugData.success ? sugData.data || [] : [],
+        );
       } catch {
         // Suggestions are supplementary.
+        setSuggestions([]);
       }
     } catch (err) {
       console.error(err);
