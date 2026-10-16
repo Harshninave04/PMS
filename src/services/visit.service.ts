@@ -73,6 +73,7 @@ export class VisitService {
         if (!data.chiefComplaint?.trim() && !data.assessment?.trim() && !data.objectiveFindings?.trim()) {
             throw { statusCode: 400, message: "Record what you found: complaint, examination or assessment" };
         }
+        const visitedAt = new Date();
         const record = await ClinicalRecord.create({
             patient: new Types.ObjectId(data.patientId.toString()),
             admissionId: new Types.ObjectId(data.admissionId.toString()),
@@ -85,7 +86,8 @@ export class VisitService {
             objectiveFindings: data.objectiveFindings?.trim() || undefined,
             assessment: data.assessment?.trim() || undefined,
             plan: data.plan?.trim() || undefined,
-            dateRecorded: new Date(),
+            visitedAt,
+            dateRecorded: visitedAt,
             status: "Final",
         });
         return record;
@@ -94,10 +96,11 @@ export class VisitService {
     async listVisits(admissionId: Types.ObjectId | string) {
         return await ClinicalRecord.find({
             admissionId: new Types.ObjectId(admissionId.toString()),
-            recordType: "Progress Note",
+            recordType: { $in: ["Progress Note", "Visit Addendum"] },
         })
             .populate("doctor", "name")
-            .sort({ dateRecorded: -1, createdAt: -1 })
+            .populate("author", "name")
+            .sort({ visitedAt: -1, timestamp: -1, dateRecorded: -1, createdAt: -1 })
             .lean();
     }
 }

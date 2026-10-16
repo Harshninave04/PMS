@@ -1,6 +1,10 @@
 import NursingMedication from "@/models/nursing-medication.model";
 import "@/models/medication-order.model";
 import Admission from "@/models/admission.model";
+import { ClinicalRecord } from "@/models/clinical-record.model";
+import { Vitals } from "@/models/vitals.model";
+import { flagVitalForReview, type VitalFlag } from "@/lib/vital-flags";
+import { hospitalDayKey } from "@/lib/hospital-time";
 import "@/models/bed.model";
 import "@/models/patient.model";
 import "@/models/user.model";
@@ -90,6 +94,35 @@ export class NursingService {
       .sort({ admissionDate: -1 })
       .lean();
 
+    const admissionIds = admissions.map((admission) => admission._id);
+    const [vitalRows, roundRows] = admissionIds.length
+      ? await Promise.all([
+          Vitals.find({ admissionId: { $in: admissionIds } })
+            .sort({ dateRecorded: -1, createdAt: -1 }).lean(),
+          ClinicalRecord.find({ admissionId: { $in: admissionIds }, recordType: "Progress Note", $or: [{ visitType: "Round" }, { visitType: { $exists: false } }] })
+            .select("admissionId visitedAt dateRecorded createdAt")
+            .sort({ visitedAt: -1, dateRecorded: -1, createdAt: -1 }).lean(),
+        ])
+      : [[], []];
+
+    const latestVitals = new Map<string, (typeof vitalRows)[number]>();
+    for (const vital of vitalRows) {
+      const key = vital.admissionId?.toString();
+      if (key && !latestVitals.has(key)) latestVitals.set(key, vital);
+    }
+    const latestRoundAt = new Map<string, Date>();
+    const roundsToday = new Set<string>();
+    const todayKey = hospitalDayKey(new Date());
+    for (const round of roundRows) {
+      const key = round.admissionId?.toString();
+      if (!key) continue;
+      const visitedAt = round.visitedAt ?? round.dateRecorded ?? round.createdAt;
+      if (!visitedAt) continue;
+      const roundDate = new Date(visitedAt);
+      if (!latestRoundAt.has(key)) latestRoundAt.set(key, roundDate);
+      if (hospitalDayKey(roundDate) === todayKey) roundsToday.add(key);
+    }
+
     return admissions.map((adm: Record<string, unknown>) => {
       const bed = adm.bedId as Record<string, unknown> | undefined;
       const room = bed?.roomId as Record<string, unknown> | undefined;
@@ -97,6 +130,18 @@ export class NursingService {
       const patient = adm.patientId as Record<string, unknown> | undefined;
       const doctor = adm.doctorId as Record<string, unknown> | undefined;
       const insurance = adm.insurance as { provider?: string } | undefined;
+      const admissionId = String(adm._id ?? "");
+      const latestVital = latestVitals.get(admissionId);
+      const latestVitalData = latestVital ? {
+        _id: latestVital._id.toString(),
+        temperature: latestVital.temperature,
+        heartRate: latestVital.heartRate,
+        bloodPressure: latestVital.bloodPressure,
+        respiratoryRate: latestVital.respiratoryRate,
+        oxygenSaturation: latestVital.oxygenSaturation,
+        dateRecorded: latestVital.dateRecorded,
+        flag: flagVitalForReview(latestVital),
+      } : undefined;
 
       return {
         admissionId: adm._id,
@@ -120,7 +165,11 @@ export class NursingService {
         diagnosis: adm.initialDiagnosis || adm.reasonForAdmission || "Clinical Care",
         admissionDate: adm.admissionDate,
         admissionType: adm.admissionType || "ELECTIVE",
-        insurance: insurance?.provider || "Self Pay"
+        insurance: insurance?.provider || "Self Pay",
+        latestVital: latestVitalData,
+        latestVitalFlag: latestVitalData?.flag as VitalFlag | undefined,
+        lastRoundAt: latestRoundAt.get(admissionId)?.toISOString(),
+        roundedToday: roundsToday.has(admissionId),
       };
     });
   }

@@ -24,7 +24,7 @@ const NursingMedicationSchema = new Schema(
     orderId: { type: Schema.Types.ObjectId, ref: "MedicationOrder", index: true },
     administeredBy: { type: Schema.Types.ObjectId, ref: "User" },
     medicationName: { type: String, required: true },
-    dosage: { type: String, required: true },
+    dosage: { type: String, required: false, default: "" },
     route: {
       type: String,
       enum: ["ORAL", "IV", "IM", "SC", "TOPICAL", "INHALATION", "OTHER"],
@@ -42,6 +42,8 @@ const NursingMedicationSchema = new Schema(
   },
   { timestamps: true }
 );
+
+NursingMedicationSchema.index({ admissionId: 1, scheduledTime: -1 });
 
 const NursingMedication =
   mongoose.models.NursingMedication ||

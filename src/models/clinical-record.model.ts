@@ -4,6 +4,12 @@ export interface IClinicalRecord extends Document {
   patient: mongoose.Types.ObjectId;
   admissionId?: mongoose.Types.ObjectId;
   doctor?: mongoose.Types.ObjectId;
+  visitedAt?: Date;
+  notes?: string;
+  parentVisitId?: mongoose.Types.ObjectId;
+  text?: string;
+  author?: mongoose.Types.ObjectId;
+  timestamp?: Date;
   appointmentId?: mongoose.Types.ObjectId;
   recordType: string; // e.g., "Consultation", "Progress Note", "Clinical Note", "Treatment Plan", "Medical History", "Allergy", "Clinical Order", "Referral", "Follow-Up", "Patient Problem"
   title?: string;
@@ -36,6 +42,12 @@ const ClinicalRecordSchema: Schema = new Schema(
     patient: { type: Schema.Types.ObjectId, ref: "Patient", required: true },
     admissionId: { type: Schema.Types.ObjectId, ref: "Admission" },
     doctor: { type: Schema.Types.ObjectId, ref: "User" },
+    visitedAt: { type: Date },
+    notes: { type: String, trim: true, maxlength: 10000 },
+    parentVisitId: { type: Schema.Types.ObjectId, ref: "ClinicalRecord", index: true },
+    text: { type: String, trim: true, maxlength: 4000 },
+    author: { type: Schema.Types.ObjectId, ref: "User" },
+    timestamp: { type: Date },
     appointmentId: { type: Schema.Types.ObjectId, ref: "Appointment" },
     recordType: { type: String, required: true, default: "Consultation" },
     title: { type: String },
@@ -69,6 +81,7 @@ ClinicalRecordSchema.index(
   { unique: true, partialFilterExpression: { appointmentId: { $type: "objectId" } } }
 );
 ClinicalRecordSchema.index({ admissionId: 1, createdAt: -1 });
+ClinicalRecordSchema.index({ admissionId: 1, visitedAt: -1 });
 ClinicalRecordSchema.index({ patient: 1, createdAt: -1 });
 
 export const ClinicalRecord =

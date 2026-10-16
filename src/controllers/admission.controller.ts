@@ -68,10 +68,11 @@ export class AdmissionController {
                 { status: 201 }
             );
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to create admission";
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to create admission");
             return NextResponse.json(
                 { success: false, message },
-                { status: 500 }
+                { status: err?.statusCode ?? 500 }
             );
         }
     }
