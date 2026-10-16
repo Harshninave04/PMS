@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -25,7 +26,8 @@ import {
   ClipboardList,
   CheckCircle2,
   Play,
-  Ban
+  Ban,
+  ArrowRightLeft
 } from "lucide-react";
 
 export default function MyInpatientsPage() {
@@ -43,6 +45,7 @@ export default function MyInpatientsPage() {
 }
 
 function MyInpatientsContent() {
+  type HandoverPatient = { admissionId: string; name: string; bedNumber: string | number };
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -50,6 +53,7 @@ function MyInpatientsContent() {
   const [inpatients, setInpatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [handoverAdmissionId, setHandoverAdmissionId] = useState("");
 
   // Doctor instructions for my allotted patients
   const [tasks, setTasks] = useState<any[]>([]);
@@ -65,6 +69,12 @@ function MyInpatientsContent() {
 
   // Selected Inpatient Modal
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
+  const [handoverPatient, setHandoverPatient] = useState<HandoverPatient | null>(null);
+  const [handoverNurses, setHandoverNurses] = useState<{ id: string; name: string; email: string }[]>([]);
+  const [receivingNurseId, setReceivingNurseId] = useState("");
+  const [handoverNote, setHandoverNote] = useState("");
+  const [handoverNursesLoading, setHandoverNursesLoading] = useState(false);
+  const [handoverSubmitting, setHandoverSubmitting] = useState(false);
 
   const loadData = async () => {
     try {
@@ -74,7 +84,14 @@ function MyInpatientsContent() {
       ]);
       const data = await rosterRes.json();
       if (data.success) {
-        setInpatients(data.data || []);
+        const patients = data.data || [];
+        setInpatients(patients);
+        const transferAdmissionId = searchParams.get("transferAdmissionId");
+        const transferPatient = patients.find((patient: HandoverPatient) => patient.admissionId === transferAdmissionId);
+        if (transferAdmissionId && transferPatient) {
+          router.replace("/nursing/patients", { scroll: false });
+          void beginNurseTransfer(transferPatient);
+        }
       } else {
         toast("Failed to load inpatients", "error");
       }
@@ -118,6 +135,66 @@ function MyInpatientsContent() {
       // Timeline is supplementary.
     } finally {
       setTimelineLoading(false);
+    }
+  };
+
+  const openShiftHandover = () => {
+    const admissionId = handoverAdmissionId || inpatients[0]?.admissionId;
+    const patient = inpatients.find((inpatient) => inpatient.admissionId === admissionId);
+    if (patient) openTimeline(patient);
+  };
+
+  const beginNurseTransfer = async (patient: HandoverPatient) => {
+    setHandoverPatient(patient);
+    setHandoverNurses([]);
+    setReceivingNurseId("");
+    setHandoverNote("");
+    setHandoverNursesLoading(true);
+    try {
+      const res = await fetch(`/api/nursing/handover?admissionId=${encodeURIComponent(patient.admissionId)}`);
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        throw new Error(result.message || "Could not load nurses for handover");
+      }
+      const nurses = result.data?.nurses ?? [];
+      setHandoverNurses(nurses);
+      setReceivingNurseId(nurses[0]?.id ?? "");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not load nurses for handover", "error");
+    } finally {
+      setHandoverNursesLoading(false);
+    }
+  };
+
+  const submitNurseTransfer = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!handoverPatient || !receivingNurseId || !handoverNote.trim()) {
+      toast("Choose a receiving nurse and add a handover note", "error");
+      return;
+    }
+
+    setHandoverSubmitting(true);
+    try {
+      const res = await fetch("/api/nursing/handover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          admissionId: handoverPatient.admissionId,
+          receivingNurseId,
+          handoverNote: handoverNote.trim(),
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        throw new Error(result.message || "Failed to transfer patient");
+      }
+      toast(result.message || "Patient handed over successfully", "success");
+      setHandoverPatient(null);
+      await loadData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Failed to transfer patient", "error");
+    } finally {
+      setHandoverSubmitting(false);
     }
   };
 
@@ -286,6 +363,45 @@ function MyInpatientsContent() {
           </Button>
         </div>
       </div>
+
+      <Card className="border-cyan-200 bg-cyan-50/50 shadow-sm dark:border-cyan-900 dark:bg-cyan-950/20">
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-semibold text-slate-900 dark:text-white">Shift handover</h2>
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Review the latest notes, vitals, medication doses, allergies, and doctor instructions for a patient.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:min-w-[360px] sm:flex-row">
+            <Select
+              aria-label="Choose patient for shift handover"
+              value={handoverAdmissionId || inpatients[0]?.admissionId || ""}
+              onChange={(event) => setHandoverAdmissionId(event.target.value)}
+              disabled={inpatients.length === 0}
+              className="h-9 text-xs"
+            >
+              {inpatients.length === 0 ? (
+                <option value="">No admitted patients</option>
+              ) : (
+                inpatients.map((patient) => (
+                  <option key={patient.admissionId} value={patient.admissionId}>
+                    Bed {patient.bedNumber} — {patient.name} ({patient.uhid})
+                  </option>
+                ))
+              )}
+            </Select>
+            <Button
+              size="sm"
+              className="shrink-0 bg-cyan-700 text-white hover:bg-cyan-800"
+              onClick={openShiftHandover}
+              disabled={inpatients.length === 0 || timelineLoading}
+            >
+              {timelineLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {timelineLoading ? "Loading..." : "Open shift handover"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Doctor-instructions inbox */}
       <Card className="border shadow-sm">
@@ -524,7 +640,17 @@ function MyInpatientsContent() {
                             onClick={() => openTimeline(p)}
                           >
                             <Eye className="h-3 w-3" />
-                            Card
+                            View handover
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs flex items-center gap-1 text-cyan-700 border-cyan-200 hover:bg-cyan-50"
+                            onClick={() => beginNurseTransfer(p)}
+                          >
+                            <ArrowRightLeft className="h-3 w-3" />
+                            Transfer shift
                           </Button>
 
                           <Button
@@ -557,7 +683,91 @@ function MyInpatientsContent() {
         </CardContent>
       </Card>
 
-      {/* Patient Clinical Care Card Modal */}
+      <Dialog
+        open={!!handoverPatient}
+        onOpenChange={(open) => !open && !handoverSubmitting && setHandoverPatient(null)}
+      >
+        <DialogContent className="max-w-lg">
+          <form onSubmit={submitNurseTransfer}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ArrowRightLeft className="h-5 w-5 text-cyan-700" />
+                Transfer patient to another nurse
+              </DialogTitle>
+              <DialogDescription>
+                {handoverPatient
+                  ? `Hand over ${handoverPatient.name} (Bed ${handoverPatient.bedNumber}). You will be removed from this patient's nursing team.`
+                  : "Transfer the patient to another nurse."}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="space-y-1.5">
+                <label htmlFor="receiving-nurse" className="text-sm font-medium">
+                  Receiving nurse *
+                </label>
+                <Select
+                  id="receiving-nurse"
+                  value={receivingNurseId}
+                  onChange={(event) => setReceivingNurseId(event.target.value)}
+                  disabled={handoverNursesLoading || handoverNurses.length === 0 || handoverSubmitting}
+                  required
+                >
+                  {handoverNursesLoading ? (
+                    <option value="">Loading nurses...</option>
+                  ) : handoverNurses.length === 0 ? (
+                    <option value="">No other active nurses available in this branch</option>
+                  ) : (
+                    handoverNurses.map((nurse) => (
+                      <option key={nurse.id} value={nurse.id}>{nurse.name} · {nurse.email}</option>
+                    ))
+                  )}
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="handover-note" className="text-sm font-medium">
+                  Handover note *
+                </label>
+                <Textarea
+                  id="handover-note"
+                  rows={4}
+                  maxLength={2000}
+                  placeholder="Summarize the patient's current condition, pending care, and what the next nurse should follow up."
+                  value={handoverNote}
+                  onChange={(event) => setHandoverNote(event.target.value)}
+                  required
+                  disabled={handoverSubmitting}
+                />
+                <p className="text-xs text-slate-500">
+                  The note and transfer time will be saved in the patient’s handover history.
+                </p>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setHandoverPatient(null)}
+                disabled={handoverSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-cyan-700 text-white hover:bg-cyan-800"
+                disabled={handoverNursesLoading || handoverNurses.length === 0 || handoverSubmitting || !handoverNote.trim()}
+              >
+                {handoverSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {handoverSubmitting ? "Transferring..." : "Confirm shift transfer"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Shift handover detail */}
       <Dialog open={!!selectedPatient} onOpenChange={() => setSelectedPatient(null)}>
         <DialogContent className="max-w-xl">
           {selectedPatient && (
@@ -566,8 +776,8 @@ function MyInpatientsContent() {
                 <div className="flex items-center justify-between border-b pb-3">
                   <div>
                     <DialogTitle className="text-base font-bold flex items-center gap-2">
-                      <Users className="h-5 w-5 text-emerald-600" />
-                      {selectedPatient.name}
+                      <ClipboardList className="h-5 w-5 text-cyan-700" />
+                      Shift handover — {selectedPatient.name}
                     </DialogTitle>
                     <DialogDescription>
                       UHID: {selectedPatient.uhid} • Admission ID: #{selectedPatient.admissionId?.slice(-6).toUpperCase()}
@@ -676,7 +886,7 @@ function MyInpatientsContent() {
               {/* Shared stay timeline: doctor sees what nurse did and vice versa */}
               <div className="p-3 border rounded-lg space-y-2">
                 <span className="text-[10px] text-slate-400 uppercase font-semibold block">
-                  Stay Timeline — instructions, meds given, vitals
+                  Shift handover — care instructions, medication, vitals, and notes
                 </span>
                 {timelineLoading ? (
                   <div className="flex items-center gap-2 text-[11px] text-slate-500 py-2">
@@ -686,6 +896,22 @@ function MyInpatientsContent() {
                   <p className="text-[11px] text-slate-500">Timeline unavailable.</p>
                 ) : (
                   <div className="space-y-2">
+                    {(timeline.handoverHistory ?? []).length > 0 && (
+                      <div className="rounded-md border border-cyan-200 bg-cyan-50/70 p-2.5">
+                        <span className="text-[11px] font-semibold block mb-1 text-cyan-900">
+                          Nurse-to-nurse handover history
+                        </span>
+                        {[...(timeline.handoverHistory ?? [])].reverse().slice(0, 3).map((handover) => (
+                          <div key={handover._id} className="border-t border-cyan-100 py-1.5 text-[11px] text-slate-700 first:border-0">
+                            <div className="font-medium">
+                              {handover.fromNurseId?.name ?? "Nurse"} handed over to {handover.toNurseId?.name ?? "Nurse"}
+                              {handover.handedOverAt ? ` · ${new Date(handover.handedOverAt).toLocaleString()}` : ""}
+                            </div>
+                            <p className="mt-0.5 whitespace-pre-wrap">{handover.handoverNote}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {(timeline.tasks ?? []).length > 0 && (
                       <div>
                         <span className="text-[11px] font-semibold block mb-1">

@@ -1,18 +1,16 @@
 "use client";
 
 import React, { useEffect, useState, useMemo, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
-import { dueInLabel } from "@/lib/medication-schedule";
 import {
   Pill,
   Search,
@@ -21,11 +19,8 @@ import {
   Download,
   CheckCircle2,
   Trash2,
-  Calendar,
-  User,
   Loader2,
   AlertOctagon,
-  Clock,
   XCircle
 } from "lucide-react";
 
@@ -43,78 +38,7 @@ export default function MedicationAdministrationPage() {
   );
 }
 
-function GiveNextCard({ doses, onGiven, toast }: { doses: any[]; onGiven: () => void; toast: (msg: string, type?: "success" | "error") => void }) {
-  const [selectedId, setSelectedId] = useState(doses[0]?._id ?? "");
-  const [giving, setGiving] = useState(false);
-  const selected = doses.find((d) => d._id === selectedId) ?? doses[0];
-
-  useEffect(() => {
-    setSelectedId(doses[0]?._id ?? "");
-  }, [doses.length]);
-
-  if (!selected) return null;
-  const scheduled = new Date(selected.scheduledTime);
-  const overdue = scheduled.getTime() < Date.now();
-
-  const give = async () => {
-    setGiving(true);
-    try {
-      const res = await fetch(`/api/nursing/medications/${selected._id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "GIVEN", administeredTime: new Date().toISOString() }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast(`Given ${selected.medicationName} — recorded at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`, "success");
-        onGiven();
-      } else {
-        toast(data.message || "Failed to record administration", "error");
-      }
-    } catch {
-      toast("Error recording administration", "error");
-    } finally {
-      setGiving(false);
-    }
-  };
-
-  return (
-    <Card className="border-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/20 shadow-sm">
-      <CardContent className="p-4">
-        <p className="text-sm font-semibold text-slate-900 dark:text-white">Give next dose</p>
-        <div className="mt-2 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Due medicine</Label>
-            <Select value={selected._id} onChange={(e) => setSelectedId(e.target.value)} className="h-10 text-xs bg-white dark:bg-slate-900">
-              {doses.map((d) => (
-                <option key={d._id} value={d._id}>
-                  {new Date(d.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — {d.medicationName} {d.dosage} ({d.patient?.name ?? "patient"})
-                </option>
-              ))}
-            </Select>
-            <p className="text-[11px] text-slate-500">
-              {selected.patient?.name} • {selected.dosage} • {selected.route}
-              {selected.orderId && typeof selected.orderId === "object" && selected.orderId.frequency ? ` • ${selected.orderId.frequency}` : ""}
-              {" — "}
-              {overdue ? (
-                <span className="font-semibold text-rose-600">overdue since {scheduled.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-              ) : (
-                <span>due at {scheduled.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-              )}
-            </p>
-          </div>
-          <Button onClick={give} disabled={giving} className="h-10 bg-emerald-600 hover:bg-emerald-700 text-white sm:w-36">
-            <CheckCircle2 className="mr-2 h-4 w-4" />
-            {giving ? "Giving…" : "Give now"}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 function MedicationAdministrationContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const initialPatientId = searchParams.get("patientId") || "";
   const initialAdmissionId = searchParams.get("admissionId") || "";
@@ -126,10 +50,10 @@ function MedicationAdministrationContent() {
   const [refreshing, setRefreshing] = useState(false);
   const [prnOrders, setPrnOrders] = useState<any[]>([]);
   const [prnGiving, setPrnGiving] = useState<string | null>(null);
+  const [administeringId, setAdministeringId] = useState<string | null>(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
   const [selectedPatientFilter, setSelectedPatientFilter] = useState(initialPatientId || "ALL");
 
   // Create Modal
@@ -264,6 +188,7 @@ function MedicationAdministrationContent() {
   };
 
   const handleAdminister = async (med: any) => {
+    setAdministeringId(med._id);
     try {
       const res = await fetch(`/api/nursing/medications/${med._id}`, {
         method: "PUT",
@@ -282,6 +207,8 @@ function MedicationAdministrationContent() {
       }
     } catch (err) {
       toast("Error recording administration", "error");
+    } finally {
+      setAdministeringId(null);
     }
   };
 
@@ -378,20 +305,15 @@ function MedicationAdministrationContent() {
 
       const matchesSearch = !q || patName.includes(q) || uhid.includes(q) || drug.includes(q);
 
-      let matchesStatus = true;
-      if (statusFilter !== "ALL") {
-        matchesStatus = m.status === statusFilter;
-      }
-
       let matchesPatient = true;
       if (selectedPatientFilter !== "ALL") {
         const pId = m.patient?._id || m.patient;
         matchesPatient = pId === selectedPatientFilter;
       }
 
-      return matchesSearch && matchesStatus && matchesPatient;
+      return matchesSearch && matchesPatient;
     });
-  }, [medications, searchQuery, statusFilter, selectedPatientFilter]);
+  }, [medications, searchQuery, selectedPatientFilter]);
 
   const statsCount = useMemo(() => {
     let given = 0;
@@ -402,34 +324,8 @@ function MedicationAdministrationContent() {
       else if (m.status === "PENDING") pending++;
       else if (m.status === "WITHHELD" || m.status === "REFUSED") withheld++;
     });
-    return { total: medications.length, given, pending, withheld };
+    return { given, pending, withheld };
   }, [medications]);
-
-  // Due-time buckets: what the nurse must do NOW vs later.
-  const buckets = useMemo(() => {
-    const now = Date.now();
-    const overdue: any[] = [];
-    const dueToday: any[] = [];
-    const upcoming: any[] = [];
-    const done: any[] = [];
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    for (const m of filteredMedications) {
-      if (m.status !== "PENDING") {
-        done.push(m);
-        continue;
-      }
-      const t = new Date(m.scheduledTime).getTime();
-      if (t < now) overdue.push(m);
-      else if (t < startOfToday.getTime() + 24 * 60 * 60 * 1000) dueToday.push(m);
-      else upcoming.push(m);
-    }
-    const byTime = (a: any, b: any) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime();
-    overdue.sort(byTime);
-    dueToday.sort(byTime);
-    upcoming.sort(byTime);
-    return { overdue, dueToday, upcoming, done };
-  }, [filteredMedications]);
 
   const exportCSV = () => {
     if (filteredMedications.length === 0) {
@@ -491,7 +387,7 @@ function MedicationAdministrationContent() {
             Electronic Medication Administration Record (eMAR)
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Bedside barcode/patient medication checklist, dosage verification, administration times, and sign-offs.
+            Check the patient and dose, then record when medicine is given or withheld.
           </p>
         </div>
 
@@ -528,49 +424,41 @@ function MedicationAdministrationContent() {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {/* Dose summary */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm">
-          <span className="text-xs text-slate-500 block">Total Doses</span>
-          <span className="text-xl font-bold text-slate-900 dark:text-white mt-1 block">
-            {statsCount.total}
-          </span>
-          <span className="text-[10px] text-slate-400">Active eMAR schedule</span>
-        </div>
-
-        <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm">
-          <span className="text-xs text-slate-500 block">Pending Doses</span>
+          <span className="text-xs text-slate-500 block">Needs action</span>
           <span className="text-xl font-bold text-amber-600 dark:text-amber-400 mt-1 block">
             {statsCount.pending}
           </span>
-          <span className="text-[10px] text-amber-600 font-medium">Due for administration</span>
+          <span className="text-[10px] text-slate-400">Pending doses</span>
         </div>
 
         <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm">
-          <span className="text-xs text-slate-500 block">Given & Verified</span>
+          <span className="text-xs text-slate-500 block">Given</span>
           <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 block">
             {statsCount.given}
           </span>
-          <span className="text-[10px] text-emerald-600 font-medium">Successfully administered</span>
+          <span className="text-[10px] text-slate-400">Recorded as administered</span>
         </div>
 
         <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm">
-          <span className="text-xs text-slate-500 block">Withheld / Refused</span>
+          <span className="text-xs text-slate-500 block">Not given</span>
           <span className="text-xl font-bold text-rose-600 dark:text-rose-400 mt-1 block">
             {statsCount.withheld}
           </span>
-          <span className="text-[10px] text-rose-600 font-medium">Clinical exceptions</span>
+          <span className="text-[10px] text-slate-400">Withheld or refused</span>
         </div>
       </div>
 
       {/* Filter Bar */}
       <Card className="border shadow-sm">
         <CardContent className="p-3">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <Input
-                placeholder="Search drug, patient name, UHID..."
+                placeholder="Search patient or medicine"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9 h-9 text-xs"
@@ -583,7 +471,7 @@ function MedicationAdministrationContent() {
                 onChange={(e) => setSelectedPatientFilter(e.target.value)}
                 className="h-9 text-xs w-full"
               >
-                <option value="ALL">All Inpatients</option>
+                <option value="ALL">All patients</option>
                 {inpatients.map((p) => (
                   <option key={p.patientId} value={p.patientId}>
                     Bed {p.bedNumber} - {p.name}
@@ -592,47 +480,16 @@ function MedicationAdministrationContent() {
               </Select>
             </div>
 
-            <div>
-              <Select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="h-9 text-xs w-full"
-              >
-                <option value="ALL">All Statuses</option>
-                <option value="PENDING">Pending / Due</option>
-                <option value="GIVEN">Given</option>
-                <option value="WITHHELD">Withheld / Refused</option>
-              </Select>
-            </div>
           </div>
         </CardContent>
       </Card>
-
-      {/* Due-now banner: overdue first, then today */}
-      {(buckets.overdue.length > 0 || buckets.dueToday.length > 0) && (
-        <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/30 shadow-sm">
-          <CardContent className="p-3 text-xs">
-            {buckets.overdue.length > 0 && (
-              <p className="font-semibold text-rose-700 dark:text-rose-300">
-                <Clock className="inline h-3.5 w-3.5 mr-1" />
-                {buckets.overdue.length} overdue dose(s) — earliest: {buckets.overdue[0].medicationName} {buckets.overdue[0].dosage} due {new Date(buckets.overdue[0].scheduledTime).toLocaleString()}
-              </p>
-            )}
-            {buckets.dueToday.length > 0 && (
-              <p className="mt-1 text-amber-800 dark:text-amber-300">
-                {buckets.dueToday.length} more dose(s) due today, next {dueInLabel(buckets.dueToday[0].scheduledTime)} ({new Date(buckets.dueToday[0].scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}).
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       {/* PRN (as-needed) orders: no clock time — record each bolus as given */}
       {prnOrders.length > 0 && (
         <Card className="border shadow-sm">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold">PRN — give as needed</CardTitle>
-            <CardDescription>Doctor ordered these without fixed times; tap when you administer a bolus</CardDescription>
+            <CardTitle className="text-base font-semibold">As-needed medicines (PRN)</CardTitle>
+            <CardDescription>Record a dose only when it has been given to the patient.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {prnOrders.map((o) => (
@@ -648,7 +505,7 @@ function MedicationAdministrationContent() {
                   onClick={() => handleGivePrn(o)}
                 >
                   <CheckCircle2 className="h-3 w-3 mr-1" />
-                  {prnGiving === o._id ? "Recording…" : "Give now"}
+                  {prnGiving === o._id ? "Saving…" : "Record as given"}
                 </Button>
               </div>
             ))}
@@ -656,21 +513,12 @@ function MedicationAdministrationContent() {
         </Card>
       )}
 
-      {/* Give next: one focused flow — pick a due dose, give it */}
-      {(buckets.overdue.length > 0 || buckets.dueToday.length > 0) && (
-        <GiveNextCard
-          doses={[...buckets.overdue, ...buckets.dueToday]}
-          onGiven={loadData}
-          toast={toast}
-        />
-      )}
-
       {/* Medications Table */}
       <Card className="border shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">eMAR Administration Worklist</CardTitle>
+          <CardTitle className="text-base font-semibold">Medication round</CardTitle>
           <CardDescription>
-            Showing {filteredMedications.length} of {medications.length} scheduled medication doses
+            Showing {filteredMedications.length} of {medications.length} doses. Check the patient, medicine, and due time before recording an action.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -678,20 +526,18 @@ function MedicationAdministrationContent() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Scheduled Time</TableHead>
-                  <TableHead>Inpatient Particulars</TableHead>
-                  <TableHead>Medication & Strength</TableHead>
-                  <TableHead>Dosage</TableHead>
-                  <TableHead>Route</TableHead>
+                  <TableHead>Due time</TableHead>
+                  <TableHead>Patient</TableHead>
+                  <TableHead>Medicine and dose</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Administration Actions</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredMedications.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-slate-500 py-12 text-xs">
-                      No medication administration records found. Click "Schedule Medication" to add doses.
+                    <TableCell colSpan={5} className="text-center text-slate-500 py-12 text-xs">
+                      No doses found. Choose a patient or schedule a medication dose.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -717,7 +563,12 @@ function MedicationAdministrationContent() {
                         </TableCell>
 
                         <TableCell className="font-bold text-slate-900 dark:text-white">
-                          {m.medicationName}
+                          <div className="font-bold text-slate-900 dark:text-white">
+                            {m.medicationName}
+                          </div>
+                          <div className="mt-1 text-xs font-normal text-slate-600 dark:text-slate-300">
+                            {m.dosage} · {m.route}
+                          </div>
                           {m.orderId && typeof m.orderId === "object" && (
                             <span className="text-[10px] text-purple-600 font-normal block mt-0.5">
                               Dr order: {m.orderId.frequency}
@@ -738,16 +589,6 @@ function MedicationAdministrationContent() {
                           )}
                         </TableCell>
 
-                        <TableCell className="font-medium text-slate-700 dark:text-slate-300">
-                          {m.dosage}
-                        </TableCell>
-
-                        <TableCell>
-                          <Badge variant="outline" className="font-mono text-[10px]">
-                            {m.route}
-                          </Badge>
-                        </TableCell>
-
                         <TableCell>
                           <Badge
                             className={
@@ -758,7 +599,7 @@ function MedicationAdministrationContent() {
                                 : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border-rose-300"
                             }
                           >
-                            {m.status}
+                            {m.status === "PENDING" ? "Needs action" : m.status === "GIVEN" ? "Given" : m.status === "WITHHELD" ? "Withheld" : "Refused"}
                           </Badge>
                         </TableCell>
 
@@ -767,28 +608,29 @@ function MedicationAdministrationContent() {
                             {isPending && (
                               <>
                                 {new Date(m.scheduledTime).getTime() > Date.now() ? (
-                                  <span className="text-[11px] text-slate-400 font-medium" title={`Due at ${new Date(m.scheduledTime).toLocaleString()}`}>
-                                    Due {new Date(m.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                  <span className="text-[11px] text-slate-500 font-medium" title={`Scheduled for ${new Date(m.scheduledTime).toLocaleString()}`}>
+                                    Scheduled for {new Date(m.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                   </span>
                                 ) : (
                                   <Button
                                     size="sm"
-                                    className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1"
+                                    className="h-9 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1"
                                     onClick={() => handleAdminister(m)}
+                                    disabled={administeringId === m._id}
                                   >
                                     <CheckCircle2 className="h-3 w-3" />
-                                    Give
+                                    {administeringId === m._id ? "Saving…" : "Record given"}
                                   </Button>
                                 )}
 
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="h-7 px-2 text-xs text-rose-600 border-rose-200 hover:bg-rose-50 flex items-center gap-1"
+                                  className="h-9 px-3 text-xs text-rose-600 border-rose-200 hover:bg-rose-50 flex items-center gap-1"
                                   onClick={() => setWithholdTarget(m)}
                                 >
                                   <XCircle className="h-3 w-3" />
-                                  Withhold
+                                  Not given
                                 </Button>
                               </>
                             )}

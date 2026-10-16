@@ -1,14 +1,13 @@
 "use client";
 
 import React, { useEffect, useState, useMemo, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
@@ -20,8 +19,6 @@ import {
   Download,
   Eye,
   Trash2,
-  Calendar,
-  User,
   CheckCircle2,
   Loader2
 } from "lucide-react";
@@ -41,7 +38,6 @@ export default function NursingNotesPage() {
 }
 
 function NursingNotesContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const initialPatientId = searchParams.get("patientId") || "";
   const initialAdmissionId = searchParams.get("admissionId") || "";
@@ -61,12 +57,7 @@ function NursingNotesContent() {
   const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     patient: initialPatientId,
-    title: "",
-    category: "Morning Round",
-    chiefComplaint: "", // Data (D)
-    objectiveFindings: "", // Action (A)
-    assessment: "", // Response (R)
-    plan: "" // Follow up
+    note: ""
   });
 
   // View Modal
@@ -108,8 +99,9 @@ function NursingNotesContent() {
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.patient || !formData.title) {
-      toast("Please select a patient and provide a note title", "error");
+    const note = formData.note.trim();
+    if (!formData.patient || !note) {
+      toast("Please select a patient and enter a note", "error");
       return;
     }
 
@@ -123,12 +115,9 @@ function NursingNotesContent() {
         patient: formData.patient,
         admissionId: stayId,
         recordType: "Nursing Note",
-        title: formData.title,
-        category: formData.category,
-        chiefComplaint: formData.chiefComplaint,
-        objectiveFindings: formData.objectiveFindings,
-        assessment: formData.assessment,
-        plan: formData.plan,
+        title: "Nursing Note",
+        category: "General",
+        chiefComplaint: note,
         dateRecorded: new Date().toISOString()
       };
 
@@ -144,12 +133,7 @@ function NursingNotesContent() {
         setCreateOpen(false);
         setFormData({
           patient: selectedPatientFilter !== "ALL" ? selectedPatientFilter : "",
-          title: "",
-          category: "Morning Round",
-          chiefComplaint: "",
-          objectiveFindings: "",
-          assessment: "",
-          plan: ""
+          note: ""
         });
         loadData();
       } else {
@@ -208,22 +192,17 @@ function NursingNotesContent() {
       "Timestamp",
       "Patient Name",
       "UHID",
-      "Shift / Category",
-      "Title / Focus",
-      "Data (D)",
-      "Action (A)",
-      "Response (R)"
+      "Nursing Note"
     ];
 
     const rows = filteredNotes.map((n) => [
       `"${new Date(n.dateRecorded || n.createdAt).toLocaleString()}"`,
       `"${n.patient?.name || ""}"`,
       `"${n.patient?.uhid || ""}"`,
-      `"${n.category || "General"}"`,
-      `"${(n.title || "").replace(/"/g, '""')}"`,
-      `"${(n.chiefComplaint || "").replace(/"/g, '""')}"`,
-      `"${(n.objectiveFindings || "").replace(/"/g, '""')}"`,
-      `"${(n.assessment || "").replace(/"/g, '""')}"`
+      `"${[n.chiefComplaint, n.objectiveFindings, n.assessment, n.plan]
+        .filter(Boolean)
+        .join(" | ")
+        .replace(/"/g, '""')}"`
     ]);
 
     const csvContent =
@@ -253,10 +232,10 @@ function NursingNotesContent() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             <FileText className="h-6 w-6 text-cyan-600 dark:text-cyan-400" />
-            Nursing Notes & Bedside Observations
+            Nursing Notes Ledger
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Document shift observations, DAR (Data, Action, Response) notes, patient pain levels, and nursing care events.
+            Write and save a clear bedside note for an admitted patient.
           </p>
         </div>
 
@@ -288,7 +267,7 @@ function NursingNotesContent() {
             onClick={() => setCreateOpen(true)}
           >
             <Plus className="h-4 w-4" />
-            Add Nursing Note
+            Write Note
           </Button>
         </div>
       </div>
@@ -300,7 +279,7 @@ function NursingNotesContent() {
             <div className="relative flex-1 w-full">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <Input
-                placeholder="Search note focus, patient, observation details..."
+                placeholder="Search notes or patients..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9 h-9 text-xs"
@@ -330,7 +309,7 @@ function NursingNotesContent() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold">Nursing Notes Ledger</CardTitle>
           <CardDescription>
-            Showing {filteredNotes.length} of {notes.length} bedside progress and observation notes
+            Showing {filteredNotes.length} of {notes.length} notes
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -338,19 +317,17 @@ function NursingNotesContent() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Observation Time</TableHead>
-                  <TableHead>Inpatient Particulars</TableHead>
-                  <TableHead>Shift / Shift Category</TableHead>
-                  <TableHead>Focus / Note Title</TableHead>
-                  <TableHead>Summary Observation</TableHead>
+                  <TableHead>Time</TableHead>
+                  <TableHead>Patient</TableHead>
+                  <TableHead>Nursing Note</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredNotes.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-slate-500 py-12 text-xs">
-                      No nursing notes recorded. Click "Add Nursing Note" to document bedside care.
+                    <TableCell colSpan={4} className="text-center text-slate-500 py-12 text-xs">
+                      No nursing notes yet. Select &quot;Write Note&quot; to record bedside care.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -372,18 +349,8 @@ function NursingNotesContent() {
                         </div>
                       </TableCell>
 
-                      <TableCell>
-                        <Badge variant="outline" className="text-[10px]">
-                          {n.category || "Morning Round"}
-                        </Badge>
-                      </TableCell>
-
-                      <TableCell className="font-bold text-slate-900 dark:text-white">
-                        {n.title}
-                      </TableCell>
-
                       <TableCell className="max-w-xs truncate text-slate-600 dark:text-slate-400">
-                        {n.chiefComplaint || n.objectiveFindings || "Observation documented"}
+                        {n.chiefComplaint || n.objectiveFindings || n.assessment || "Observation documented"}
                       </TableCell>
 
                       <TableCell className="text-right">
@@ -419,117 +386,55 @@ function NursingNotesContent() {
 
       {/* Add Nursing Note Modal */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg">
           <form onSubmit={handleCreateSubmit}>
             <DialogHeader>
               <DialogTitle className="text-base font-bold flex items-center gap-2">
                 <FileText className="h-5 w-5 text-cyan-600" />
-                Document Bedside Nursing Note (DAR)
+                Write a Nursing Note
               </DialogTitle>
               <DialogDescription>
-                Record shift observations, patient condition changes, and immediate nursing interventions.
+                Choose the patient, write the important observation or care provided, then save.
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4 py-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="patient" className="text-xs font-semibold">
-                    Inpatient *
-                  </Label>
-                  <Select
-                    id="patient"
-                    value={formData.patient}
-                    onChange={(e) => setFormData({ ...formData, patient: e.target.value })}
-                    required
-                    className="h-9 text-xs"
-                  >
-                    <option value="">-- Choose Inpatient --</option>
-                    {inpatients.map((p) => (
-                      <option key={p.patientId} value={p.patientId}>
-                        Bed {p.bedNumber} - {p.name} ({p.uhid})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="category" className="text-xs font-semibold">
-                    Shift / Note Category
-                  </Label>
-                  <Select
-                    id="category"
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="h-9 text-xs"
-                  >
-                    <option value="Morning Round">Morning Shift Round</option>
-                    <option value="Evening Round">Evening Shift Round</option>
-                    <option value="Night Observation">Night Shift Observation</option>
-                    <option value="Post-Procedure">Post-Procedure Check</option>
-                    <option value="Medication Reaction">Medication Response</option>
-                    <option value="Incident / Fall">Incident / Fall Report</option>
-                  </Select>
-                </div>
-              </div>
-
+            <div className="space-y-4 py-4">
               <div className="space-y-1.5">
-                <Label htmlFor="title" className="text-xs font-semibold">
-                  Focus / Note Heading *
+                <Label htmlFor="patient" className="font-semibold">
+                  Patient *
                 </Label>
-                <Input
-                  id="title"
-                  placeholder="e.g. Post-Op Pain Management, Catheter Site Inspection, Fever Management"
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                <Select
+                  id="patient"
+                  value={formData.patient}
+                  onChange={(e) => setFormData({ ...formData, patient: e.target.value })}
                   required
-                  className="h-9 text-xs"
-                />
+                  className="h-10"
+                >
+                  <option value="">-- Select patient --</option>
+                  {inpatients.map((p) => (
+                    <option key={p.patientId} value={p.patientId}>
+                      Bed {p.bedNumber} - {p.name} ({p.uhid})
+                    </option>
+                  ))}
+                </Select>
               </div>
 
-              {/* [D] Data */}
               <div className="space-y-1.5">
-                <Label htmlFor="data" className="text-xs font-semibold text-cyan-700 dark:text-cyan-400">
-                  [D] Data — Patient Symptoms, Complaints & Observations
+                <Label htmlFor="note" className="font-semibold">
+                  Nursing Note *
                 </Label>
                 <Textarea
-                  id="data"
-                  rows={2}
-                  placeholder="Patient reports surgical wound throbbing, pain 6/10. Dressing intact, no bleeding..."
-                  value={formData.chiefComplaint}
-                  onChange={(e) => setFormData({ ...formData, chiefComplaint: e.target.value })}
-                  className="text-xs"
+                  id="note"
+                  rows={5}
+                  placeholder="Write the patient's condition, observation, care provided, or anything the next shift should know."
+                  value={formData.note}
+                  onChange={(e) => setFormData({ ...formData, note: e.target.value })}
+                  required
+                  className="min-h-[120px]"
                 />
-              </div>
-
-              {/* [A] Action */}
-              <div className="space-y-1.5">
-                <Label htmlFor="action" className="text-xs font-semibold text-cyan-700 dark:text-cyan-400">
-                  [A] Action — Nursing Interventions Taken
-                </Label>
-                <Textarea
-                  id="action"
-                  rows={2}
-                  placeholder="Administered prescribed IV Tramadol 50mg as ordered. Repositioned comfortably..."
-                  value={formData.objectiveFindings}
-                  onChange={(e) => setFormData({ ...formData, objectiveFindings: e.target.value })}
-                  className="text-xs"
-                />
-              </div>
-
-              {/* [R] Response */}
-              <div className="space-y-1.5">
-                <Label htmlFor="response" className="text-xs font-semibold text-cyan-700 dark:text-cyan-400">
-                  [R] Response — Patient Response & Evaluation
-                </Label>
-                <Textarea
-                  id="response"
-                  rows={2}
-                  placeholder="30 mins post-dose, patient reports pain reduced to 2/10. Vital signs stable..."
-                  value={formData.assessment}
-                  onChange={(e) => setFormData({ ...formData, assessment: e.target.value })}
-                  className="text-xs"
-                />
+                <p className="text-xs text-slate-500">
+                  Keep it clear and factual. Do not leave this blank.
+                </p>
               </div>
             </div>
 
@@ -546,7 +451,7 @@ function NursingNotesContent() {
                 ) : (
                   <>
                     <CheckCircle2 className="mr-2 h-4 w-4" />
-                    Save Nursing Note
+                    Save Note
                   </>
                 )}
               </Button>
@@ -563,10 +468,10 @@ function NursingNotesContent() {
               <DialogHeader>
                 <DialogTitle className="text-base font-bold flex items-center gap-2">
                   <FileText className="h-5 w-5 text-cyan-600" />
-                  {viewNote.title}
+                  {viewNote.title || "Nursing Note"}
                 </DialogTitle>
                 <DialogDescription>
-                  Recorded on {new Date(viewNote.dateRecorded || viewNote.createdAt).toLocaleString()} • Shift: {viewNote.category}
+                  Recorded on {new Date(viewNote.dateRecorded || viewNote.createdAt).toLocaleString()}
                 </DialogDescription>
               </DialogHeader>
 
@@ -578,26 +483,41 @@ function NursingNotesContent() {
               </div>
 
               <div className="space-y-2.5">
-                <div className="p-2.5 rounded border border-slate-200 dark:border-slate-800">
-                  <span className="font-bold text-cyan-700 dark:text-cyan-400 block text-[11px]">[D] DATA</span>
-                  <p className="mt-1 text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
-                    {viewNote.chiefComplaint || "No data recorded"}
-                  </p>
-                </div>
+                {viewNote.chiefComplaint && (
+                  <div className="p-2.5 rounded border border-slate-200 dark:border-slate-800">
+                    <span className="font-bold text-cyan-700 dark:text-cyan-400 block text-[11px]">NURSING NOTE</span>
+                    <p className="mt-1 text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
+                      {viewNote.chiefComplaint}
+                    </p>
+                  </div>
+                )}
 
-                <div className="p-2.5 rounded border border-slate-200 dark:border-slate-800">
-                  <span className="font-bold text-cyan-700 dark:text-cyan-400 block text-[11px]">[A] ACTION</span>
-                  <p className="mt-1 text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
-                    {viewNote.objectiveFindings || "No immediate action recorded"}
-                  </p>
-                </div>
+                {viewNote.objectiveFindings && (
+                  <div className="p-2.5 rounded border border-slate-200 dark:border-slate-800">
+                    <span className="font-bold text-cyan-700 dark:text-cyan-400 block text-[11px]">CARE PROVIDED</span>
+                    <p className="mt-1 text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
+                      {viewNote.objectiveFindings}
+                    </p>
+                  </div>
+                )}
 
-                <div className="p-2.5 rounded border border-slate-200 dark:border-slate-800">
-                  <span className="font-bold text-cyan-700 dark:text-cyan-400 block text-[11px]">[R] RESPONSE</span>
-                  <p className="mt-1 text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
-                    {viewNote.assessment || "Patient stable"}
-                  </p>
-                </div>
+                {viewNote.assessment && (
+                  <div className="p-2.5 rounded border border-slate-200 dark:border-slate-800">
+                    <span className="font-bold text-cyan-700 dark:text-cyan-400 block text-[11px]">PATIENT RESPONSE</span>
+                    <p className="mt-1 text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
+                      {viewNote.assessment}
+                    </p>
+                  </div>
+                )}
+
+                {viewNote.plan && (
+                  <div className="p-2.5 rounded border border-slate-200 dark:border-slate-800">
+                    <span className="font-bold text-cyan-700 dark:text-cyan-400 block text-[11px]">FOLLOW-UP</span>
+                    <p className="mt-1 text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
+                      {viewNote.plan}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <DialogFooter>

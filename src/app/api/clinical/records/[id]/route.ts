@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { ClinicalController } from "@/controllers/clinical.controller";
 import dbConnect from "@/lib/dbConnect";
-import { requirePermission } from "@/lib/rbac/guard";
+import { requireAnyPermission, requirePermission } from "@/lib/rbac/guard";
 
 export async function PUT(request: NextRequest, context: { params: Promise<{ id: string }> | { id: string } }) {
   const denied = await requirePermission(request, "clinical.consultations:update");
@@ -13,7 +13,10 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ id:
 }
 
 export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> | { id: string } }) {
-  const denied = await requirePermission(request, "clinical.consultations:delete");
+  const denied = await requireAnyPermission(request, [
+    "clinical.consultations:delete",
+    "nursing.notes:delete",
+  ]);
   if (denied) return denied;
 
   await dbConnect();

@@ -407,6 +407,55 @@ async function runPermissionTests() {
     }
   });
 
+  test("Nursing vitals handlers accept nursing-specific permissions at the route guard", () => {
+    const apiRoot = path.resolve(process.cwd(), "src/app/api");
+    const routeSources = [
+      ["clinical/vitals/route.ts", ["clinical.vitals:view", "nursing.vitals:view", "clinical.vitals:create", "nursing.vitals:create"]],
+      ["clinical/vitals/[id]/route.ts", ["clinical.vitals:delete", "nursing.vitals:delete"]],
+    ] as const;
+
+    for (const [route, permissions] of routeSources) {
+      const source = fs.readFileSync(path.join(apiRoot, route), "utf8");
+      assert.match(source, /requireAnyPermission/);
+      for (const permission of permissions) {
+        assert.ok(source.includes(`"${permission}"`), `${route} does not accept ${permission}`);
+      }
+    }
+  });
+
+  test("Nursing note handlers accept nursing-specific permissions at the route guard", () => {
+    const apiRoot = path.resolve(process.cwd(), "src/app/api");
+    const routeSources = [
+      ["clinical/records/route.ts", ["clinical.consultations:view", "nursing.notes:view", "clinical.consultations:create", "nursing.notes:create"]],
+      ["clinical/records/[id]/route.ts", ["clinical.consultations:delete", "nursing.notes:delete"]],
+    ] as const;
+
+    for (const [route, permissions] of routeSources) {
+      const source = fs.readFileSync(path.join(apiRoot, route), "utf8");
+      assert.match(source, /requireAnyPermission/);
+      for (const permission of permissions) {
+        assert.ok(source.includes(`"${permission}"`), `${route} does not accept ${permission}`);
+      }
+    }
+  });
+
+  test("Nurse shift handover read and transfer routes require patient-update permission", () => {
+    const routePath = "/api/nursing/handover";
+    for (const method of ["GET", "POST"] as const) {
+      const rule = findRouteRule(new Request(`http://localhost${routePath}`, { method }));
+      assert.ok(rule, `${method} ${routePath} has no route permission rule`);
+      assert.equal(rule.permission, "nursing.patients:update");
+    }
+
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), "src/app/api/nursing/handover/route.ts"),
+      "utf8"
+    );
+    assert.match(source, /requirePermission\(request,\s*"nursing\.patients:update"\)/);
+    assert.match(source, /nursingController\.getHandoverNurses\(request\)/);
+    assert.match(source, /nursingController\.handoverAdmission\(request\)/);
+  });
+
   test("View-only permissions deny every API write method", () => {
     const cases = [
       ["POST", "/api/patient", "patients.register:view"],

@@ -19,6 +19,14 @@ export interface IDischargeMedication {
     instructions?: string;
 }
 
+export interface INursingHandoverRecord {
+    _id?: Types.ObjectId | string;
+    fromNurseId: Types.ObjectId | any;
+    toNurseId: Types.ObjectId | any;
+    handoverNote: string;
+    handedOverAt: Date;
+}
+
 export interface IAdmission extends Document {
     patientId: Types.ObjectId | any;
     doctorId: Types.ObjectId | any;
@@ -55,6 +63,7 @@ export interface IAdmission extends Document {
     assignedNurses?: Types.ObjectId[] | any[];
     careTeamUpdatedAt?: Date;
     careTeamUpdatedBy?: Types.ObjectId | any;
+    nursingHandoverHistory?: INursingHandoverRecord[];
     createdAt?: Date;
     updatedAt?: Date;
 }
