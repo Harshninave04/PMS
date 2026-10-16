@@ -88,12 +88,12 @@ function GiveNextCard({ doses, onGiven, toast }: { doses: any[]; onGiven: () => 
             <Select value={selected._id} onChange={(e) => setSelectedId(e.target.value)} className="h-10 text-xs bg-white dark:bg-slate-900">
               {doses.map((d) => (
                 <option key={d._id} value={d._id}>
-                  {new Date(d.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — {d.medicationName} {d.dosage} ({d.patient?.name ?? "patient"})
+                  {new Date(d.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — {d.medicationName} · {d.dosage?.trim() || "Dose not specified, confirm with doctor"} ({d.patient?.name ?? "patient"})
                 </option>
               ))}
             </Select>
             <p className="text-[11px] text-slate-500">
-              {selected.patient?.name} • {selected.dosage} • {selected.route}
+              {selected.patient?.name} • {selected.dosage?.trim() || "Dose not specified, confirm with doctor"} • {selected.route}
               {selected.orderId && typeof selected.orderId === "object" && selected.orderId.frequency ? ` • ${selected.orderId.frequency}` : ""}
               {" — "}
               {overdue ? (
@@ -615,7 +615,7 @@ function MedicationAdministrationContent() {
             {buckets.overdue.length > 0 && (
               <p className="font-semibold text-rose-700 dark:text-rose-300">
                 <Clock className="inline h-3.5 w-3.5 mr-1" />
-                {buckets.overdue.length} overdue dose(s) — earliest: {buckets.overdue[0].medicationName} {buckets.overdue[0].dosage} due {new Date(buckets.overdue[0].scheduledTime).toLocaleString()}
+                {buckets.overdue.length} overdue dose(s) — earliest: {buckets.overdue[0].medicationName} · {buckets.overdue[0].dosage?.trim() || "Dose not specified, confirm with doctor"} due {new Date(buckets.overdue[0].scheduledTime).toLocaleString()}
               </p>
             )}
             {buckets.dueToday.length > 0 && (
@@ -638,7 +638,7 @@ function MedicationAdministrationContent() {
             {prnOrders.map((o) => (
               <div key={o._id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border p-3">
                 <div className="text-xs">
-                  <span className="font-semibold">{o.medicationName}</span> {o.dosage} • {o.route}
+                  <span className="font-semibold">{o.medicationName}</span> · {o.dosage?.trim() || "Dose not specified, confirm with doctor"} • {o.route}
                   {o.instructions && <span className="text-slate-500"> — {o.instructions}</span>}
                 </div>
                 <Button
@@ -739,7 +739,7 @@ function MedicationAdministrationContent() {
                         </TableCell>
 
                         <TableCell className="font-medium text-slate-700 dark:text-slate-300">
-                          {m.dosage}
+                          {m.dosage?.trim() || "Dose not specified, confirm with doctor"}
                         </TableCell>
 
                         <TableCell>

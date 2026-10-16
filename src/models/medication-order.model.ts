@@ -50,7 +50,7 @@ const MedicationOrderSchema: Schema = new Schema(
         visitId: { type: Schema.Types.ObjectId, ref: "ClinicalRecord" },
         prescribedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
         medicationName: { type: String, required: true, trim: true, maxlength: 200 },
-        dosage: { type: String, required: true, trim: true, maxlength: 100 },
+        dosage: { type: String, required: false, trim: true, maxlength: 100, default: "" },
         route: {
             type: String,
             enum: ["ORAL", "IV", "IM", "SC", "TOPICAL", "INHALATION", "OTHER"],
@@ -79,6 +79,7 @@ const MedicationOrderSchema: Schema = new Schema(
 );
 
 MedicationOrderSchema.index({ admissionId: 1, status: 1, createdAt: -1 });
+MedicationOrderSchema.index({ admissionId: 1, createdAt: -1 });
 
 export function validateOrderTimes(frequency: string, times: string[]): string | null {
     if (frequency === "STAT" || frequency === "PRN") return null;

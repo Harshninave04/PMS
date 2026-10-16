@@ -6,7 +6,8 @@ import {
 } from "@/models/medication-order.model";
 import NursingMedication from "@/models/nursing-medication.model";
 import Admission from "@/models/admission.model";
-import { expandDoseTimes, MAX_DOSES_PER_ORDER } from "@/lib/medication-schedule";
+import { MAX_DOSES_PER_ORDER } from "@/lib/medication-schedule";
+import { expandHospitalDoseTimes } from "@/lib/hospital-time";
 import { CreateMedicationOrderDto } from "@/dto/medication-order.dto";
 
 const ACTIVE_STATUSES = ["ADMITTED", "TRANSFERRED"];
@@ -38,12 +39,16 @@ export class MedicationOrderService {
         return admission;
     }
 
-    async createOrder(data: CreateMedicationOrderDto, prescriberId: Types.ObjectId | string) {
+    async createOrder(
+        data: CreateMedicationOrderDto,
+        prescriberId: Types.ObjectId | string,
+        options: { allowUnspecifiedDosage?: boolean } = {},
+    ) {
         if (!data.admissionId || !data.patientId) {
             throw { statusCode: 400, message: "Admission and patient are required" };
         }
-        if (!data.medicationName?.trim() || !data.dosage?.trim() || !data.frequency) {
-            throw { statusCode: 400, message: "Medication name, dosage and frequency are required" };
+        if (!data.medicationName?.trim() || (!options.allowUnspecifiedDosage && !data.dosage?.trim()) || !data.frequency) {
+            throw { statusCode: 400, message: options.allowUnspecifiedDosage ? "Medication name and frequency are required" : "Medication name, dosage and frequency are required" };
         }
         if (!Types.ObjectId.isValid(data.admissionId.toString()) || !Types.ObjectId.isValid(data.patientId.toString())) {
             throw { statusCode: 400, message: "Invalid admission or patient ID" };
@@ -69,7 +74,7 @@ export class MedicationOrderService {
             visitId: data.visitId ? new Types.ObjectId(data.visitId.toString()) : undefined,
             prescribedBy: new Types.ObjectId(prescriberId.toString()),
             medicationName: data.medicationName.trim(),
-            dosage: data.dosage.trim(),
+            dosage: data.dosage?.trim() ?? "",
             route: data.route ?? "ORAL",
             frequency: data.frequency,
             timesOfDay: data.frequency === "STAT" || data.frequency === "PRN" ? [] : [...new Set(data.timesOfDay ?? [])].sort(),
@@ -79,33 +84,38 @@ export class MedicationOrderService {
             status: "ACTIVE",
         });
 
-        // Expand the order into scheduled nurse doses (the eMAR worklist).
-        const doseTimes = expandDoseTimes(
-            order.startDate,
-            order.durationDays,
-            order.timesOfDay,
-            order.frequency
-        );
-        if (doseTimes.length > MAX_DOSES_PER_ORDER) {
-            await MedicationOrder.findByIdAndDelete(order._id);
-            throw { statusCode: 400, message: `Order would create too many doses (limit ${MAX_DOSES_PER_ORDER})` };
-        }
-        if (doseTimes.length > 0) {
-            await NursingMedication.insertMany(
-                doseTimes.map((scheduledTime) => ({
-                    patient: order.patientId,
-                    admissionId: order.admissionId,
-                    orderId: order._id,
-                    medicationName: order.medicationName,
-                    dosage: order.dosage,
-                    route: order.route,
-                    scheduledTime,
-                    status: "PENDING",
-                    notes: order.instructions,
-                }))
+        try {
+            // Expand the order into scheduled nurse doses (the eMAR worklist).
+            const doseTimes = expandHospitalDoseTimes(
+                order.startDate,
+                order.durationDays,
+                order.timesOfDay,
+                order.frequency
             );
+            if (doseTimes.length > MAX_DOSES_PER_ORDER) {
+                throw { statusCode: 400, message: `Order would create too many doses (limit ${MAX_DOSES_PER_ORDER})` };
+            }
+            if (doseTimes.length > 0) {
+                await NursingMedication.insertMany(
+                    doseTimes.map((scheduledTime) => ({
+                        patient: order.patientId,
+                        admissionId: order.admissionId,
+                        orderId: order._id,
+                        medicationName: order.medicationName,
+                        dosage: order.dosage,
+                        route: order.route,
+                        scheduledTime,
+                        status: "PENDING",
+                        notes: order.instructions,
+                    }))
+                );
+            }
+            return { order, dosesCreated: doseTimes.length };
+        } catch (error) {
+            await NursingMedication.deleteMany({ orderId: order._id });
+            await MedicationOrder.findByIdAndDelete(order._id);
+            throw error;
         }
-        return { order, dosesCreated: doseTimes.length };
     }
 
     async listOrders(admissionId: Types.ObjectId | string, status?: string) {

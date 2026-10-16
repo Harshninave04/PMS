@@ -43,8 +43,7 @@ const patientSchema = new Schema<IPatient>(
         },
         bloodGroup: {
             type: String,
-            enum: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"],
-            required: true
+            enum: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]
         },
         contact: {
             type: String,

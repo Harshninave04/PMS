@@ -59,7 +59,7 @@ export default function ManageWardsPage() {
   // Create / Edit Dialog State
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingWard, setEditingWard] = useState<WardItem | null>(null);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{ wardName: string; wardCode: string; wardType: string; floor: number | ""; organizationId: string; isActive: boolean }>({
     wardName: "",
     wardCode: "",
     wardType: "GENERAL",
@@ -68,6 +68,7 @@ export default function ManageWardsPage() {
     isActive: true
   });
   const [saveLoading, setSaveLoading] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   // Delete Dialog State
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -126,6 +127,7 @@ export default function ManageWardsPage() {
   });
 
   const openCreate = () => {
+    setSaveError("");
     setEditingWard(null);
     setForm({
       wardName: "",
@@ -139,6 +141,7 @@ export default function ManageWardsPage() {
   };
 
   const openEdit = (ward: WardItem) => {
+    setSaveError("");
     setEditingWard(ward);
     setForm({
       wardName: ward.wardName,
@@ -153,11 +156,20 @@ export default function ManageWardsPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.wardName || !form.wardCode || !form.organizationId) {
-      toast("Please fill in all required fields", "warning");
+    const wardName = form.wardName.trim();
+    const wardCode = form.wardCode.trim().toUpperCase();
+    if (!wardName || !wardCode || !form.organizationId || form.floor === "" || !Number.isFinite(Number(form.floor))) {
+      setSaveError("Enter a ward name, code, organization, and numeric floor.");
+      toast("Enter a ward name, code, organization, and numeric floor.", "warning");
+      return;
+    }
+    if (!/^[A-Z0-9_-]+$/.test(wardCode)) {
+      setSaveError("Ward code must use uppercase letters or numbers, with no spaces.");
+      toast("Ward code must use uppercase letters or numbers, with no spaces.", "warning");
       return;
     }
 
+    setSaveError("");
     setSaveLoading(true);
     try {
       const method = editingWard ? "PUT" : "POST";
@@ -166,19 +178,23 @@ export default function ManageWardsPage() {
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form)
+        body: JSON.stringify({ ...form, wardName, wardCode, floor: Number(form.floor), organizationId: idOf(form.organizationId) })
       });
       const json = await res.json();
 
       if (json.success) {
         toast(`Ward ${editingWard ? "updated" : "created"} successfully`, "success");
         setDialogOpen(false);
-        fetchWards();
+        await fetchWards();
       } else {
-        toast(json.message || "Operation failed", "error");
+        const message = json.message || "Operation failed";
+        setSaveError(message);
+        toast(message, "error");
       }
-    } catch {
-      toast("An error occurred while saving the ward", "error");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "An error occurred while saving the ward";
+      setSaveError(message);
+      toast(message, "error");
     } finally {
       setSaveLoading(false);
     }
@@ -347,6 +363,7 @@ export default function ManageWardsPage() {
             <DialogDescription className="text-xs">Provide details for the ward configuration.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSave} className="space-y-4 py-2">
+            {saveError && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">{saveError}</div>}
             <div className="space-y-1.5">
               <Label htmlFor="wardName" className="font-semibold text-slate-700 dark:text-slate-350">Ward Name</Label>
               <Input
@@ -365,7 +382,7 @@ export default function ManageWardsPage() {
                   id="wardCode"
                   placeholder="e.g. CARD-GEN"
                   value={form.wardCode}
-                  onChange={(e) => setForm((p) => ({ ...p, wardCode: e.target.value.toUpperCase() }))}
+                onChange={(e) => { setSaveError(""); setForm((p) => ({ ...p, wardCode: e.target.value.toUpperCase() })); }}
                   required
                 />
               </div>
@@ -376,7 +393,7 @@ export default function ManageWardsPage() {
                   type="number"
                   placeholder="Floor number"
                   value={form.floor}
-                  onChange={(e) => setForm((p) => ({ ...p, floor: parseInt(e.target.value) || 0 }))}
+                onChange={(e) => { setSaveError(""); setForm((p) => ({ ...p, floor: e.target.value === "" ? "" : Number(e.target.value) })); }}
                   required
                 />
               </div>
@@ -431,7 +448,7 @@ export default function ManageWardsPage() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="text-xs">
                 Cancel
               </Button>
-              <Button type="submit" disabled={saveLoading} className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
+              <Button type="submit" disabled={saveLoading || !form.wardName.trim() || !form.wardCode.trim() || form.floor === "" || !Number.isFinite(Number(form.floor))} className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
                 {saveLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                 {editingWard ? "Save Changes" : "Create Ward"}
               </Button>

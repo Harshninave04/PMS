@@ -145,6 +145,9 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     // Admissions
     get("/admission", K("admissions", "current", "view")),
     post("/admission", K("admissions", "new", "create")),
+    get("/admission/patients", K("admissions", "new", "create")),
+    post("/admission/patients", K("admissions", "new", "create")),
+    get("/admission/wards", K("admissions", "new", "create")),
     { path: "/admission/[id]", method: "GET", permission: K("admissions", "current", "view") },
     { path: "/admission/[id]", method: "PUT", permission: K("admissions", "current", "update") },
     { path: "/admission/[id]", method: "DELETE", permission: K("admissions", "current", "delete") },

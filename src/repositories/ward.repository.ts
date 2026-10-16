@@ -1,5 +1,7 @@
 import { Types } from "mongoose";
 import Ward from "@/models/ward.model";
+// Keep populate's referenced model registered in runtimes that load this repository directly.
+import "@/models/organization.model";
 import { IWard } from "@/interfaces/ward.interface";
 import { CreateWardDto, UpdateWardDto } from "@/dto/ward.dto";
 
@@ -17,7 +19,7 @@ export class WardRepository {
     }
 
     async findByWardCode(wardCode: string): Promise<IWard | null> {
-        return await Ward.findOne({ wardCode }).populate("organizationId").lean();
+        return await Ward.findOne({ wardCode }).lean();
     }
 
     async findByOrganizationId(organizationId: Types.ObjectId): Promise<IWard[]> {

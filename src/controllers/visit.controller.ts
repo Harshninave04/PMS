@@ -91,6 +91,59 @@ export class VisitController {
             return NextResponse.json({ success: false, message }, { status: 500 });
         }
     }
+
+    async createAddendum(request: NextRequest, id: string): Promise<NextResponse> {
+        try {
+            await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_RECORD_CREATE, "ClinicalRecord");
+            if (!auth.isAuthorized) return auth.response;
+            if (!Types.ObjectId.isValid(id)) {
+                return NextResponse.json({ success: false, message: "Invalid visit ID" }, { status: 400 });
+            }
+            const body = await request.json() as { text?: unknown };
+            const text = typeof body.text === "string" ? body.text.trim() : "";
+            if (!text) return NextResponse.json({ success: false, message: "Addendum text is required" }, { status: 400 });
+            if (text.length > 4000) return NextResponse.json({ success: false, message: "Addendum must be 4,000 characters or fewer" }, { status: 400 });
+
+            const parent = await (await import("@/models/clinical-record.model")).ClinicalRecord.findById(id)
+                .select("admissionId patient recordType")
+                .lean();
+            if (!parent || parent.recordType !== "Progress Note" || !parent.admissionId || !parent.patient) {
+                return NextResponse.json({ success: false, message: "Round note not found" }, { status: 404 });
+            }
+            const actor = actorOf(auth);
+            let admission;
+            try {
+                admission = await visitService.assertActorMayAccessAdmission(parent.admissionId, actor);
+            } catch (e: unknown) {
+                const err = e as { statusCode?: number; message?: string };
+                return NextResponse.json({ success: false, message: err?.message ?? "Forbidden" }, { status: err?.statusCode ?? 403 });
+            }
+            const blocked = branchAllowed(admission, auth);
+            if (blocked) return blocked;
+
+            const timestamp = new Date();
+            const { ClinicalRecord } = await import("@/models/clinical-record.model");
+            const addendum = await ClinicalRecord.create({
+                patient: parent.patient,
+                admissionId: parent.admissionId,
+                doctor: actor.userId,
+                author: actor.userId,
+                parentVisitId: parent._id,
+                recordType: "Visit Addendum",
+                text,
+                timestamp,
+                visitedAt: timestamp,
+                dateRecorded: timestamp,
+                status: "Final",
+            });
+            return NextResponse.json({ success: true, data: addendum, message: "Addendum appended" }, { status: 201 });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to append addendum";
+            console.error("[VisitController.createAddendum]", error);
+            return NextResponse.json({ success: false, message }, { status: 500 });
+        }
+    }
 }
 
 const visitController = new VisitController();

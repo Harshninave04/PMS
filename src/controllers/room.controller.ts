@@ -5,6 +5,8 @@ import defaultRoomService, { RoomService } from "@/services/room.service";
 import { CreateRoomDto, UpdateRoomDto } from "@/dto/room.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import Ward from "@/models/ward.model";
+import Room from "@/models/room.model";
 
 export class RoomController {
     constructor(private roomService: RoomService = defaultRoomService) { }
@@ -15,7 +17,12 @@ export class RoomController {
             const auth = await authorizeRequest(request, PERMISSION_KEYS.WARD_MANAGE, "Room");
             if (!auth.isAuthorized) return auth.response;
 
-            const data: CreateRoomDto = await request.json();
+            const raw = await request.json() as Partial<CreateRoomDto>;
+            const data = {
+                ...raw,
+                roomNumber: typeof raw.roomNumber === "string" ? raw.roomNumber.trim() : "",
+                roomType: typeof raw.roomType === "string" ? raw.roomType.trim().toUpperCase().replace(/[ -]+/g, "_") : "GENERAL",
+            } as CreateRoomDto;
 
             if (!data.roomNumber || !data.wardId) {
                 return NextResponse.json(
@@ -31,6 +38,11 @@ export class RoomController {
                 );
             }
 
+            const ward = await Ward.findOne({ ...auth.filter, _id: data.wardId }).select("_id").lean();
+            if (!ward) {
+                return NextResponse.json({ success: false, message: "Ward not found in your organization scope" }, { status: 404 });
+            }
+
             const room = await this.roomService.createRoom(data);
 
             return NextResponse.json(
@@ -38,7 +50,14 @@ export class RoomController {
                 { status: 201 }
             );
         } catch (error: unknown) {
-            const err = error as { statusCode?: number; message?: string };
+            const err = error as { name?: string; code?: number; keyValue?: Record<string, unknown>; statusCode?: number; message?: string; stack?: string };
+            if (err?.code === 11000) {
+                return NextResponse.json({ success: false, message: `Room number ${String(err.keyValue?.roomNumber || "already in use")} already exists` }, { status: 409 });
+            }
+            if (err?.name === "ValidationError" || err?.name === "CastError") {
+                return NextResponse.json({ success: false, message: err.message || "Invalid room details" }, { status: 400 });
+            }
+            if (!err?.statusCode) console.error("[RoomController.createRoom] Unexpected error:", err?.stack || error);
             const statusCode = err?.statusCode || 500;
             return NextResponse.json(
                 { success: false, message: err?.message || "Failed to create room" },
@@ -56,19 +75,21 @@ export class RoomController {
             const { searchParams } = new URL(request.url);
             const wardId = searchParams.get('wardId');
             
-            let rooms;
-            
-            if (wardId) {
-                 if (!Types.ObjectId.isValid(wardId)) {
+            if (wardId && !Types.ObjectId.isValid(wardId)) {
                     return NextResponse.json(
                         { success: false, message: "Invalid ward ID" },
                         { status: 400 }
                     );
-                }
-                rooms = await this.roomService.getRoomsByWardId(new Types.ObjectId(wardId));
-            } else {
-                rooms = await this.roomService.getAllRooms();
             }
+            const scopedWards = await Ward.find(auth.filter).select("_id").lean();
+            const wardIds = scopedWards.map((ward) => ward._id);
+            if (wardId && !wardIds.some((id) => id.toString() === wardId)) {
+                return NextResponse.json({ success: false, message: "Ward not found in your organization scope" }, { status: 404 });
+            }
+            const rooms = wardIds.length
+                ? await Room.find({ wardId: wardId ? new Types.ObjectId(wardId) : { $in: wardIds } })
+                    .populate({ path: "wardId", populate: { path: "organizationId" } }).lean()
+                : [];
 
             return NextResponse.json(
                 { success: true, count: rooms.length, data: rooms },
