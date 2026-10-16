@@ -47,6 +47,16 @@ const dischargeMedicationSchema = new Schema(
     { _id: true }
 );
 
+const nursingHandoverSchema = new Schema(
+    {
+        fromNurseId: { type: Types.ObjectId, ref: 'User', required: true },
+        toNurseId: { type: Types.ObjectId, ref: 'User', required: true },
+        handoverNote: { type: String, required: true, trim: true },
+        handedOverAt: { type: Date, default: Date.now, required: true }
+    },
+    { _id: true }
+);
+
 const admissionSchema = new Schema<IAdmission>(
     {
         patientId: {
@@ -165,6 +175,10 @@ const admissionSchema = new Schema<IAdmission>(
         careTeamUpdatedBy: {
             type: Types.ObjectId,
             ref: 'User'
+        },
+        nursingHandoverHistory: {
+            type: [nursingHandoverSchema],
+            default: []
         },
         // Patient Transfer History
         transferHistory: {

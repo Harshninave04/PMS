@@ -1,10 +1,13 @@
 import { NextRequest } from "next/server";
 import { ClinicalController } from "@/controllers/clinical.controller";
 import dbConnect from "@/lib/dbConnect";
-import { requirePermission } from "@/lib/rbac/guard";
+import { requireAnyPermission } from "@/lib/rbac/guard";
 
 export async function GET(request: NextRequest) {
-  const denied = await requirePermission(request, "clinical.vitals:view");
+  const denied = await requireAnyPermission(request, [
+    "clinical.vitals:view",
+    "nursing.vitals:view",
+  ]);
   if (denied) return denied;
 
   await dbConnect();
@@ -12,7 +15,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const denied = await requirePermission(request, "clinical.vitals:create");
+  const denied = await requireAnyPermission(request, [
+    "clinical.vitals:create",
+    "nursing.vitals:create",
+  ]);
   if (denied) return denied;
 
   await dbConnect();

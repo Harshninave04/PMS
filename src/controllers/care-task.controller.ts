@@ -10,6 +10,7 @@ import { PERMISSION_KEYS } from "@/types/rbac";
 import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
 import { ClinicalRecord } from "@/models/clinical-record.model";
 import { Vitals } from "@/models/vitals.model";
+import Admission from "@/models/admission.model";
 import { CreateCareTaskDto, UpdateCareTaskDto } from "@/dto/care-task.dto";
 import type { CareTaskStatus } from "@/models/care-task.model";
 import { HOSPITAL_TIME_ZONE, stayDayNumber } from "@/lib/hospital-time";
@@ -252,7 +253,7 @@ export class CareTaskController {
                 }
             }
             const patientId = (admission as { patientId?: unknown }).patientId;
-            const [tasks, medications, vitals, notes, visits, orders] = await Promise.all([
+            const [tasks, medications, vitals, notes, visits, orders, handoverHistory] = await Promise.all([
                 careTaskService.listForAdmissions([admissionId]),
                 nursingService.getMedications(
                     patientId ? new Types.ObjectId((patientId as { toString(): string }).toString()).toString() : undefined,
@@ -268,7 +269,14 @@ export class CareTaskController {
                     .lean(),
                 visitService.listVisits(admissionId),
                 medicationOrderService.listOrders(admissionId),
+                Admission.findById(admissionId)
+                    .select("nursingHandoverHistory")
+                    .populate("nursingHandoverHistory.fromNurseId", "name")
+                    .populate("nursingHandoverHistory.toNurseId", "name")
+                    .lean()
+                    .then((record) => record?.nursingHandoverHistory ?? []),
             ]);
+            return NextResponse.json({ success: true, data: { tasks, medications, vitals, notes, visits, orders, handoverHistory } }, { status: 200 });
             const admissionDate = new Date((admission as { admissionDate: Date }).admissionDate);
             const withDay = <T,>(items: T[], timeOf: (item: T) => Date) => items.map((item) => ({
                 ...recordOf(item),
