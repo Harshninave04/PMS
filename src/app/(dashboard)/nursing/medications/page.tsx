@@ -21,7 +21,8 @@ import {
   Trash2,
   Loader2,
   AlertOctagon,
-  XCircle
+  XCircle,
+  Clock
 } from "lucide-react";
 
 export default function MedicationAdministrationPage() {
@@ -396,6 +397,39 @@ function MedicationAdministrationContent() {
     });
     return { given, pending, withheld };
   }, [medications]);
+
+  const buckets = useMemo(() => {
+    const pending = filteredMedications.filter((m) => m.status === "PENDING");
+    const now = Date.now();
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    const byTime = (a: any, b: any) =>
+      new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime();
+
+    const overdue = pending
+      .filter((m) => new Date(m.scheduledTime).getTime() < now)
+      .sort(byTime);
+
+    const dueToday = pending
+      .filter((m) => {
+        const t = new Date(m.scheduledTime).getTime();
+        return t >= now && t <= endOfToday.getTime();
+      })
+      .sort(byTime);
+
+    return { overdue, dueToday };
+  }, [filteredMedications]);
+
+  const dueInLabel = (time: string | Date) => {
+    const diff = new Date(time).getTime() - Date.now();
+    const mins = Math.round(diff / 60000);
+    if (mins <= 0) return "now";
+    if (mins < 60) return `in ${mins} min`;
+    const hrs = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return rem ? `in ${hrs}h ${rem}m` : `in ${hrs}h`;
+  };
 
   const exportCSV = () => {
     if (filteredMedications.length === 0) {
