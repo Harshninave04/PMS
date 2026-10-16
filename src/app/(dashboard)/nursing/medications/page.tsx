@@ -38,6 +38,76 @@ export default function MedicationAdministrationPage() {
   );
 }
 
+function GiveNextCard({ doses, onGiven, toast }: { doses: any[]; onGiven: () => void; toast: (msg: string, type?: "success" | "error") => void }) {
+  const [selectedId, setSelectedId] = useState(doses[0]?._id ?? "");
+  const [giving, setGiving] = useState(false);
+  const selected = doses.find((d) => d._id === selectedId) ?? doses[0];
+
+  useEffect(() => {
+    setSelectedId(doses[0]?._id ?? "");
+  }, [doses.length]);
+
+  if (!selected) return null;
+  const scheduled = new Date(selected.scheduledTime);
+  const overdue = scheduled.getTime() < Date.now();
+
+  const give = async () => {
+    setGiving(true);
+    try {
+      const res = await fetch(`/api/nursing/medications/${selected._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "GIVEN", administeredTime: new Date().toISOString() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast(`Given ${selected.medicationName} — recorded at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`, "success");
+        onGiven();
+      } else {
+        toast(data.message || "Failed to record administration", "error");
+      }
+    } catch {
+      toast("Error recording administration", "error");
+    } finally {
+      setGiving(false);
+    }
+  };
+
+  return (
+    <Card className="border-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/20 shadow-sm">
+      <CardContent className="p-4">
+        <p className="text-sm font-semibold text-slate-900 dark:text-white">Give next dose</p>
+        <div className="mt-2 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Due medicine</Label>
+            <Select value={selected._id} onChange={(e) => setSelectedId(e.target.value)} className="h-10 text-xs bg-white dark:bg-slate-900">
+              {doses.map((d) => (
+                <option key={d._id} value={d._id}>
+                  {new Date(d.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — {d.medicationName} · {d.dosage?.trim() || "Dose not specified, confirm with doctor"} ({d.patient?.name ?? "patient"})
+                </option>
+              ))}
+            </Select>
+            <p className="text-[11px] text-slate-500">
+              {selected.patient?.name} • {selected.dosage?.trim() || "Dose not specified, confirm with doctor"} • {selected.route}
+              {selected.orderId && typeof selected.orderId === "object" && selected.orderId.frequency ? ` • ${selected.orderId.frequency}` : ""}
+              {" — "}
+              {overdue ? (
+                <span className="font-semibold text-rose-600">overdue since {scheduled.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              ) : (
+                <span>due at {scheduled.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              )}
+            </p>
+          </div>
+          <Button onClick={give} disabled={giving} className="h-10 bg-emerald-600 hover:bg-emerald-700 text-white sm:w-36">
+            <CheckCircle2 className="mr-2 h-4 w-4" />
+            {giving ? "Giving…" : "Give now"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function MedicationAdministrationContent() {
   const searchParams = useSearchParams();
   const initialPatientId = searchParams.get("patientId") || "";
@@ -484,6 +554,25 @@ function MedicationAdministrationContent() {
         </CardContent>
       </Card>
 
+      {/* Due-now banner: overdue first, then today */}
+      {(buckets.overdue.length > 0 || buckets.dueToday.length > 0) && (
+        <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/30 shadow-sm">
+          <CardContent className="p-3 text-xs">
+            {buckets.overdue.length > 0 && (
+              <p className="font-semibold text-rose-700 dark:text-rose-300">
+                <Clock className="inline h-3.5 w-3.5 mr-1" />
+                {buckets.overdue.length} overdue dose(s) — earliest: {buckets.overdue[0].medicationName} · {buckets.overdue[0].dosage?.trim() || "Dose not specified, confirm with doctor"} due {new Date(buckets.overdue[0].scheduledTime).toLocaleString()}
+              </p>
+            )}
+            {buckets.dueToday.length > 0 && (
+              <p className="mt-1 text-amber-800 dark:text-amber-300">
+                {buckets.dueToday.length} more dose(s) due today, next {dueInLabel(buckets.dueToday[0].scheduledTime)} ({new Date(buckets.dueToday[0].scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}).
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* PRN (as-needed) orders: no clock time — record each bolus as given */}
       {prnOrders.length > 0 && (
         <Card className="border shadow-sm">
@@ -495,7 +584,7 @@ function MedicationAdministrationContent() {
             {prnOrders.map((o) => (
               <div key={o._id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border p-3">
                 <div className="text-xs">
-                  <span className="font-semibold">{o.medicationName}</span> {o.dosage} • {o.route}
+                  <span className="font-semibold">{o.medicationName}</span> · {o.dosage?.trim() || "Dose not specified, confirm with doctor"} • {o.route}
                   {o.instructions && <span className="text-slate-500"> — {o.instructions}</span>}
                 </div>
                 <Button
@@ -587,6 +676,16 @@ function MedicationAdministrationContent() {
                               Withheld: {m.withheldReason}
                             </span>
                           )}
+                        </TableCell>
+
+                        <TableCell className="font-medium text-slate-700 dark:text-slate-300">
+                          {m.dosage?.trim() || "Dose not specified, confirm with doctor"}
+                        </TableCell>
+
+                        <TableCell>
+                          <Badge variant="outline" className="font-mono text-[10px]">
+                            {m.route}
+                          </Badge>
                         </TableCell>
 
                         <TableCell>

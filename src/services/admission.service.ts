@@ -10,6 +10,19 @@ export class AdmissionService {
     constructor(private repository: AdmissionRepository = admissionRepository) { }
 
     async createAdmission(data: CreateAdmissionDto): Promise<IAdmission> {
+        const activeAdmissionFilter: Record<string, unknown> = {
+            patientId: new Types.ObjectId(data.patientId.toString()),
+            status: { $in: ["ADMITTED", "TRANSFERRED"] },
+        };
+        if (data.branchId) activeAdmissionFilter.branchId = new Types.ObjectId(data.branchId.toString());
+        const existingActiveStay = await Admission.findOne(activeAdmissionFilter).select("_id").lean();
+        if (existingActiveStay) {
+            throw {
+                statusCode: 409,
+                message: "This patient already has an active admission. Discharge the current stay before creating another.",
+            };
+        }
+
         // Create the admission
         const admission = await this.repository.create({
             ...data,

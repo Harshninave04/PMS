@@ -14,10 +14,13 @@ import {
 export class PatientController {
     constructor(private patientService: PatientService = defaultPatientService) { }
 
-    async createPatient(request: NextRequest): Promise<NextResponse> {
+    async createPatient(
+        request: NextRequest,
+        permission: string = PERMISSION_KEYS.PATIENT_CREATE
+    ): Promise<NextResponse> {
         try {
             await dbConnect();
-            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_CREATE, "Patient");
+            const auth = await authorizeRequest(request, permission, "Patient");
             if (!auth.isAuthorized) return auth.response;
 
             const data: CreatePatientDto = await request.json();
@@ -27,9 +30,19 @@ export class PatientController {
                 data.branchId = auth.context.branchId.toString();
             }
 
-            if (!data.name || data.age === undefined || !data.gender || !data.contact || !data.address || !data.emergencyContact || !data.branchId) {
+            // Admission's quick-create form collects only the essentials. Keep
+            // the patient record valid by supplying the registration defaults
+            // for details that can be completed later.
+            if (!data.branchId && (auth.context.branchId || auth.context.organizationId)) {
+                data.branchId = (auth.context.branchId || auth.context.organizationId)!.toString();
+            }
+            data.address = data.address?.trim() || "Not provided";
+            data.emergencyContact = data.emergencyContact?.trim() || "Not provided";
+            data.bloodGroup = data.bloodGroup?.trim() || undefined;
+
+            if (!data.name || data.age === undefined || !data.gender || !data.contact || !data.branchId) {
                 return NextResponse.json(
-                    { success: false, message: "Required fields are missing: Name, Age, Gender, Contact, Address, Emergency Contact, and Branch are required." },
+                    { success: false, message: "Required fields are missing: Name, Age, Gender, Contact, and Branch are required." },
                     { status: 400 }
                 );
             }
@@ -56,10 +69,13 @@ export class PatientController {
         }
     }
 
-    async getPatients(request: NextRequest): Promise<NextResponse> {
+    async getPatients(
+        request: NextRequest,
+        permission: string = PERMISSION_KEYS.PATIENT_VIEW
+    ): Promise<NextResponse> {
         try {
             await dbConnect();
-            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_VIEW, "Patient");
+            const auth = await authorizeRequest(request, permission, "Patient");
             if (!auth.isAuthorized) return auth.response;
 
             const { searchParams } = new URL(request.url);

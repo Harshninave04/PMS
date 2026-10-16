@@ -31,4 +31,6 @@ const VitalsSchema: Schema = new Schema(
   { timestamps: true }
 );
 
+VitalsSchema.index({ admissionId: 1, dateRecorded: -1 });
+
 export const Vitals = mongoose.models.Vitals || mongoose.model<IVitals>("Vitals", VitalsSchema);

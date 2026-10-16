@@ -49,6 +49,7 @@ const CareTaskSchema: Schema = new Schema(
 );
 
 CareTaskSchema.index({ admissionId: 1, status: 1, createdAt: -1 });
+CareTaskSchema.index({ admissionId: 1, createdAt: -1 });
 CareTaskSchema.index({ patientId: 1, status: 1 });
 
 export const CARE_TASK_TRANSITIONS: Record<CareTaskStatus, CareTaskStatus[]> = {

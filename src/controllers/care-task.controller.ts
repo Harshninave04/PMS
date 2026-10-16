@@ -13,6 +13,39 @@ import { Vitals } from "@/models/vitals.model";
 import Admission from "@/models/admission.model";
 import { CreateCareTaskDto, UpdateCareTaskDto } from "@/dto/care-task.dto";
 import type { CareTaskStatus } from "@/models/care-task.model";
+import { HOSPITAL_TIME_ZONE, stayDayNumber } from "@/lib/hospital-time";
+import { flagVitalForReview } from "@/lib/vital-flags";
+
+interface TimelineItem {
+    id: string;
+    kind: "ROUND" | "ADDENDUM" | "VITAL" | "DOSE" | "NURSE_NOTE" | "INSTRUCTION";
+    at: string;
+    dayNumber: number;
+    title: string;
+    detail?: string;
+    flag?: string;
+}
+
+function recordOf(value: unknown): Record<string, unknown> {
+    return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function timestampOf(record: Record<string, unknown>, ...keys: string[]): Date {
+    for (const key of keys) {
+        const value = record[key];
+        if (value instanceof Date) return value;
+        if (typeof value === "string" || typeof value === "number") {
+            const date = new Date(value);
+            if (!Number.isNaN(date.getTime())) return date;
+        }
+    }
+    return new Date();
+}
+
+function stringOf(record: Record<string, unknown>, key: string): string {
+    const value = record[key];
+    return typeof value === "string" ? value : "";
+}
 
 function actorOf(auth: { context: { userId: Types.ObjectId; roleName: string; branchId?: Types.ObjectId }; grant: { orgScope: string } }) {
     return {
@@ -244,6 +277,78 @@ export class CareTaskController {
                     .then((record) => record?.nursingHandoverHistory ?? []),
             ]);
             return NextResponse.json({ success: true, data: { tasks, medications, vitals, notes, visits, orders, handoverHistory } }, { status: 200 });
+            const admissionDate = new Date((admission as { admissionDate: Date }).admissionDate);
+            const withDay = <T,>(items: T[], timeOf: (item: T) => Date) => items.map((item) => ({
+                ...recordOf(item),
+                dayNumber: stayDayNumber(admissionDate, timeOf(item)),
+            }));
+            const visitsWithDay = withDay(visits, (item) => {
+                const value = recordOf(item);
+                return timestampOf(value, "visitedAt", "timestamp", "dateRecorded", "createdAt");
+            });
+            const tasksWithDay = withDay(tasks, (item) => timestampOf(recordOf(item), "createdAt"));
+            const medicationsWithDay = withDay(medications, (item) => timestampOf(recordOf(item), "administeredTime", "scheduledTime", "createdAt"));
+            const vitalsWithDay = withDay(vitals, (item) => timestampOf(recordOf(item), "dateRecorded", "createdAt"));
+            const notesWithDay = withDay(notes, (item) => timestampOf(recordOf(item), "dateRecorded", "createdAt"));
+            const ordersWithDay = withDay(orders, (item) => timestampOf(recordOf(item), "createdAt"));
+            const timelineItems: TimelineItem[] = [];
+            const pushItem = (kind: TimelineItem["kind"], item: Record<string, unknown>, at: Date, title: string, detail?: string, flag?: string) => {
+                timelineItems.push({ id: String(item._id ?? `${kind}-${at.getTime()}-${timelineItems.length}`), kind, at: at.toISOString(), dayNumber: stayDayNumber(admissionDate, at), title, detail, flag });
+            };
+
+            for (const raw of visitsWithDay) {
+                const item = recordOf(raw);
+                const at = timestampOf(item, "visitedAt", "timestamp", "dateRecorded", "createdAt");
+                const isAddendum = item.recordType === "Visit Addendum";
+                const details = ["notes", "details", "chiefComplaint", "objectiveFindings", "assessment", "plan", "text"]
+                    .map((key) => stringOf(item, key).trim()).filter(Boolean).join(" · ");
+                pushItem(isAddendum ? "ADDENDUM" : "ROUND", item, at, isAddendum ? "Round addendum" : `${stringOf(item, "visitType") || "Round"}${item.condition ? ` · ${String(item.condition)}` : ""}`, details);
+            }
+            for (const raw of vitalsWithDay) {
+                const item = recordOf(raw);
+                const at = timestampOf(item, "dateRecorded", "createdAt");
+                const flag = flagVitalForReview(item);
+                const detail = [
+                    `BP ${String(item.bloodPressure ?? "—")}`,
+                    `HR ${String(item.heartRate ?? "—")}`,
+                    `SpO₂ ${String(item.oxygenSaturation ?? "—")} %`,
+                    `RR ${String(item.respiratoryRate ?? "—")}`,
+                    `Temp ${String(item.temperature ?? "—")} °C`,
+                ].join(" · ");
+                pushItem("VITAL", item, at, "Nurse vitals", detail, flag);
+            }
+            for (const raw of medicationsWithDay) {
+                const item = recordOf(raw);
+                const at = timestampOf(item, "administeredTime", "scheduledTime", "createdAt");
+                pushItem("DOSE", item, at, `${stringOf(item, "medicationName")} ${stringOf(item, "dosage")}`.trim(), `${String(item.status ?? "PENDING")} · ${stringOf(item, "route")}`);
+            }
+            for (const raw of notesWithDay) {
+                const item = recordOf(raw);
+                if (item.recordType !== "Nursing Note") continue;
+                const at = timestampOf(item, "dateRecorded", "createdAt");
+                const detail = ["chiefComplaint", "objectiveFindings", "assessment", "plan", "details"]
+                    .map((key) => stringOf(item, key).trim()).filter(Boolean).join(" · ");
+                pushItem("NURSE_NOTE", item, at, stringOf(item, "title") || stringOf(item, "category") || "Nurse note", detail);
+            }
+            for (const raw of tasksWithDay) {
+                const item = recordOf(raw);
+                const at = timestampOf(item, "createdAt");
+                pushItem("INSTRUCTION", item, at, stringOf(item, "title") || "Nursing instruction", `${String(item.priority ?? "Routine")} · ${String(item.status ?? "NEW")}${stringOf(item, "detail") ? ` · ${stringOf(item, "detail")}` : ""}`);
+            }
+            timelineItems.sort((left, right) => new Date(right.at).getTime() - new Date(left.at).getTime());
+            return NextResponse.json({
+                success: true,
+                data: {
+                    tasks: tasksWithDay,
+                    medications: medicationsWithDay,
+                    vitals: vitalsWithDay,
+                    notes: notesWithDay,
+                    visits: visitsWithDay,
+                    orders: ordersWithDay,
+                    timelineItems,
+                    timeZone: HOSPITAL_TIME_ZONE,
+                },
+            }, { status: 200 });
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : "Failed to fetch timeline";
             return NextResponse.json({ success: false, message }, { status: 500 });

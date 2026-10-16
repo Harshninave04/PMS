@@ -5,6 +5,8 @@ import defaultUserService, { UserService } from "@/services/user.service";
 import { CreateUserDto, UpdateUserDto } from "@/dto/user.dto";
 import User from "@/models/user.model";
 import Role from "@/models/role.model";
+import Doctor from "@/models/doctor.model";
+import Department from "@/models/department.model";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 import { guardLastSuperAdmin } from "@/lib/rbac/admin-safety";
@@ -96,6 +98,16 @@ export class UserController {
             const authResult = await authorizeRequest(request, PERMISSION_KEYS.USER_DIRECTORY_VIEW, "User");
             if (!authResult.isAuthorized) return authResult.response;
 
+            const roleFilter = new URL(request.url).searchParams.get("role")?.trim().toUpperCase();
+            let roleId: Types.ObjectId | undefined;
+            if (roleFilter) {
+                const role = await Role.findOne({ role: roleFilter }).select("_id").lean();
+                if (!role) {
+                    return NextResponse.json({ success: true, count: 0, data: [] }, { status: 200 });
+                }
+                roleId = new Types.ObjectId(role._id.toString());
+            }
+
             // Self-heal: logins created before hospital scope was stamped
             // (no organization) are invisible to every branch-scoped picker.
             // In a single-hospital deployment they can only belong here, so
@@ -116,14 +128,55 @@ export class UserController {
                 }
             }
 
-            const users = await User.find({ ...authResult.filter, isActive: { $ne: false } })
-                .select("name email phone gender role organization branch isActive")
+            const users = await User.find({
+                ...authResult.filter,
+                isActive: { $ne: false },
+                ...(roleId ? { role: roleId } : {}),
+            })
+                .select(roleFilter ? "name role" : "name email phone gender role organization branch isActive")
                 .populate("role", "role")
                 .sort({ name: 1 })
                 .lean();
 
+            const userIds = users.map((user) => user._id);
+            const doctorProfiles = roleFilter === "DOCTOR" && userIds.length
+                ? await Doctor.find({ userId: { $in: userIds } })
+                    .select("userId departmentId specialization")
+                    .lean()
+                : [];
+            const departmentIds = doctorProfiles
+                .map((doctor) => doctor.departmentId)
+                .filter((id): id is Types.ObjectId => Boolean(id));
+            const departments = departmentIds.length
+                ? await Department.find({ _id: { $in: departmentIds } })
+                    .select("name")
+                    .lean()
+                : [];
+            const departmentNames = new Map(
+                departments.map((department) => [department._id.toString(), department.name]),
+            );
+            const doctorsByUserId = new Map(
+                doctorProfiles.map((doctor) => [doctor.userId.toString(), doctor]),
+            );
+
+            const data = roleFilter
+                ? users.map((user) => {
+                    const role = user.role as unknown as { role?: string } | null;
+                    const profile = doctorsByUserId.get(user._id.toString());
+                    return {
+                        _id: user._id,
+                        name: user.name,
+                        role: role?.role ?? "",
+                        department: profile?.departmentId
+                            ? departmentNames.get(profile.departmentId.toString())
+                            : undefined,
+                        specialization: profile?.specialization,
+                    };
+                })
+                : users;
+
             return NextResponse.json(
-                { success: true, count: users.length, data: users },
+                { success: true, count: data.length, data },
                 { status: 200 }
             );
         } catch (error: unknown) {

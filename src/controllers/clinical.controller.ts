@@ -232,10 +232,15 @@ export class ClinicalController {
 
       const body = await req.json();
 
+      const record = await ClinicalRecord.findById(params.id).select("recordType doctor").lean();
+      if (!record) return NextResponse.json({ success: false, error: "Clinical record not found" }, { status: 404 });
+      if (record.recordType === "Progress Note" || record.recordType === "Visit Addendum") {
+        return NextResponse.json({ success: false, error: "Round notes are immutable. Append an addendum instead." }, { status: 409 });
+      }
+
       // Doctor isolation: a doctor can only edit their own clinical records
       if (isDoctorActor(authResult.context)) {
-        const record = await ClinicalRecord.findById(params.id).select("doctor").lean();
-        if (!record || record.doctor?.toString() !== authResult.context.userId.toString()) {
+        if (record.doctor?.toString() !== authResult.context.userId.toString()) {
           return NextResponse.json({ success: false, error: "Forbidden: You can only edit your own clinical records" }, { status: 403 });
         }
       }
@@ -253,10 +258,15 @@ export class ClinicalController {
       const authResult = await authorizeRequest(req, PERMISSION_KEYS.CLINICAL_RECORD_UPDATE, "ClinicalRecord");
       if (!authResult.isAuthorized) return authResult.response;
 
+      const record = await ClinicalRecord.findById(params.id).select("recordType doctor").lean();
+      if (!record) return NextResponse.json({ success: false, error: "Clinical record not found" }, { status: 404 });
+      if (record.recordType === "Progress Note" || record.recordType === "Visit Addendum") {
+        return NextResponse.json({ success: false, error: "Round notes are immutable. Append an addendum instead." }, { status: 409 });
+      }
+
       // Doctor isolation: a doctor can only delete their own clinical records
       if (isDoctorActor(authResult.context)) {
-        const record = await ClinicalRecord.findById(params.id).select("doctor").lean();
-        if (!record || record.doctor?.toString() !== authResult.context.userId.toString()) {
+        if (record.doctor?.toString() !== authResult.context.userId.toString()) {
           return NextResponse.json({ success: false, error: "Forbidden: You can only delete your own clinical records" }, { status: 403 });
         }
       }
