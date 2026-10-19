@@ -442,7 +442,7 @@ export default function NewAdmissionPage() {
           </span>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              New Admission
+              Admit New Patient
             </h1>
             <p className="text-sm text-slate-500 dark:text-slate-400">
               Assign a patient, attending doctor, and available bed.

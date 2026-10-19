@@ -11,9 +11,9 @@
  *   - the role seed / migration             -> `normalizePermissions`
  *   - the docs                              -> `docs/ROLES_PERMISSIONS.md`
  *
- * It is derived from `MENUS`, so adding a menu item to `src/lib/menu-data.ts`
- * and declaring its extra actions here is all it takes to introduce a new
- * permission.
+ * Most of it is derived from `MENUS`. Standalone pages that are intentionally
+ * absent from navigation are added to their owning module below so their
+ * existing route permissions remain available to guards and role settings.
  *
  * PERMISSION KEY FORMAT
  * ---------------------
@@ -131,7 +131,7 @@ function specialsFor(moduleKey: string, route: string): readonly SpecialActionDe
 /* The derived catalogue                                                      */
 /* -------------------------------------------------------------------------- */
 
-/** Every module and sub-item, derived from the sidebar definition. */
+/** Every module and sub-item, derived from navigation plus standalone pages. */
 export const PERMISSION_MODULES: readonly ModulePermission[] = MENUS.map((menu) => {
     const key = moduleKeyFor(menu.path);
     return {
@@ -147,7 +147,23 @@ export const PERMISSION_MODULES: readonly ModulePermission[] = MENUS.map((menu) 
             specials: specialsFor(key, child.path.toLowerCase()),
         })),
     };
-});
+}).map((module) =>
+    module.key === "admissions"
+        ? {
+            ...module,
+            subItems: [
+                ...module.subItems,
+                {
+                    key: "new",
+                    label: "Admit New Patient",
+                    route: "/admissions/new",
+                    actions: PERMISSION_ACTIONS,
+                    specials: [],
+                },
+            ],
+        }
+        : module
+);
 
 /** Builds the canonical `module.submodule:action` key. */
 export function permissionKey(moduleKey: string, subItemKey: string, action: string): string {

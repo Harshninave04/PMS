@@ -123,7 +123,7 @@ const profiles: Record<string, DashboardProfile> = {
     quickActions: [
       { title: "Register Patient", href: "/patients/register", icon: UserPlus, color: ACTION.emerald },
       { title: "Book Appointment", href: "/appointments/book", icon: CalendarPlus, color: ACTION.teal },
-      { title: "New Admission", href: "/admissions/new", icon: PlusCircle, color: ACTION.cyan },
+      { title: "Admit New Patient", href: "/admissions/new", icon: PlusCircle, color: ACTION.cyan },
       { title: "Create Bill", href: "/finance/invoice/create", icon: FilePlus, color: ACTION.slate }
     ],
     showRecentPatients: true

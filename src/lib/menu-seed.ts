@@ -57,7 +57,6 @@ export const MENUS: MenuSeed[] = [
         path: "/admissions",
         icon: "Bed",
         children: [
-            { name: "New Admission", path: "/admissions/new" },
             { name: "Admitted Patients", path: "/admissions/current" },
             { name: "Transfer Bed", path: "/admissions/transfer" },
             { name: "Discharge", path: "/admissions/discharge" },
