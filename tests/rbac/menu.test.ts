@@ -43,6 +43,11 @@ function accessibleRoutes(roleName: string): Set<string> {
       }
     }
   }
+  // Standalone page permissions remain routable even when the page is not in
+  // the sidebar tree.
+  if (permissionsForRoute("/admissions/new").some((key) => granted.includes(key))) {
+    routes.add("/admissions/new");
+  }
   return routes;
 }
 
@@ -94,6 +99,7 @@ async function runMenuTests() {
     const everyRoute = new Set([
       ...MENUS.map((m) => m.path),
       ...MENUS.flatMap((m) => (m.children ?? []).map((c) => c.path)),
+      "/admissions/new",
     ]);
     assert.deepEqual([...routes].sort(), [...everyRoute].sort(), "Admin cannot open every route");
   });
@@ -117,7 +123,7 @@ async function runMenuTests() {
     const expected: Record<string, string[]> = {
       DOCTOR: ["Dashboard", "OPD Queue", "Today's Completed Patients", "Ward Rounds"],
       NURSE: ["Dashboard", "Patients", "Consultation", "IPD / Admissions", "Wards & Beds", "Nursing"],
-      RECEPTIONIST: ["Home", "Book Appointment", "Register Patient", "All Patients", "All Appointments", "OPD Queue", "New Admission", "Admitted Patients", "Bed Availability", "Create Bill", "Bills", "Payments"],
+      RECEPTIONIST: ["Home", "Book Appointment", "All Appointments", "Admitted Patients", "Bed Availability", "All Patients"],
       PHARMACIST: ["Dashboard", "Patients", "Consultation", "Pharmacy", "Reports"],
       ACCOUNTANT: ["Dashboard", "Patients", "IPD / Admissions", "Billing", "Reports"],
     };
@@ -130,8 +136,8 @@ async function runMenuTests() {
     const sidebar = visibleMenuItems("RECEPTIONIST");
     const profile = resolveDashboardProfile("RECEPTIONIST");
 
-    assert.deepEqual(sidebar.map((m) => m.name), ["Home", "Book Appointment", "Register Patient", "All Patients", "All Appointments", "OPD Queue", "New Admission", "Admitted Patients", "Bed Availability", "Create Bill", "Bills", "Payments"]);
-    assert.deepEqual(sidebar.map((m) => m.path), ["/dashboard/main", "/appointments/book", "/patients/register", "/patients/list", "/appointments/list", "/appointments/queue", "/admissions/new", "/admissions/current", "/wards/availability", "/finance/invoice/create", "/finance/invoices", "/finance/payments"]);
+    assert.deepEqual(sidebar.map((m) => m.name), ["Home", "Book Appointment", "All Appointments", "Admitted Patients", "Bed Availability", "All Patients"]);
+    assert.deepEqual(sidebar.map((m) => m.path), ["/dashboard/main", "/appointments/book", "/appointments/list", "/admissions/current", "/wards/availability", "/patients/list"]);
     assert.deepEqual(profile.quickActions, [], "Receptionist dashboard must not render quick actions");
     assert.deepEqual(profile.stats, [], "Receptionist dashboard must not use the generic KPI cards");
     assert.equal(profile.showRecentPatients, false, "Receptionist dashboard must not render admissions activity");
@@ -142,6 +148,14 @@ async function runMenuTests() {
       ),
       "The Receptionist sidebar must be flat links, never groups"
     );
+  });
+
+  test("Admission route stays permission-gated without appearing in any sidebar", () => {
+    assert.ok(!MENUS.flatMap((menu) => menu.children ?? []).some((item) => item.path === "/admissions/new"));
+    assert.deepEqual(permissionsForRoute("/admissions/new"), ["admissions.new:view", "admissions.new:create"]);
+    for (const role of ALL_ROLES) {
+      assert.ok(!visibleMenuItems(role).some((item) => item.path === "/admissions/new"), `${role} sees the admission route in the sidebar`);
+    }
   });
 
   test("Receptionist dashboard data contains no admission or bed-occupancy fields", () => {

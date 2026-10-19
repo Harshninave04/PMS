@@ -146,7 +146,7 @@ export default function AdmissionsOverviewPage() {
             onClick={() => router.push("/admissions/new")}
           >
             <UserPlus className="h-4 w-4" />
-            New Admission
+            Admit New Patient
           </Button>
         </div>
       </div>

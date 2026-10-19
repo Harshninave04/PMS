@@ -41,7 +41,7 @@ IPD:  Admit → Assign bed → Nursing vitals, notes & medication rounds → Dis
 | **Patients** | Register, search, patient profile (visits, admissions, prescriptions, bills), documents |
 | **OPD** | Book appointments, today's queue, all appointments (cancel / reschedule from the list) |
 | **Consultation** | Consultations, prescriptions, vital signs, medical history |
-| **IPD / Admissions** | New admission, admitted patients, bed transfer, discharge, discharge summary, history |
+| **IPD / Admissions** | Admit New Patient, admitted patients, bed transfer, discharge, discharge summary, history |
 | **Wards & Beds** | Bed availability board; set up wards, rooms and beds |
 | **Nursing** | Admitted patients, vitals, nursing notes, medication rounds |
 | **Pharmacy** | Prescriptions to dispense, dispensing, medicines, categories, stock, expiry |

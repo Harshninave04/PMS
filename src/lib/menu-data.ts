@@ -69,16 +69,10 @@ const FLAT_NAV_FOR_ROLE: Record<string, readonly { path: string; icon: string; n
     RECEPTIONIST: [
         { path: "/dashboard/main", icon: "Home", name: "Home" },
         { path: "/appointments/book", icon: "CalendarPlus" },
-        { path: "/patients/register", icon: "UserPlus" },
-        { path: "/patients/list", icon: "Users" },
         { path: "/appointments/list", icon: "Calendar" },
-        { path: "/appointments/queue", icon: "CalendarClock", name: "OPD Queue" },
-        { path: "/admissions/new", icon: "PlusCircle" },
         { path: "/admissions/current", icon: "BedDouble" },
         { path: "/wards/availability", icon: "Bed" },
-        { path: "/finance/invoice/create", icon: "FilePlus" },
-        { path: "/finance/invoices", icon: "Receipt" },
-        { path: "/finance/payments", icon: "Wallet" },
+        { path: "/patients/list", icon: "Users" },
     ],
 };
 
