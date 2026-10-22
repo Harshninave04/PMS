@@ -5,6 +5,7 @@ import defaultPrescriptionService, { PrescriptionService } from "@/services/pres
 import { CreatePrescriptionDto, UpdatePrescriptionDto } from "@/dto/prescription.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { ClinicalRecord } from "@/models/clinical-record.model";
 
 function extractEntityId(field: unknown): string | null {
     if (!field) return null;
@@ -132,8 +133,24 @@ export class PrescriptionController {
                 prescriptions = await this.prescriptionService.getAllPrescriptions();
             }
 
+            const appointmentIds = [...new Set(prescriptions
+                .map((prescription) => extractEntityId(prescription.appointmentId))
+                .filter((id): id is string => id !== null && Types.ObjectId.isValid(id)))];
+            const consultationRecords = appointmentIds.length
+                ? await ClinicalRecord.find({ appointmentId: { $in: appointmentIds }, recordType: "Consultation" })
+                    .select("appointmentId admitAdvised admitReason")
+                    .lean()
+                : [];
+            const admissionAdviceByAppointment = new Map(
+                consultationRecords.map((record) => [String(record.appointmentId), { admitAdvised: record.admitAdvised, admitReason: record.admitReason }]),
+            );
+            const prescriptionData = prescriptions.map((prescription) => ({
+                ...prescription,
+                ...(admissionAdviceByAppointment.get(extractEntityId(prescription.appointmentId) || "") || { admitAdvised: false, admitReason: "" }),
+            }));
+
             return NextResponse.json(
-                { success: true, count: prescriptions.length, data: prescriptions },
+                { success: true, count: prescriptionData.length, data: prescriptionData },
                 { status: 200 }
             );
         } catch (error: unknown) {

@@ -1,6 +1,8 @@
 import { Types } from "mongoose";
 import { ClinicalRecord } from "@/models/clinical-record.model";
 import Admission from "@/models/admission.model";
+import { MedicationOrder } from "@/models/medication-order.model";
+import { CareTask } from "@/models/care-task.model";
 
 const ACTIVE_STATUSES = ["ADMITTED", "TRANSFERRED"];
 
@@ -102,6 +104,43 @@ export class VisitService {
             .populate("author", "name")
             .sort({ visitedAt: -1, timestamp: -1, dateRecorded: -1, createdAt: -1 })
             .lean();
+    }
+
+    async listRoundsForPatient(patientId: Types.ObjectId | string) {
+        const admissions = await Admission.find({ patientId: new Types.ObjectId(patientId.toString()) })
+            .populate("doctorId", "name")
+            .populate("assignedDoctors", "name")
+            .populate({ path: "bedId", select: "bedNumber roomId", populate: { path: "roomId", select: "roomNumber wardId", populate: { path: "wardId", select: "wardName" } } })
+            .populate("branchId", "organizationName")
+            .sort({ admissionDate: -1 })
+            .lean();
+
+        return await Promise.all(admissions.map(async (admission) => {
+            const admissionId = admission._id as Types.ObjectId;
+            const [records, instructions] = await Promise.all([
+                ClinicalRecord.find({ admissionId, recordType: { $in: ["Progress Note", "Visit Addendum"] } })
+                    .populate("doctor", "name")
+                    .populate("author", "name")
+                    .sort({ visitedAt: -1, timestamp: -1, dateRecorded: -1, createdAt: -1 })
+                    .lean(),
+                CareTask.find({ admissionId }).sort({ createdAt: -1 }).lean(),
+            ]);
+            const rounds = records.filter((record) => record.recordType === "Progress Note");
+            const addenda = records.filter((record) => record.recordType === "Visit Addendum");
+            const orders = await MedicationOrder.find({ admissionId, visitId: { $in: rounds.map((round) => round._id) } })
+                .populate("prescribedBy", "name")
+                .sort({ createdAt: -1 })
+                .lean();
+            return {
+                ...admission,
+                rounds: rounds.map((round) => ({
+                    ...round,
+                    addenda: addenda.filter((addendum) => String(addendum.parentVisitId) === String(round._id)),
+                    orders: orders.filter((order) => String(order.visitId) === String(round._id)),
+                })),
+                instructions,
+            };
+        }));
     }
 }
 

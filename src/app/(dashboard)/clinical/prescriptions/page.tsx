@@ -806,6 +806,12 @@ function ClinicalPrescriptionsContent() {
                 </div>
               )}
 
+              {selectedRx.admitAdvised && (
+                <div className="rounded-lg border-2 border-amber-500 bg-amber-50 p-3 text-sm font-bold text-amber-950 dark:border-amber-400 dark:bg-amber-950/40 dark:text-amber-100">
+                  ADMISSION ADVISED. Reason: {selectedRx.admitReason}
+                </div>
+              )}
+
               {/* Doctor Signature Line */}
               <div className="flex justify-end pt-6">
                 <div className="text-center w-48 border-t border-slate-300 dark:border-slate-700 pt-2">

@@ -14,6 +14,11 @@ function actorOf(auth: { context: { userId: Types.ObjectId; roleName: string; br
     };
 }
 
+function idOf(value: unknown): string {
+    if (value && typeof value === "object" && "_id" in value) return String((value as { _id: unknown })._id);
+    return String(value ?? "");
+}
+
 function branchAllowed(
     admission: { branchId?: unknown },
     auth: { context: { branchId?: Types.ObjectId }; grant: { orgScope: string } }
@@ -106,12 +111,15 @@ export class VisitController {
             if (text.length > 4000) return NextResponse.json({ success: false, message: "Addendum must be 4,000 characters or fewer" }, { status: 400 });
 
             const parent = await (await import("@/models/clinical-record.model")).ClinicalRecord.findById(id)
-                .select("admissionId patient recordType")
+                .select("admissionId patient recordType doctor")
                 .lean();
             if (!parent || parent.recordType !== "Progress Note" || !parent.admissionId || !parent.patient) {
                 return NextResponse.json({ success: false, message: "Round note not found" }, { status: 404 });
             }
             const actor = actorOf(auth);
+            if (idOf(parent.doctor) !== actor.userId.toString()) {
+                return NextResponse.json({ success: false, message: "Only the doctor who wrote this round can add an addendum" }, { status: 403 });
+            }
             let admission;
             try {
                 admission = await visitService.assertActorMayAccessAdmission(parent.admissionId, actor);

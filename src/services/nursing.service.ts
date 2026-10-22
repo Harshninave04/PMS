@@ -129,6 +129,12 @@ export class NursingService {
       const ward = room?.wardId as Record<string, unknown> | undefined;
       const patient = adm.patientId as Record<string, unknown> | undefined;
       const doctor = adm.doctorId as Record<string, unknown> | undefined;
+      const assignedNurses = Array.isArray(adm.assignedNurses)
+        ? (adm.assignedNurses as Array<Record<string, unknown>>).map((nurse) => ({
+            _id: nurse._id,
+            name: typeof nurse.name === "string" ? nurse.name : "",
+          })).filter((nurse) => nurse.name)
+        : [];
       const insurance = adm.insurance as { provider?: string } | undefined;
       const admissionId = String(adm._id ?? "");
       const latestVital = latestVitals.get(admissionId);
@@ -160,7 +166,7 @@ export class NursingService {
         floor: ward?.floor || 1,
         doctorName: doctor?.name ? `Dr. ${doctor.name}` : "Attending Physician",
         doctorId: doctor?._id,
-        assignedNurses: adm.assignedNurses ?? [],
+        assignedNurses,
         assignedDoctors: adm.assignedDoctors ?? [],
         diagnosis: adm.initialDiagnosis || adm.reasonForAdmission || "Clinical Care",
         admissionDate: adm.admissionDate,

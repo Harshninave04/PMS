@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
-import defaultPatientService, { PatientService } from "@/services/patient.service";
+import defaultPatientService, { PatientDuplicateError, PatientService } from "@/services/patient.service";
 import { CreatePatientDto, UpdatePatientDto, AddPatientDocumentDto } from "@/dto/patient.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
@@ -23,7 +23,10 @@ export class PatientController {
             const auth = await authorizeRequest(request, permission, "Patient");
             if (!auth.isAuthorized) return auth.response;
 
-            const data: CreatePatientDto = await request.json();
+            const data = await request.json() as CreatePatientDto & { emergencyRegistration?: boolean };
+            const emergencyRegistration = data.emergencyRegistration === true;
+            data.name = data.name?.trim() || (emergencyRegistration ? "Unknown" : "");
+            data.contact = data.contact?.trim() || "";
 
             // Enforce branch multi-tenancy: if user has branchId and is not GLOBAL, enforce user's branch
             if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
@@ -40,9 +43,9 @@ export class PatientController {
             data.emergencyContact = data.emergencyContact?.trim() || "Not provided";
             data.bloodGroup = data.bloodGroup?.trim() || undefined;
 
-            if (!data.name || data.age === undefined || !data.gender || !data.contact || !data.branchId) {
+            if (!data.name || data.age === undefined || !data.gender || (!data.contact && !emergencyRegistration) || !data.branchId) {
                 return NextResponse.json(
-                    { success: false, message: "Required fields are missing: Name, Age, Gender, Contact, and Branch are required." },
+                    { success: false, message: "Name, age, gender, phone, and branch are required. Emergency registration may leave name or phone empty." },
                     { status: 400 }
                 );
             }
@@ -61,11 +64,15 @@ export class PatientController {
                 { status: 201 }
             );
         } catch (error: unknown) {
+            if (error instanceof PatientDuplicateError) {
+                return NextResponse.json(
+                    { success: false, message: "Patient already exists", matchingPatients: error.matchingPatients },
+                    { status: 409 }
+                );
+            }
             const message = error instanceof Error ? error.message : "Failed to create patient";
-            return NextResponse.json(
-                { success: false, message },
-                { status: 500 }
-            );
+            const statusCode = Number((error as { statusCode?: number })?.statusCode) || 500;
+            return NextResponse.json({ success: false, message }, { status: statusCode });
         }
     }
 
@@ -245,10 +252,16 @@ export class PatientController {
                 { status: 200 }
             );
         } catch (error: unknown) {
+            if (error instanceof PatientDuplicateError) {
+                return NextResponse.json(
+                    { success: false, message: "Patient already exists", matchingPatients: error.matchingPatients },
+                    { status: 409 }
+                );
+            }
             const message = error instanceof Error ? error.message : "Failed to update patient";
             return NextResponse.json(
                 { success: false, message },
-                { status: 500 }
+                { status: Number((error as { statusCode?: number })?.statusCode) || 500 }
             );
         }
     }
