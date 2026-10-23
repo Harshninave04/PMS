@@ -38,6 +38,10 @@ export interface IPatient extends Document {
     isMerged?: boolean;
     mergedWith?: Types.ObjectId;
     mergeReason?: string;
+    sharedPhoneWithPatientId?: Types.ObjectId;
+    sharedPhoneRelation?: "Spouse" | "Child" | "Parent" | "Sibling" | "Other family" | "Not related";
+    sharedPhoneConfirmedBy?: Types.ObjectId;
+    sharedPhoneConfirmedAt?: Date;
     isActive: boolean;
     createdAt?: Date;
     updatedAt?: Date;

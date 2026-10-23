@@ -11,6 +11,7 @@ export class PatientRepository {
     async findAll(filter: any = {}): Promise<IPatient[]> {
         return await Patient.find(filter)
             .populate("branchId")
+            .populate("sharedPhoneWithPatientId", "name")
             .sort({ createdAt: -1 })
             .lean();
     }
@@ -19,18 +20,21 @@ export class PatientRepository {
         return await Patient.findById(id)
             .populate("branchId")
             .populate("mergedWith", "name uhid contact")
+            .populate("sharedPhoneWithPatientId", "name")
             .lean();
     }
 
     async findByUhid(uhid: string): Promise<IPatient | null> {
         return await Patient.findOne({ uhid })
             .populate("branchId")
+            .populate("sharedPhoneWithPatientId", "name")
             .lean();
     }
 
     async findByBranchId(branchId: Types.ObjectId): Promise<IPatient[]> {
         return await Patient.find({ branchId, isMerged: { $ne: true } })
             .populate("branchId")
+            .populate("sharedPhoneWithPatientId", "name")
             .sort({ createdAt: -1 })
             .lean();
     }
@@ -79,6 +83,7 @@ export class PatientRepository {
 
         return await Patient.find(filter)
             .populate("branchId")
+            .populate("sharedPhoneWithPatientId", "name")
             .sort({ createdAt: -1 })
             .lean();
     }

@@ -57,7 +57,7 @@ export class PatientController {
                 );
             }
 
-            const patient = await this.patientService.createPatient(data);
+            const patient = await this.patientService.createPatient(data, auth.context.userId);
 
             return NextResponse.json(
                 { success: true, message: "Patient created successfully", data: patient },
@@ -66,7 +66,12 @@ export class PatientController {
         } catch (error: unknown) {
             if (error instanceof PatientDuplicateError) {
                 return NextResponse.json(
-                    { success: false, message: "Patient already exists", matchingPatients: error.matchingPatients },
+                    {
+                        success: false,
+                        message: error.message,
+                        matchingPatients: error.matchingPatients,
+                        canConfirmSharedPhone: error.canConfirmSharedPhone,
+                    },
                     { status: 409 }
                 );
             }

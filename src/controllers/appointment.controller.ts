@@ -86,7 +86,10 @@ export const AppointmentController = {
                     emergencyContact: String(body.contact || "").trim() || "Not provided",
                     branchId: patientBranchId,
                     emergencyRegistration,
-                });
+                    confirmSharedPhone: body.confirmSharedPhone === true,
+                    relatedPatientId: body.relatedPatientId,
+                    relation: body.relation,
+                }, auth.context.userId);
                 body.patientId = newPatient._id;
             }
 
@@ -102,7 +105,12 @@ export const AppointmentController = {
         } catch (error: unknown) {
             if (error instanceof PatientDuplicateError) {
                 return NextResponse.json(
-                    { success: false, error: "Patient already exists", matchingPatients: error.matchingPatients },
+                    {
+                        success: false,
+                        error: error.message,
+                        matchingPatients: error.matchingPatients,
+                        canConfirmSharedPhone: error.canConfirmSharedPhone,
+                    },
                     { status: 409 }
                 );
             }

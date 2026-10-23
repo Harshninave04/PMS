@@ -208,6 +208,9 @@ function PatientProfileContent() {
                       <span className="flex items-center gap-1">
                         <Phone className="h-3 w-3 text-cyan-600 dark:text-cyan-400" /> {patient.contact}
                       </span>
+                      {patient.sharedPhoneWithPatientId?.name && (
+                        <span>Shares phone with: {patient.sharedPhoneWithPatientId.name} ({patient.sharedPhoneRelation})</span>
+                      )}
                       {patient.email && (
                         <span>• {patient.email}</span>
                       )}

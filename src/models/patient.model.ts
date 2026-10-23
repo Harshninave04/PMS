@@ -129,6 +129,21 @@ const patientSchema = new Schema<IPatient>(
         mergeReason: {
             type: String
         },
+        sharedPhoneWithPatientId: {
+            type: Types.ObjectId,
+            ref: 'Patient'
+        },
+        sharedPhoneRelation: {
+            type: String,
+            enum: ["Spouse", "Child", "Parent", "Sibling", "Other family", "Not related"]
+        },
+        sharedPhoneConfirmedBy: {
+            type: Types.ObjectId,
+            ref: 'User'
+        },
+        sharedPhoneConfirmedAt: {
+            type: Date
+        },
         isActive: {
             type: Boolean,
             default: true,
@@ -138,8 +153,14 @@ const patientSchema = new Schema<IPatient>(
     { timestamps: true }
 );
 
-patientSchema.index({ normalizedName: 1 }, { unique: true, sparse: true });
-patientSchema.index({ normalizedContact: 1 }, { unique: true, sparse: true });
+patientSchema.index(
+    { normalizedName: 1, normalizedContact: 1 },
+    {
+        name: "normalizedName_1_normalizedContact_1",
+        unique: true,
+        partialFilterExpression: { normalizedName: { $type: "string" }, normalizedContact: { $type: "string" } }
+    }
+);
 
 patientSchema.pre("validate", function () {
     this.normalizedName = isPlaceholderPatientName(this.name) ? undefined : normalizePatientName(this.name) || undefined;

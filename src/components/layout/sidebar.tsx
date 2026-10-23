@@ -79,7 +79,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
   }, [pathname]);
 
 
-  const displayMenus = menus;
+  const isDoctor = session?.user?.roleName?.toUpperCase() === "DOCTOR";
+  const hiddenDoctorMenus = new Set(["Dashboard", "Today's Completed Patients"]);
+  const displayMenus = isDoctor
+    ? menus.filter((menu) => !hiddenDoctorMenus.has(menu.name))
+    : menus;
 
   // Home is active while the dashboard page is open. The real route is
   // /dashboard/main (the role-aware reception dashboard); "/dashboard" is
