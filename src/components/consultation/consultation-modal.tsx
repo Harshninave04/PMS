@@ -58,6 +58,8 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
   const [customTest, setCustomTest] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
+  const [admitAdvised, setAdmitAdvised] = React.useState(false);
+  const [admitReason, setAdmitReason] = React.useState("");
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -66,6 +68,8 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
     setMedications([createMedicationDraft(createId())]);
     setCustomTest("");
     setDirty(false);
+    setAdmitAdvised(false);
+    setAdmitReason("");
   }, [open, appointment]);
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -121,13 +125,21 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
       toast({ title: "Check consultation details", description: validationError, variant: "destructive" });
       return;
     }
+    if (admitAdvised && !admitReason.trim()) {
+      toast({ title: "Reason required", description: "Enter why this patient should be admitted.", variant: "destructive" });
+      return;
+    }
 
     setSaving(true);
     try {
       const response = await fetch(`/api/appointments/${appointment._id}/complete-consultation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(consultationPayload(draft, activeMedications(medications))),
+        body: JSON.stringify({
+          ...consultationPayload(draft, activeMedications(medications)),
+          admitAdvised,
+          admitReason: admitAdvised ? admitReason.trim() : "",
+        }),
       });
       const result = await response.json();
       if (!response.ok || !result.success) {
@@ -195,8 +207,8 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
         </div>
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5 sm:px-6">
-            <section className="space-y-4">
+          <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 sm:px-5">
+            <section className="space-y-3">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Clinical notes</h3>
 
               <div className="space-y-1.5">
@@ -265,8 +277,8 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
                 <Label htmlFor="consultation-diagnosis-notes">Diagnosis / notes</Label>
                 <Textarea
                   id="consultation-diagnosis-notes"
-                  rows={2}
-                  className="min-h-[52px]"
+                  rows={1}
+                  className="min-h-10 py-2"
                   placeholder="Optional"
                   value={draft?.diagnosisNotes ?? ""}
                   onChange={(event) => updateDraft((current) => ({ ...current, diagnosisNotes: event.target.value }))}
@@ -274,7 +286,7 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
               </div>
             </section>
 
-            <section className="space-y-3 border-t pt-5">
+            <section className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
                 Prescription <span className="text-xs font-normal text-slate-500">(optional)</span>
               </h3>
@@ -283,10 +295,10 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
                 const duplicate = duplicateNames.has(medication.name.trim().toLocaleLowerCase());
                 const label = `Medicine ${index + 1}`;
                 return (
-                  <div key={medication.id} className="space-y-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                  <div key={medication.id} className="space-y-1.5 rounded-lg border border-slate-200 p-2 dark:border-slate-700">
                     <div className="flex items-center gap-2">
                       <ComboField
-                        className="min-w-0 flex-1"
+                        className="min-w-0 flex-1 [&_input]:h-9 [&_input]:text-sm"
                         ariaLabel={`${label} drug name and strength`}
                         placeholder="Drug name & strength"
                         value={medication.name}
@@ -314,8 +326,9 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
                         This medicine is already in the prescription.
                       </p>
                     )}
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-1.5">
                       <ComboField
+                        className="[&_input]:h-9 [&_input]:text-sm"
                         ariaLabel={`${label} dosage`}
                         placeholder="Dosage"
                         value={medication.dosage}
@@ -323,6 +336,7 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
                         suggestions={MEDICATION_DOSAGE_OPTIONS}
                       />
                       <ComboField
+                        className="[&_input]:h-9 [&_input]:text-sm"
                         ariaLabel={`${label} frequency`}
                         placeholder="Frequency"
                         value={medication.frequency}
@@ -330,6 +344,7 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
                         suggestions={MEDICATION_FREQUENCY_OPTIONS}
                       />
                       <ComboField
+                        className="[&_input]:h-9 [&_input]:text-sm"
                         ariaLabel={`${label} duration`}
                         placeholder="Duration"
                         value={medication.duration}
@@ -337,6 +352,7 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
                         suggestions={MEDICATION_DURATION_OPTIONS}
                       />
                       <ComboField
+                        className="[&_input]:h-9 [&_input]:text-sm"
                         ariaLabel={`${label} instructions`}
                         placeholder="Instructions"
                         value={medication.instructions}
@@ -359,6 +375,25 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
               >
                 <Plus className="mr-1 h-4 w-4" /> Add medicine
               </Button>
+            </section>
+
+            <section className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Admit this patient?</h3>
+              <div className="flex gap-2" role="group" aria-label="Admit this patient">
+                <Button type="button" size="sm" variant={!admitAdvised ? "default" : "outline"} onClick={() => { setAdmitAdvised(false); setAdmitReason(""); setDirty(true); }}>No</Button>
+                <Button type="button" size="sm" variant={admitAdvised ? "default" : "outline"} onClick={() => { setAdmitAdvised(true); setDirty(true); }}>Yes</Button>
+              </div>
+              {admitAdvised && (
+                <Input
+                  aria-label="Why admit? (one line)"
+                  placeholder="Why admit? (one line)"
+                  value={admitReason}
+                  onChange={(event) => { setAdmitReason(event.target.value); setDirty(true); }}
+                  maxLength={200}
+                  required
+                  className="h-9"
+                />
+              )}
             </section>
           </div>
 

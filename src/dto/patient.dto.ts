@@ -6,7 +6,7 @@ export interface CreatePatientDto {
     age: number;
     gender: string;
     bloodGroup?: string;
-    contact: string;
+    contact?: string;
     email?: string;
     address: string;
     emergencyContact: string;
@@ -22,6 +22,7 @@ export interface CreatePatientDto {
     photoId?: string;
     branchId: Types.ObjectId | string;
     isActive?: boolean;
+    emergencyRegistration?: boolean;
 }
 
 export interface UpdatePatientDto {

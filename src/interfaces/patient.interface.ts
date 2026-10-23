@@ -14,10 +14,12 @@ export interface IPatientDocument {
 export interface IPatient extends Document {
     uhid?: string;
     name: string;
+    normalizedName?: string;
     age: number;
     gender: string;
     bloodGroup?: string;
     contact: string;
+    normalizedContact?: string;
     email?: string;
     address: string;
     emergencyContact: string;
@@ -39,4 +41,4 @@ export interface IPatient extends Document {
     isActive: boolean;
     createdAt?: Date;
     updatedAt?: Date;
-}
+}

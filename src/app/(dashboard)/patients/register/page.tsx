@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -11,12 +11,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { User, Shield, Phone, MapPin, ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import { PatientDuplicateDialog, type PatientDuplicateMatch } from "@/components/patients/patient-duplicate-dialog";
 
 export default function RegisterPatientPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [organizations, setOrganizations] = useState<any[]>([]);
+  const [emergencyRegistration, setEmergencyRegistration] = useState(false);
+  const [duplicatePatients, setDuplicatePatients] = useState<PatientDuplicateMatch[]>([]);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -61,7 +64,7 @@ export default function RegisterPatientPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name.trim()) {
+    if (!formData.name.trim() && !emergencyRegistration) {
       toast("Patient full name is required", "error");
       return;
     }
@@ -69,11 +72,11 @@ export default function RegisterPatientPage() {
       toast("Please enter a valid age", "error");
       return;
     }
-    if (!formData.contact.trim()) {
+    if (!formData.contact.trim() && !emergencyRegistration) {
       toast("Contact phone number is required", "error");
       return;
     }
-    if (!formData.emergencyContact.trim()) {
+    if (!formData.emergencyContact.trim() && !emergencyRegistration) {
       toast("Emergency contact number is required", "error");
       return;
     }
@@ -87,6 +90,7 @@ export default function RegisterPatientPage() {
     try {
       const payload = {
         ...formData,
+        emergencyRegistration,
         age: parseInt(formData.age),
       };
 
@@ -102,6 +106,10 @@ export default function RegisterPatientPage() {
         toast(`Patient registered successfully! UHID: ${data.data.uhid}`, "success");
         router.push(`/patients/profile?id=${data.data._id}`);
       } else {
+        if (response.status === 409 && Array.isArray(data.matchingPatients)) {
+          setDuplicatePatients(data.matchingPatients);
+          return;
+        }
         toast(data.message || "Failed to register patient", "error");
       }
     } catch (error) {
@@ -142,6 +150,15 @@ export default function RegisterPatientPage() {
       </div>
 
       <form id="patient-reg-form" onSubmit={handleSubmit} className="space-y-6">
+        <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <input
+            type="checkbox"
+            checked={emergencyRegistration}
+            onChange={(event) => setEmergencyRegistration(event.target.checked)}
+            className="mt-1"
+          />
+          <span>Emergency registration: name or phone may be unknown</span>
+        </label>
         {/* Section 1: Demographics & Personal Info */}
         <Card className="border-slate-200 dark:border-slate-800">
           <CardHeader className="border-b border-slate-100 dark:border-slate-800/60 pb-4">
@@ -233,7 +250,7 @@ export default function RegisterPatientPage() {
                 value={formData.contact}
                 onChange={handleChange}
                 placeholder="+91 98311 00000"
-                required
+                required={!emergencyRegistration}
               />
             </div>
 
@@ -257,7 +274,7 @@ export default function RegisterPatientPage() {
                 value={formData.emergencyContact}
                 onChange={handleChange}
                 placeholder="+91 98322 11111"
-                required
+                required={!emergencyRegistration}
               />
             </div>
 
@@ -270,7 +287,7 @@ export default function RegisterPatientPage() {
                 onChange={handleChange}
                 placeholder="Full street address, building, city, pin code..."
                 rows={2}
-                required
+                required={!emergencyRegistration}
               />
             </div>
           </CardContent>
@@ -369,7 +386,8 @@ export default function RegisterPatientPage() {
           </Button>
         </div>
       </form>
+      <PatientDuplicateDialog patients={duplicatePatients} onClose={() => setDuplicatePatients([])} />
     </div>
   );
 }
-   
+

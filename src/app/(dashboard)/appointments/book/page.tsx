@@ -27,6 +27,7 @@ import {
   PlusCircle,
 } from "lucide-react";
 import { usePermissions } from "@/components/permissions/permission-context";
+import { PatientDuplicateDialog, type PatientDuplicateMatch } from "@/components/patients/patient-duplicate-dialog";
 
 const QUICK_COMPLAINTS = [
   "General Checkup",
@@ -53,6 +54,7 @@ export default function BookAppointmentPage() {
   const [departments, setDepartments] = useState<any[]>([]);
   const [selectedDept, setSelectedDept] = useState("");
   const [confirmed, setConfirmed] = useState<any>(null);
+  const [duplicatePatients, setDuplicatePatients] = useState<PatientDuplicateMatch[]>([]);
 
   // Registration mode: 'existing' or 'new'
   const [patientMode, setPatientMode] = useState<"existing" | "new">("existing");
@@ -187,7 +189,8 @@ export default function BookAppointmentPage() {
       toast({ title: "Validation Error", description: "Please select a patient.", variant: "destructive" });
       return;
     }
-    if (patientMode === "new" && (!formData.patientName || !formData.contact)) {
+    const emergencyRegistration = formData.priority === "EMERGENCY";
+    if (patientMode === "new" && !emergencyRegistration && (!formData.patientName.trim() || !formData.contact.trim())) {
       toast({ title: "Validation Error", description: "Patient name and contact are required.", variant: "destructive" });
       return;
     }
@@ -212,6 +215,7 @@ export default function BookAppointmentPage() {
         consultationFee: Number(formData.consultationFee),
         paymentStatus: formData.paymentStatus,
         paymentMode: formData.paymentMode,
+        emergencyRegistration,
       };
 
       if (patientMode === "existing") {
@@ -241,6 +245,10 @@ export default function BookAppointmentPage() {
           }.`,
         });
       } else {
+        if (res.status === 409 && Array.isArray(data.matchingPatients)) {
+          setDuplicatePatients(data.matchingPatients);
+          return;
+        }
         toast({
           title: "Booking Failed",
           description: data.error || "Unable to complete booking.",
@@ -548,21 +556,21 @@ export default function BookAppointmentPage() {
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <Label>Full Name *</Label>
+                        <Label>Full Name {formData.priority === "EMERGENCY" ? "(optional for emergency)" : "*"}</Label>
                         <Input
                           placeholder="e.g. Ramesh Kumar"
                           value={formData.patientName}
                           onChange={(e) => setFormData({ ...formData, patientName: e.target.value })}
-                          required={patientMode === "new"}
+                          required={patientMode === "new" && formData.priority !== "EMERGENCY"}
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label>Phone Number *</Label>
+                        <Label>Phone Number {formData.priority === "EMERGENCY" ? "(optional for emergency)" : "*"}</Label>
                         <Input
                           placeholder="+91 9876543210"
                           value={formData.contact}
                           onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
-                          required={patientMode === "new"}
+                          required={patientMode === "new" && formData.priority !== "EMERGENCY"}
                         />
                       </div>
                     </div>
@@ -886,6 +894,17 @@ export default function BookAppointmentPage() {
           </div>
         </form>
       )}
+      <PatientDuplicateDialog
+        patients={duplicatePatients}
+        onClose={() => setDuplicatePatients([])}
+        onSelect={(patient) => {
+          setPatients((current) => [patient, ...current.filter((item) => item._id !== patient._id)]);
+          setPatientMode("existing");
+          setFormData((current) => ({ ...current, patientId: patient._id }));
+          setPatientSearch(patient.name);
+          setDebouncedPatientSearch(patient.name);
+        }}
+      />
     </div>
   );
 }

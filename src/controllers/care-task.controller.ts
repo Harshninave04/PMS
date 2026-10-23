@@ -253,6 +253,7 @@ export class CareTaskController {
                 }
             }
             const patientId = (admission as { patientId?: unknown }).patientId;
+            const hospital = await Admission.findById(admissionId).select("branchId").populate("branchId", "organizationName").lean();
             const [tasks, medications, vitals, notes, visits, orders, handoverHistory] = await Promise.all([
                 careTaskService.listForAdmissions([admissionId]),
                 nursingService.getMedications(
@@ -276,7 +277,8 @@ export class CareTaskController {
                     .lean()
                     .then((record) => record?.nursingHandoverHistory ?? []),
             ]);
-            return NextResponse.json({ success: true, data: { tasks, medications, vitals, notes, visits, orders, handoverHistory } }, { status: 200 });
+            const hospitalName = (hospital?.branchId as { organizationName?: string } | undefined)?.organizationName;
+            return NextResponse.json({ success: true, data: { tasks, medications, vitals, notes, visits, orders, handoverHistory, currentUserId: auth.context.userId.toString(), hospitalName } }, { status: 200 });
             const admissionDate = new Date((admission as { admissionDate: Date }).admissionDate);
             const withDay = <T,>(items: T[], timeOf: (item: T) => Date) => items.map((item) => ({
                 ...recordOf(item),

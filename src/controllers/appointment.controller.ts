@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AppointmentService } from "@/services/appointment.service";
 import dbConnect from "@/lib/dbConnect";
-import Patient from "@/models/patient.model";
+import defaultPatientService, { PatientDuplicateError } from "@/services/patient.service";
 import Organization from "@/models/organization.model";
 import { Types } from "mongoose";
 import { authorizeRequest } from "@/lib/rbac/guard";
@@ -62,21 +62,30 @@ export const AppointmentController = {
             }
 
             // Support quick patient creation if patient details provided without patientId
-            if (!body.patientId && body.patientName && body.contact) {
+            const emergencyRegistration = body.priority === "EMERGENCY" || body.type === "EMERGENCY";
+            if (!body.patientId && (body.patientName || body.contact || emergencyRegistration)) {
+                if (!emergencyRegistration && (!String(body.patientName || "").trim() || !String(body.contact || "").trim())) {
+                    return NextResponse.json(
+                        { success: false, error: "Patient name and phone are required" },
+                        { status: 400 }
+                    );
+                }
                 let defaultBranch = auth.context.branchId;
                 if (!defaultBranch) {
                     const org = await Organization.findOne();
-                    defaultBranch = org?._id || new Types.ObjectId("000000000000000000000000");
+                    defaultBranch = org?._id ?? new Types.ObjectId("000000000000000000000000");
                 }
-                const newPatient = await Patient.create({
-                    name: body.patientName.trim(),
-                    contact: body.contact.trim(),
+                const patientBranchId = defaultBranch ?? new Types.ObjectId("000000000000000000000000");
+                const newPatient = await defaultPatientService.createPatient({
+                    name: String(body.patientName || "").trim() || (emergencyRegistration ? "Unknown" : ""),
+                    contact: String(body.contact || "").trim(),
                     age: Number(body.patientAge) || 30,
                     gender: body.patientGender || "OTHER",
                     bloodGroup: body.patientBloodGroup || "O+",
                     address: body.patientAddress || "Walk-in Registration",
-                    emergencyContact: body.contact.trim(),
-                    branchId: defaultBranch
+                    emergencyContact: String(body.contact || "").trim() || "Not provided",
+                    branchId: patientBranchId,
+                    emergencyRegistration,
                 });
                 body.patientId = newPatient._id;
             }
@@ -91,6 +100,12 @@ export const AppointmentController = {
             const appointment = await AppointmentService.createAppointment(body);
             return NextResponse.json({ success: true, data: appointment }, { status: 201 });
         } catch (error: unknown) {
+            if (error instanceof PatientDuplicateError) {
+                return NextResponse.json(
+                    { success: false, error: "Patient already exists", matchingPatients: error.matchingPatients },
+                    { status: 409 }
+                );
+            }
             const message = error instanceof Error ? error.message : "Failed to create appointment";
             return NextResponse.json({ success: false, error: message }, { status: 400 });
         }

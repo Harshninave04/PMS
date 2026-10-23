@@ -23,18 +23,28 @@ export class AdmissionService {
             };
         }
 
-        // Create the admission
-        const admission = await this.repository.create({
-            ...data,
-            status: data.status || "ADMITTED"
-        });
-
-        // Automatically update bed status to OCCUPIED
-        if (data.bedId && Types.ObjectId.isValid(data.bedId.toString())) {
-            await Bed.findByIdAndUpdate(data.bedId, { status: "OCCUPIED" });
+        // Claim only a currently available bed so two admissions cannot take it at once.
+        const claimedBed = await Bed.findOneAndUpdate(
+            { _id: data.bedId, status: "AVAILABLE" },
+            { $set: { status: "OCCUPIED" } },
+            { new: true },
+        ).select("_id");
+        if (!claimedBed) {
+            throw { statusCode: 409, message: "This bed is no longer available. Choose another bed." };
         }
 
-        return admission;
+        try {
+            return await this.repository.create({
+                ...data,
+                status: data.status || "ADMITTED",
+            });
+        } catch (error) {
+            await Bed.findOneAndUpdate(
+                { _id: claimedBed._id, status: "OCCUPIED" },
+                { $set: { status: "AVAILABLE" } },
+            );
+            throw error;
+        }
     }
 
     async getAllAdmissions(filter: any = {}): Promise<IAdmission[]> {

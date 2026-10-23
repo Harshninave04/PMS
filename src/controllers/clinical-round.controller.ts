@@ -6,6 +6,7 @@ import { PERMISSION_KEYS } from "@/types/rbac";
 import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
 import { ClinicalRecord } from "@/models/clinical-record.model";
 import Admission from "@/models/admission.model";
+import Patient from "@/models/patient.model";
 import { MedicationOrder } from "@/models/medication-order.model";
 import NursingMedication from "@/models/nursing-medication.model";
 import { CareTask } from "@/models/care-task.model";
@@ -15,6 +16,7 @@ import careTaskService from "@/services/care-task.service";
 import { validateOrderTimes } from "@/models/medication-order.model";
 import { MAX_DOSES_PER_ORDER } from "@/lib/medication-schedule";
 import { expandHospitalDoseTimes } from "@/lib/hospital-time";
+import { isDoctorActor, isPatientAssignedToDoctor } from "@/lib/rbac/doctor-scope";
 
 type RoundCondition = "Improving" | "Stable" | "Deteriorating" | "Critical";
 type RoundOrder = MedicineOrderInput | InstructionOrderInput;
@@ -81,6 +83,39 @@ function validationError(message: string): NextResponse {
 }
 
 export class ClinicalRoundController {
+  async readRounds(request: NextRequest): Promise<NextResponse> {
+    try {
+      await dbConnect();
+      const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_VIEW, "Patient");
+      if (!auth.isAuthorized) return auth.response;
+      const patientId = new URL(request.url).searchParams.get("patientId");
+      if (!patientId || !Types.ObjectId.isValid(patientId)) return validationError("A valid patientId is required");
+      const patient = await Patient.findById(patientId).select("branchId").lean();
+      if (!patient) return NextResponse.json({ success: false, message: "Patient not found" }, { status: 404 });
+      let doctorHasPatientAccess = false;
+      if (isDoctorActor(auth.context)) {
+        const doctorId = auth.context.doctorProfileId;
+        doctorHasPatientAccess = Boolean(doctorId && await isPatientAssignedToDoctor(doctorId, new Types.ObjectId(patientId)));
+        if (!doctorId) {
+          return NextResponse.json({ success: false, message: "Forbidden: Patient is not assigned to you" }, { status: 403 });
+        }
+      }
+      if (auth.grant.orgScope === "BRANCH" && auth.context.branchId && idOf(patient.branchId) !== auth.context.branchId.toString()) {
+        return NextResponse.json({ success: false, message: "Forbidden: Patient belongs to another branch" }, { status: 403 });
+      }
+      let data = await visitService.listRoundsForPatient(patientId);
+      if (isDoctorActor(auth.context) && !doctorHasPatientAccess) {
+        const userId = auth.context.userId.toString();
+        data = data.filter((admission) => idOf(admission.doctorId) === userId || (admission.assignedDoctors ?? []).some((doctor: unknown) => idOf(doctor) === userId));
+        if (data.length === 0) return NextResponse.json({ success: false, message: "Forbidden: You are not assigned to this patient or admission" }, { status: 403 });
+      }
+      return NextResponse.json({ success: true, data }, { status: 200 });
+    } catch (error: unknown) {
+      const err = error as { statusCode?: number; message?: string };
+      return NextResponse.json({ success: false, message: err?.message ?? "Failed to load rounds" }, { status: err?.statusCode ?? 500 });
+    }
+  }
+
   async createRound(request: NextRequest): Promise<NextResponse> {
     let visitId: Types.ObjectId | undefined;
     const orderIds: Types.ObjectId[] = [];

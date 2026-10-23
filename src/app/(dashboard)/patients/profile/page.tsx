@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,8 @@ import {
   ArrowLeft,
   Copy
 } from "lucide-react";
+import { Printer, ClipboardList } from "lucide-react";
+import { RoundCard, type RoundView } from "@/components/clinical/round-card";
 
 function PatientProfileContent() {
   const router = useRouter();
@@ -35,7 +37,28 @@ function PatientProfileContent() {
   const [selectedPatientId, setSelectedPatientId] = useState<string>(patientIdParam || "");
   const [dossier, setDossier] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "appointments" | "admissions" | "clinical" | "prescriptions" | "billing" | "documents">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "appointments" | "admissions" | "rounds" | "clinical" | "prescriptions" | "billing" | "documents">("overview");
+  const [roundAdmissions, setRoundAdmissions] = useState<any[]>([]);
+  const [roundsLoading, setRoundsLoading] = useState(false);
+  const [roundsError, setRoundsError] = useState("");
+  const [olderRoundsOpen, setOlderRoundsOpen] = useState(false);
+  const [printStayId, setPrintStayId] = useState("");
+
+  const loadPatientRounds = useCallback(async () => {
+    if (!selectedPatientId) return;
+    setRoundsLoading(true);
+    setRoundsError("");
+    try {
+      const res = await fetch(`/api/clinical/rounds?patientId=${encodeURIComponent(selectedPatientId)}`);
+      const result = await res.json();
+      if (!res.ok || !result.success || !Array.isArray(result.data)) throw new Error(result.message || "Could not load rounds");
+      setRoundAdmissions(result.data);
+    } catch (error) {
+      setRoundsError(error instanceof Error ? error.message : "Could not load rounds");
+    } finally {
+      setRoundsLoading(false);
+    }
+  }, [selectedPatientId]);
 
   useEffect(() => {
     async function loadPatients() {
@@ -77,6 +100,8 @@ function PatientProfileContent() {
     fetchDossier();
   }, [selectedPatientId]);
 
+  useEffect(() => { void loadPatientRounds(); }, [loadPatientRounds]);
+
   const copyUhid = () => {
     if (dossier?.patient?.uhid) {
       navigator.clipboard.writeText(dossier.patient.uhid);
@@ -85,6 +110,14 @@ function PatientProfileContent() {
   };
 
   const patient = dossier?.patient;
+  const orderedRoundAdmissions = [...roundAdmissions].sort((left, right) => {
+    const leftCurrent = left.status === "ADMITTED" || left.status === "TRANSFERRED";
+    const rightCurrent = right.status === "ADMITTED" || right.status === "TRANSFERRED";
+    if (leftCurrent !== rightCurrent) return leftCurrent ? -1 : 1;
+    return new Date(right.admissionDate || 0).getTime() - new Date(left.admissionDate || 0).getTime();
+  });
+  const currentRoundAdmissions = orderedRoundAdmissions.filter((admission) => admission.status === "ADMITTED" || admission.status === "TRANSFERRED");
+  const olderRoundAdmissions = orderedRoundAdmissions.filter((admission) => admission.status !== "ADMITTED" && admission.status !== "TRANSFERRED");
 
   return (
     <div className="p-3 space-y-6 max-w-7xl mx-auto">
@@ -207,6 +240,7 @@ function PatientProfileContent() {
               { id: "overview", label: "Overview & Vitals", icon: User },
               { id: "appointments", label: `Appointments (${dossier?.appointments?.length || 0})`, icon: Calendar },
               { id: "admissions", label: `Admissions (${dossier?.admissions?.length || 0})`, icon: Bed },
+              { id: "rounds", label: `Rounds (${roundAdmissions.reduce((count, admission) => count + (admission.rounds?.length || 0), 0)})`, icon: ClipboardList },
               { id: "clinical", label: `Clinical & Diagnoses (${(dossier?.clinicalRecords?.length || 0) + (dossier?.diagnoses?.length || 0)})`, icon: FileText },
               { id: "prescriptions", label: `Prescriptions (${dossier?.prescriptions?.length || 0})`, icon: Pill },
               { id: "billing", label: `Invoices (${dossier?.invoices?.length || 0})`, icon: Receipt },
@@ -437,6 +471,29 @@ function PatientProfileContent() {
                 )}
               </CardContent>
             </Card>
+          )}
+
+          {activeTab === "rounds" && (
+            <section className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-lg font-semibold text-slate-900 dark:text-white">Ward rounds</h2><p className="text-sm text-slate-500">Current stay first. Older stays are kept below.</p></div><Button type="button" variant="outline" size="sm" onClick={() => void loadPatientRounds()} disabled={roundsLoading}><RefreshCw className={`mr-2 h-4 w-4 ${roundsLoading ? "animate-spin" : ""}`} />Retry</Button></div>
+              {roundsLoading && <Card><CardContent className="p-8 text-center text-sm text-slate-500"><RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin text-emerald-600" />Loading rounds…</CardContent></Card>}
+              {roundsError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><span>{roundsError}</span><Button type="button" size="sm" variant="outline" onClick={() => void loadPatientRounds()}>Retry</Button></div>}
+              {!roundsLoading && !roundsError && orderedRoundAdmissions.length === 0 && <Card><CardContent className="p-8 text-center text-sm text-slate-500">No rounds recorded yet</CardContent></Card>}
+              {!roundsLoading && !roundsError && <>
+                {currentRoundAdmissions.map((admission) => {
+                  const bed = admission.bedId;
+                  const room = bed?.roomId;
+                  const ward = room?.wardId;
+                  const bedWard = [bed?.bedNumber, ward?.wardName].filter(Boolean).join(" · ") || "Bed/ward not recorded";
+                  return <Card key={admission._id} className="border-slate-200 dark:border-slate-800"><CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0"><div><CardTitle className="text-base">Current stay</CardTitle><CardDescription>{bedWard} · Admitted {admission.admissionDate ? new Date(admission.admissionDate).toLocaleDateString() : "date not recorded"}</CardDescription></div><Button type="button" size="sm" variant="outline" onClick={() => { setPrintStayId(admission._id); window.setTimeout(() => window.print(), 100); }}><Printer className="mr-1.5 h-4 w-4" />Print rounds</Button></CardHeader><CardContent className="space-y-3">{admission.rounds?.length ? admission.rounds.map((round: RoundView) => <RoundCard key={round._id} round={round} bedWard={bedWard} attendingDoctorId={typeof admission.doctorId === "object" ? admission.doctorId?._id : admission.doctorId} />) : <p className="py-4 text-center text-sm text-slate-500">No rounds recorded yet</p>}{admission.instructions?.length > 0 && <details className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"><summary className="cursor-pointer text-sm font-medium">Admission instructions (not linked to a specific round)</summary><ul className="mt-2 space-y-2">{admission.instructions.map((task: any) => <li key={task._id} className="text-sm text-slate-600 dark:text-slate-300">{task.title}{task.detail ? ` · ${task.detail}` : ""} <span className="text-xs text-slate-500">({task.status})</span></li>)}</ul></details>}</CardContent></Card>;
+                })}
+                {olderRoundAdmissions.length > 0 && <Card className="border-slate-200 dark:border-slate-800"><CardHeader><button type="button" className="text-left" aria-expanded={olderRoundsOpen} onClick={() => setOlderRoundsOpen((open) => !open)}><CardTitle className="text-base">Older stays ({olderRoundAdmissions.length})</CardTitle><CardDescription>{olderRoundsOpen ? "Hide past admission rounds" : "Open to review past admission rounds"}</CardDescription></button></CardHeader>{olderRoundsOpen && <CardContent className="space-y-3">{olderRoundAdmissions.map((admission) => {
+                  const bed = admission.bedId; const ward = bed?.roomId?.wardId; const bedWard = [bed?.bedNumber, ward?.wardName].filter(Boolean).join(" · ") || "Bed/ward not recorded";
+                  return <div key={admission._id} className="space-y-3 border-t border-slate-100 pt-3 first:border-0 first:pt-0 dark:border-slate-800"><div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">{bedWard} · {new Date(admission.admissionDate || 0).toLocaleDateString()} · {admission.status}</div><Button type="button" size="sm" variant="outline" onClick={() => { setPrintStayId(admission._id); window.setTimeout(() => window.print(), 100); }}><Printer className="mr-1.5 h-4 w-4" />Print rounds</Button></div>{admission.rounds?.length ? admission.rounds.map((round: RoundView) => <RoundCard key={round._id} round={round} bedWard={bedWard} attendingDoctorId={typeof admission.doctorId === "object" ? admission.doctorId?._id : admission.doctorId} />) : <p className="py-3 text-sm text-slate-500">No rounds recorded yet</p>}</div>;
+                })}</CardContent>}</Card>}
+              </>}
+              {printStayId && (() => { const admission = orderedRoundAdmissions.find((item) => item._id === printStayId); if (!admission) return null; const bed = admission.bedId; const ward = bed?.roomId?.wardId; const bedWard = [bed?.bedNumber, ward?.wardName].filter(Boolean).join(" · ") || "Bed/ward not recorded"; return <div id="rounds-print-root" className="hidden"><h1>{admission.branchId?.organizationName || patient.branchId?.organizationName || "Hospital"}</h1><h2>{patient.name} · {patient.uhid || "UHID not recorded"}</h2><p>{bedWard} · Admission date: {admission.admissionDate ? new Date(admission.admissionDate).toLocaleDateString() : "Not recorded"}</p>{(admission.rounds || []).map((round: RoundView) => <RoundCard key={round._id} round={round} bedWard={bedWard} attendingDoctorId={typeof admission.doctorId === "object" ? admission.doctorId?._id : admission.doctorId} />)}<style>{"@media print { body * { visibility: hidden !important; } #rounds-print-root, #rounds-print-root * { visibility: visible !important; } #rounds-print-root { display: block !important; position: absolute; inset: 0; width: 100%; padding: 24px; color: #111827; background: white; } #rounds-print-root .round-print-card { break-inside: avoid; border-color: #cbd5e1; box-shadow: none; margin: 12px 0; } }"}</style></div>; })()}
+            </section>
           )}
 
           {activeTab === "clinical" && (

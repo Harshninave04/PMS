@@ -1,5 +1,6 @@
 import mongoose, { Schema, model, Types } from "mongoose";
 import { IPatient } from "@/interfaces/patient.interface";
+import { isPlaceholderPatientName, normalizePatientName, normalizePatientPhone } from "@/lib/patient-identity";
 
 const documentSubSchema = new Schema(
     {
@@ -32,6 +33,10 @@ const patientSchema = new Schema<IPatient>(
             trim: true,
             index: true
         },
+        normalizedName: {
+            type: String,
+            select: false
+        },
         age: {
             type: Number,
             required: true
@@ -47,8 +52,12 @@ const patientSchema = new Schema<IPatient>(
         },
         contact: {
             type: String,
-            required: true,
+            required: false,
             index: true
+        },
+        normalizedContact: {
+            type: String,
+            select: false
         },
         email: {
             type: String,
@@ -128,6 +137,14 @@ const patientSchema = new Schema<IPatient>(
     },
     { timestamps: true }
 );
+
+patientSchema.index({ normalizedName: 1 }, { unique: true, sparse: true });
+patientSchema.index({ normalizedContact: 1 }, { unique: true, sparse: true });
+
+patientSchema.pre("validate", function () {
+    this.normalizedName = isPlaceholderPatientName(this.name) ? undefined : normalizePatientName(this.name) || undefined;
+    this.normalizedContact = normalizePatientPhone(this.contact) || undefined;
+});
 
 // Auto-generate UHID if not present
 patientSchema.pre<IPatient>("save", function () {

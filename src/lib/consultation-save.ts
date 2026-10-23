@@ -2,6 +2,8 @@ import type { Types } from "mongoose";
 
 export interface NormalizedConsultationInput {
   chiefComplaint: string;
+  admitAdvised: boolean;
+  admitReason: string;
   diagnosisNotes: string;
   investigations: string[];
   medications: {
@@ -34,6 +36,11 @@ export function normalizeConsultationInput(body: unknown): { data?: NormalizedCo
   const chiefComplaint = trimmed(input.chiefComplaint);
   if (!chiefComplaint) return { error: "Chief complaint is required" };
   if (chiefComplaint.length > 200) return { error: "Chief complaint must be 200 characters or fewer" };
+
+  const admitAdvised = input.admitAdvised === true;
+  const admitReason = trimmed(input.admitReason);
+  if (admitAdvised && !admitReason) return { error: "Enter a reason for recommending admission" };
+  if (admitReason.length > 200) return { error: "Admission reason must be 200 characters or fewer" };
 
   const rawInvestigations = Array.isArray(input.investigations)
     ? input.investigations
@@ -72,7 +79,7 @@ export function normalizeConsultationInput(body: unknown): { data?: NormalizedCo
     return { error: "Duplicate medicines are not allowed in one prescription" };
   }
 
-  return { data: { chiefComplaint, diagnosisNotes, investigations, medications } };
+  return { data: { chiefComplaint, admitAdvised, admitReason, diagnosisNotes, investigations, medications } };
 }
 
 export function buildConsultationDocuments(input: NormalizedConsultationInput, ids: TrustedConsultationIds) {
@@ -83,6 +90,8 @@ export function buildConsultationDocuments(input: NormalizedConsultationInput, i
       appointmentId: ids.appointmentId,
       recordType: "Consultation",
       chiefComplaint: input.chiefComplaint,
+      admitAdvised: input.admitAdvised,
+      admitReason: input.admitReason,
       assessment: input.diagnosisNotes || undefined,
       plan: input.investigations.join(", ") || undefined,
       dateRecorded: new Date(),

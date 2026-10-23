@@ -16,6 +16,8 @@ export interface IClinicalRecord extends Document {
   category?: string;
   details?: string;
   chiefComplaint?: string;
+  admitAdvised?: boolean;
+  admitReason?: string;
   historyOfPresentIllness?: string;
   objectiveFindings?: string;
   assessment?: string;
@@ -54,6 +56,8 @@ const ClinicalRecordSchema: Schema = new Schema(
     category: { type: String },
     details: { type: String },
     chiefComplaint: { type: String },
+    admitAdvised: { type: Boolean, default: false },
+    admitReason: { type: String, trim: true, maxlength: 200, default: "" },
     historyOfPresentIllness: { type: String },
     objectiveFindings: { type: String },
     assessment: { type: String },
