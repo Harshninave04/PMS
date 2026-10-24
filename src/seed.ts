@@ -20,9 +20,9 @@ import {
     MEDICINE_CATEGORIES,
     starterMedicines,
 } from "./lib/reference-data";
+import { getMongoUri } from "./lib/mongoUri";
 import "dotenv/config";
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
 const DEFAULT_ADMIN_EMAIL = process.env.DEFAULT_ADMIN_EMAIL || "admin@hospital.com";
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || "password123";
 
@@ -60,7 +60,7 @@ async function seedMenus() {
 async function seedDatabase() {
     try {
         console.log("Connecting to database...");
-        await mongoose.connect(MONGODB_URI);
+        await mongoose.connect(getMongoUri());
         console.log("Connected successfully!");
 
         console.log("Clearing existing seed data...");

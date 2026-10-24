@@ -1,8 +1,7 @@
 import mongoose from "mongoose";
 import "@/models/organization.model";
 import "@/models/department.model";
-
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
+import { getMongoUri } from "@/lib/mongoUri";
 
 function withRetryWritesDisabled(uri: string): string {
   const queryIndex = uri.indexOf("?");
@@ -13,15 +12,12 @@ function withRetryWritesDisabled(uri: string): string {
   return `${baseUri}?${options.toString()}`;
 }
 
-const MONGODB_CONNECTION_URI = withRetryWritesDisabled(MONGODB_URI);
-
 interface MongooseCache {
   conn: typeof mongoose | null;
   promise: Promise<typeof mongoose> | null;
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var mongooseCache: MongooseCache | undefined;
 }
 
@@ -38,7 +34,7 @@ export async function dbConnect() {
       retryWrites: false,
     };
 
-    cached.promise = mongoose.connect(MONGODB_CONNECTION_URI, opts).then((mongooseInstance) => {
+    cached.promise = mongoose.connect(withRetryWritesDisabled(getMongoUri()), opts).then((mongooseInstance) => {
       return mongooseInstance;
     });
   }

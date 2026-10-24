@@ -22,8 +22,9 @@ import {
     reportHasChanges,
     type ReconcileReport,
 } from "../src/lib/rbac/canonical-sync";
+import { getMongoUri } from "../src/lib/mongoUri";
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
+const MONGODB_URI = getMongoUri();
 const APPLY = process.argv.includes("--apply");
 
 function summarise(report: ReconcileReport): void {

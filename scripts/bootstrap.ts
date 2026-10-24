@@ -30,6 +30,7 @@ import MedicineCategory from "../src/models/medicine-category.model";
 import { ADMIN_ROLE } from "../src/lib/rbac/role-access";
 import { reconcileCanonicalAccess, reportHasChanges } from "../src/lib/rbac/canonical-sync";
 import { planAdmin, shouldSeedReferenceData } from "../src/lib/bootstrap-plan";
+import { getMongoUri } from "../src/lib/mongoUri";
 import {
     DEPARTMENTS,
     DESIGNATIONS,
@@ -38,7 +39,7 @@ import {
     starterMedicines,
 } from "../src/lib/reference-data";
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
+const MONGODB_URI = getMongoUri();
 
 function flag(name: string): string | undefined {
     const index = process.argv.indexOf(`--${name}`);

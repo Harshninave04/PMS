@@ -17,8 +17,9 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import type { Collection, ObjectId } from "mongodb";
 import { DEMO_USERS, demoEmail } from "../src/seed";
+import { getMongoUri } from "../src/lib/mongoUri";
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
+const MONGODB_URI = getMongoUri();
 const DEMO_ENABLED = process.env.SEED_DEMO_USERS === "true";
 const DEMO_PASSWORD = process.env.SEED_DEMO_PASSWORD || "Demo@2026";
 

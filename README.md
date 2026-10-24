@@ -99,7 +99,7 @@ docker compose up -d
 ```
 
 - **Web app**: [http://localhost:3000](http://localhost:3000)
-- **MongoDB**: internal only, `mongodb://mongodb:27017` on the compose network (`docker exec -it medistra-mongodb mongosh medistra-hms`)
+- **MongoDB**: bundled Compose MongoDB by default; set `MONGODB_URI` in the root `.env` to use an external database
 - **Mongo Express**: [http://localhost:8081](http://localhost:8081) _(User: `admin`, Pass: `medistra`)_
 
 ### Prepare a new, empty database
@@ -168,7 +168,7 @@ npm install
 Create `.env.local`:
 
 ```env
-MONGODB_URI=mongodb://localhost:27017/medistra-hms
+MONGODB_URI=mongodb+srv://<username>:<password>@<cluster-host>/medistra-hms?retryWrites=true&w=majority
 NEXTAUTH_SECRET=your_super_secret_key_here
 NEXTAUTH_URL=http://localhost:3000
 DEFAULT_ADMIN_EMAIL=admin@hospital.com

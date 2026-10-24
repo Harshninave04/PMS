@@ -5,9 +5,10 @@ import "dotenv/config";
 import mongoose from "mongoose";
 import Role from "../src/models/role.model";
 import { recordRoleChange } from "../src/lib/rbac/audit";
+import { getMongoUri } from "../src/lib/mongoUri";
 
 const APPLY = process.argv.includes("--apply");
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/medistra-hms";
+const MONGODB_URI = getMongoUri();
 
 async function main() {
   console.log(APPLY ? "Mode: APPLY" : "Mode: DRY RUN (no writes)");
