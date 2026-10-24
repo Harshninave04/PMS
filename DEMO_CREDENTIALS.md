@@ -60,7 +60,7 @@ or staff profile; add one under **Settings → Doctors / Staff** if needed.
 | --- | --- | --- |
 | `SEED_DEMO_USERS` | unset | Must be exactly `true`, otherwise nothing is created. |
 | `SEED_DEMO_PASSWORD` | `Demo@2026` | Password for all demo accounts. |
-| `MONGODB_URI` | `mongodb://localhost:27017/medistra-hms` | **Must match the database the running app uses.** |
+| `MONGODB_URI` | Set in `.env` | **Must match the database the running app uses.** |
 
 ### Under Docker
 

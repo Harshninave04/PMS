@@ -154,16 +154,18 @@ Open <http://localhost:3000/login>, sign in, and change the password under
 
 ## Accessing the database
 
-**MongoDB has no host port on purpose.** The app reaches it over Docker's
-internal network as `mongodb:27017`.
+By default, the app uses the bundled MongoDB over Docker's internal network as
+`mongodb:27017`. If `MONGODB_URI` is set in the root `.env`, Docker Compose uses
+that external database instead.
 
-This matters if you try to connect from your own machine:
+When using the bundled database, MongoDB has no host port on purpose. This
+matters if you try to connect from your own machine:
 
 ```bash
-mongosh mongodb://localhost:27017/medistra-hms   # WRONG — a different, empty MongoDB
+mongosh "$MONGODB_URI"   # This connects to the external DB, not the bundled Compose MongoDB
 ```
 
-You would silently write to the wrong database. Use one of these instead.
+Use one of these instead to access the bundled Compose database.
 
 **Option A — the web browser** (easiest)
 

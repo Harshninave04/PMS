@@ -9,7 +9,7 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - MONGODB_URI=mongodb://mongodb:27017/medistra-hms
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/medistra-hms}
       - NEXTAUTH_URL=http://localhost:3000
       - NEXTAUTH_SECRET=medistra_super_secret_production_jwt_key_2026_hms
       - DEFAULT_ADMIN_EMAIL=admin@hospital.com
