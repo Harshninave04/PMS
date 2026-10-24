@@ -5,6 +5,9 @@ import defaultAdmissionService, { AdmissionService } from "@/services/admission.
 import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto, AssignCareTeamDto } from "@/dto/admission.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import DailyNursingRecord from "@/models/daily-nursing-record.model";
+import { stayDayNumber } from "@/lib/hospital-time";
+import { isNurseRole } from "@/lib/rbac/roles";
 
 interface PopulatedEntity {
     _id?: Types.ObjectId;
@@ -92,6 +95,9 @@ export class AdmissionController {
             const type = searchParams.get('type');
 
             const filter: Record<string, unknown> = {};
+            if (isNurseRole(auth.context.roleName)) {
+                filter.assignedNurses = auth.context.userId;
+            }
 
             if (status) {
                 if (status === "ACTIVE") {
@@ -107,7 +113,7 @@ export class AdmissionController {
 
             // Enforce relational scope: doctor with OWN scope can only see their own admissions
             let effectiveDoctorId = requestedDoctorId;
-            if (auth.grant.relScope === "OWN") {
+            if (!isNurseRole(auth.context.roleName) && auth.grant.relScope === "OWN") {
                 effectiveDoctorId = auth.context.userId.toString();
             }
 
@@ -177,8 +183,21 @@ export class AdmissionController {
                 );
             }
 
+            if (authResult && isNurseRole(authResult.context.roleName)) {
+                const nurseId = authResult.context.userId.toString();
+                const assigned = (admission.assignedNurses ?? []).some((nurse) =>
+                    ((nurse as PopulatedEntity)?._id ?? nurse)?.toString() === nurseId
+                );
+                if (!assigned) {
+                    return NextResponse.json(
+                        { success: false, message: "Admission not found" },
+                        { status: 404 }
+                    );
+                }
+            }
+
             // Relational check
-            if (authResult?.grant.relScope === "OWN") {
+            if (authResult && !isNurseRole(authResult.context.roleName) && authResult.grant.relScope === "OWN") {
                 const docId = (admission.doctorId as PopulatedEntity)?._id?.toString() || admission.doctorId?.toString();
                 if (docId !== authResult.context.userId.toString()) {
                     return NextResponse.json(
@@ -291,7 +310,7 @@ export class AdmissionController {
                 return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
             }
 
-            if (auth.grant.relScope === "OWN") {
+            if (!isNurseRole(auth.context.roleName) && auth.grant.relScope === "OWN") {
                 const docId = (existing.doctorId as PopulatedEntity)?._id?.toString() || existing.doctorId?.toString();
                 if (docId !== auth.context.userId.toString()) {
                     return NextResponse.json(
@@ -308,6 +327,26 @@ export class AdmissionController {
                         { success: false, message: "Forbidden: Admission belongs to another branch" },
                         { status: 403 }
                     );
+                }
+            }
+
+            // A nurse may only discharge an active stay assigned to them. The
+            // daily record ledger must also be complete and finalized; this
+            // keeps the existing discharge policy intact without trusting a
+            // client-side patient selection.
+            if (isNurseRole(auth.context.roleName)) {
+                const assigned = (existing.assignedNurses ?? []).some((nurse) =>
+                    ((nurse as PopulatedEntity)?._id ?? nurse)?.toString() === auth.context.userId.toString()
+                );
+                if (!assigned || !["ADMITTED", "TRANSFERRED"].includes(existing.status)) {
+                    return NextResponse.json({ success: false, message: "Forbidden: You can only discharge a patient assigned to you" }, { status: 403 });
+                }
+                const expectedDays = stayDayNumber(new Date(existing.admissionDate), new Date());
+                const finalized = await DailyNursingRecord.find({ admissionId: existing._id, status: "Final" }).select("nursingDay").lean();
+                const completedDays = new Set(finalized.map((record) => record.nursingDay));
+                const missing = Array.from({ length: expectedDays }, (_, index) => index + 1).filter((day) => !completedDays.has(day));
+                if (missing.length) {
+                    return NextResponse.json({ success: false, message: `Final daily nursing records are required before discharge (missing Day ${missing.join(", Day ")})` }, { status: 400 });
                 }
             }
 

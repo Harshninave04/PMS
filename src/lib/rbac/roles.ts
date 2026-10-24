@@ -21,6 +21,11 @@ export const ROLE_LABELS: Record<string, string> = {
 /** The name used for the one role that is never restricted. */
 export const SUPER_ADMIN_LABEL = "Super Admin";
 
+/** Matches canonical and custom role names such as STAFF_NURSE or Staff Nurse. */
+export function isNurseRole(roleName: string | null | undefined): boolean {
+  return /(^|[^a-z])nurses?($|[^a-z])/i.test(roleName ?? "");
+}
+
 /**
  * One plain sentence per role, for the roles list. Written for a hospital
  * administrator, not for a developer: it says what the person does all day.

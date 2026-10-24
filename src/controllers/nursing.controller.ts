@@ -9,6 +9,9 @@ import { isDoseDue } from "@/lib/medication-schedule";
 import Admission from "@/models/admission.model";
 import User from "@/models/user.model";
 import Role from "@/models/role.model";
+import DailyNursingRecord from "@/models/daily-nursing-record.model";
+import { stayDayNumber } from "@/lib/hospital-time";
+import { isNurseRole } from "@/lib/rbac/roles";
 
 function actorOf(auth: { context: { userId: Types.ObjectId; roleName: string; branchId?: Types.ObjectId }; grant: { orgScope: string } }) {
   return {
@@ -27,7 +30,7 @@ async function assertMedicationVisible(
 ): Promise<{ admissionId?: Types.ObjectId }> {
   if (actor.isSuperAdmin) return {};
   const role = (actor.roleName ?? "").toUpperCase();
-  if (role !== "NURSE" && role !== "DOCTOR") return {};
+  if (!isNurseRole(role) && role !== "DOCTOR") return {};
   const uid = new Types.ObjectId(actor.userId.toString());
   // Resolve the active admission for this patient to check team membership
   // and to auto-link the stay.
@@ -53,13 +56,40 @@ async function assertMedicationVisible(
   return { admissionId: admission._id as Types.ObjectId };
 }
 
+async function assertAssignedNursingAdmission(
+  admissionId: string,
+  patientId: string | undefined,
+  auth: Awaited<ReturnType<typeof authorizeRequest>>
+) {
+  if (!Types.ObjectId.isValid(admissionId) || (patientId && !Types.ObjectId.isValid(patientId))) {
+    throw { statusCode: 400, message: "A valid admission and patient are required" };
+  }
+  if (!auth.isAuthorized) throw { statusCode: 403, message: "Forbidden" };
+  const query: Record<string, unknown> = {
+    ...auth.filter,
+    _id: new Types.ObjectId(admissionId),
+    status: { $in: ["ADMITTED", "TRANSFERRED"] },
+  };
+  if (patientId) query.patientId = new Types.ObjectId(patientId);
+  // A nurse is always constrained to the assigned care team, even if a broad
+  // role grant is accidentally configured.
+  if (isNurseRole(auth.context.roleName)) query.assignedNurses = auth.context.userId;
+  const admission = await Admission.findOne(query)
+    .populate("patientId", "name uhid")
+    .populate("doctorId", "name")
+    .populate({ path: "bedId", populate: { path: "roomId", populate: { path: "wardId" } } })
+    .lean();
+  if (!admission) throw { statusCode: 403, message: "This patient is not assigned to you or is no longer admitted" };
+  return admission;
+}
+
 export class NursingController {
   async getHandoverNurses(request: NextRequest): Promise<NextResponse> {
     try {
       await dbConnect();
       const auth = await authorizeRequest(request, "nursing.patients:update", "Admission");
       if (!auth.isAuthorized) return auth.response;
-      if (auth.context.roleName.toUpperCase() !== "NURSE") {
+      if (!isNurseRole(auth.context.roleName)) {
         return NextResponse.json({ success: false, message: "Only assigned nurses can hand over a patient" }, { status: 403 });
       }
 
@@ -77,8 +107,8 @@ export class NursingController {
         return NextResponse.json({ success: false, message: "This patient is not assigned to you or is no longer admitted" }, { status: 403 });
       }
 
-      const nurseRole = await Role.findOne({ role: { $regex: "^NURSE$", $options: "i" } }).select("_id").lean();
-      if (!nurseRole) {
+      const nurseRoles = await Role.find({ role: { $regex: "NURSE", $options: "i" } }).select("_id").lean();
+      if (nurseRoles.length === 0) {
         return NextResponse.json({ success: false, message: "Nurse role is not configured" }, { status: 500 });
       }
 
@@ -87,7 +117,7 @@ export class NursingController {
         | null;
       const branchId = auth.context.branchId || currentUser?.branch || admission.branchId;
       const nurseFilter: Record<string, unknown> = {
-        role: nurseRole._id,
+        role: { $in: nurseRoles.map((role) => role._id) },
         isActive: { $ne: false },
         _id: { $ne: auth.context.userId },
       };
@@ -120,7 +150,7 @@ export class NursingController {
       await dbConnect();
       const auth = await authorizeRequest(request, "nursing.patients:update", "Admission");
       if (!auth.isAuthorized) return auth.response;
-      if (auth.context.roleName.toUpperCase() !== "NURSE") {
+      if (!isNurseRole(auth.context.roleName)) {
         return NextResponse.json({ success: false, message: "Only an assigned nurse can hand over a patient" }, { status: 403 });
       }
 
@@ -165,7 +195,7 @@ export class NursingController {
             organization?: Types.ObjectId;
           }
         | null;
-      if (!recipient || recipient.isActive === false || recipient.role?.role?.toUpperCase() !== "NURSE") {
+      if (!recipient || recipient.isActive === false || !isNurseRole(recipient.role?.role)) {
         return NextResponse.json({ success: false, message: "Choose an active nurse to receive this patient" }, { status: 400 });
       }
 
@@ -273,7 +303,7 @@ export class NursingController {
       const actor = actorOf(auth);
       const role = (actor.roleName ?? "").toUpperCase();
       const allowed =
-        !actor.isSuperAdmin && (role === "NURSE" || role === "DOCTOR")
+        !actor.isSuperAdmin && (isNurseRole(role) || role === "DOCTOR")
           ? await nursingService.getPatientIdsForActor(actor)
           : undefined;
       const data = await nursingService.getMedications(patientId, admissionId, allowed);
@@ -347,7 +377,7 @@ export class NursingController {
         body.administeredTime = new Date().toISOString();
       }
       const role = (actor.roleName ?? "").toUpperCase();
-      if (!actor.isSuperAdmin && (role === "NURSE" || role === "DOCTOR")) {
+      if (!actor.isSuperAdmin && (isNurseRole(role) || role === "DOCTOR")) {
         const { default: NursingMedication } = await import("@/models/nursing-medication.model");
         const existing = await NursingMedication.findById(id).select("patient admissionId").lean() as
           | { patient?: unknown; admissionId?: unknown }
@@ -401,6 +431,77 @@ export class NursingController {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Failed to delete medication record";
       return NextResponse.json({ success: false, message }, { status: 500 });
+    }
+  }
+
+  async getDailyRecords(request: NextRequest): Promise<NextResponse> {
+    try {
+      await dbConnect();
+      const auth = await authorizeRequest(request, "nursing.patients:view", "Admission");
+      if (!auth.isAuthorized) return auth.response;
+      const { searchParams } = new URL(request.url);
+      const admissionId = searchParams.get("admissionId") || "";
+      const patientId = searchParams.get("patientId") || undefined;
+      try { await assertAssignedNursingAdmission(admissionId, patientId, auth); }
+      catch (e: unknown) { const err = e as { statusCode?: number; message?: string }; return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 }); }
+      const data = await DailyNursingRecord.find({ admissionId: new Types.ObjectId(admissionId) })
+        .populate("author", "name")
+        .sort({ nursingDay: 1, recordDate: 1, createdAt: 1 }).lean();
+      return NextResponse.json({ success: true, data });
+    } catch (error) {
+      return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Failed to load daily records" }, { status: 500 });
+    }
+  }
+
+  async createDailyRecord(request: NextRequest): Promise<NextResponse> {
+    try {
+      await dbConnect();
+      const auth = await authorizeRequest(request, "nursing.patients:update", "Admission");
+      if (!auth.isAuthorized) return auth.response;
+      const body = await request.json() as Record<string, unknown>;
+      const admissionId = typeof body.admissionId === "string" ? body.admissionId : "";
+      const patientId = typeof body.patientId === "string" ? body.patientId : undefined;
+      let admission: Awaited<ReturnType<typeof assertAssignedNursingAdmission>>;
+      try { admission = await assertAssignedNursingAdmission(admissionId, patientId, auth); }
+      catch (e: unknown) { const err = e as { statusCode?: number; message?: string }; return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 }); }
+      const now = new Date();
+      const nursingDay = stayDayNumber(new Date(admission.admissionDate), now);
+      const allowed = ["observations", "procedures", "medicationAdministration", "progress", "additionalNotes", "vitals", "status"] as const;
+      const payload: Record<string, unknown> = {};
+      for (const key of allowed) if (body[key] !== undefined) payload[key] = body[key];
+      if (payload.status !== "Draft" && payload.status !== "Final") payload.status = "Draft";
+      if (payload.status === "Final") payload.finalizedAt = now;
+      try {
+        const data = await DailyNursingRecord.create({ ...payload, patient: admission.patientId, admissionId: admission._id, nursingDay, recordDate: now, author: auth.context.userId });
+        return NextResponse.json({ success: true, data }, { status: 201 });
+      } catch (error: unknown) {
+        if ((error as { code?: number }).code === 11000) return NextResponse.json({ success: false, message: `A daily record already exists for Day ${nursingDay}` }, { status: 409 });
+        throw error;
+      }
+    } catch (error) {
+      return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Failed to save daily record" }, { status: 500 });
+    }
+  }
+
+  async updateDailyRecord(request: NextRequest, id: string): Promise<NextResponse> {
+    try {
+      await dbConnect();
+      const auth = await authorizeRequest(request, "nursing.patients:update", "Admission");
+      if (!auth.isAuthorized) return auth.response;
+      if (!Types.ObjectId.isValid(id)) return NextResponse.json({ success: false, message: "Invalid record ID" }, { status: 400 });
+      const existing = await DailyNursingRecord.findById(id).lean();
+      if (!existing) return NextResponse.json({ success: false, message: "Daily record not found" }, { status: 404 });
+      try { await assertAssignedNursingAdmission(existing.admissionId.toString(), existing.patient.toString(), auth); }
+      catch (e: unknown) { const err = e as { statusCode?: number; message?: string }; return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 }); }
+      if (existing.status !== "Draft" || existing.author.toString() !== auth.context.userId.toString()) return NextResponse.json({ success: false, message: "Only your draft records can be edited; create an addendum for a finalized record" }, { status: 403 });
+      const body = await request.json() as Record<string, unknown>;
+      const patch: Record<string, unknown> = {};
+      for (const key of ["observations", "procedures", "medicationAdministration", "progress", "additionalNotes", "vitals"] as const) if (body[key] !== undefined) patch[key] = body[key];
+      if (body.status === "Final") { patch.status = "Final"; patch.finalizedAt = new Date(); }
+      const data = await DailyNursingRecord.findByIdAndUpdate(id, { $set: patch }, { new: true });
+      return NextResponse.json({ success: true, data });
+    } catch (error) {
+      return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Failed to update daily record" }, { status: 500 });
     }
   }
 
