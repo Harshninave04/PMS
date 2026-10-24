@@ -5,6 +5,7 @@ import { ClinicalRecord } from "@/models/clinical-record.model";
 import { Vitals } from "@/models/vitals.model";
 import { flagVitalForReview, type VitalFlag } from "@/lib/vital-flags";
 import { hospitalDayKey } from "@/lib/hospital-time";
+import { isNurseRole } from "@/lib/rbac/roles";
 import "@/models/bed.model";
 import "@/models/patient.model";
 import "@/models/user.model";
@@ -29,7 +30,7 @@ function toObjectIds(ids: Array<Types.ObjectId | string>): Types.ObjectId[] {
 
 function isTeamScoped(actor?: NursingActor): boolean {
   const role = (actor?.roleName ?? "").toUpperCase();
-  return !!actor?.userId && !actor?.isSuperAdmin && (role === "NURSE" || role === "DOCTOR");
+  return !!actor?.userId && !actor?.isSuperAdmin && (isNurseRole(role) || role === "DOCTOR");
 }
 
 /**
@@ -45,11 +46,11 @@ function applyBranchConvention(query: Record<string, unknown>, actor?: NursingAc
   }
 }
 
-function teamQuery(actor: NursingActor): Record<string, unknown> {
+export function buildNursingTeamQuery(actor: NursingActor): Record<string, unknown> {
   const role = (actor.roleName ?? "").toUpperCase();
   const uid = new Types.ObjectId(actor.userId!.toString());
   const base: Record<string, unknown> = { status: { $in: ACTIVE_INPATIENT_STATUSES } };
-  if (role === "NURSE") {
+  if (isNurseRole(role)) {
     base.assignedNurses = uid;
   } else {
     base.$or = [{ doctorId: uid }, { assignedDoctors: uid }];
@@ -70,7 +71,7 @@ export class NursingService {
     const query: Record<string, unknown> = { status: { $in: ACTIVE_INPATIENT_STATUSES }, ...rest };
 
     if (actor && isTeamScoped(actor)) {
-      const team = teamQuery(actor);
+      const team = buildNursingTeamQuery(actor);
       // Team membership replaces any caller-supplied patient scoping.
       delete query.patientId;
       Object.assign(query, team);
@@ -184,14 +185,14 @@ export class NursingService {
     // Undefined means "no team restriction" (wide role or super admin).
     if (!actor?.userId || actor?.isSuperAdmin) return undefined;
     if (!isTeamScoped(actor)) return undefined;
-    const rows = await Admission.find(teamQuery(actor)).select("_id").lean();
+    const rows = await Admission.find(buildNursingTeamQuery(actor)).select("_id").lean();
     return rows.map((r) => r._id as Types.ObjectId);
   }
 
   async getPatientIdsForActor(actor?: NursingActor): Promise<Types.ObjectId[] | undefined> {
     if (!actor?.userId || actor?.isSuperAdmin) return undefined;
     if (!isTeamScoped(actor)) return undefined;
-    const rows = await Admission.find(teamQuery(actor)).select("patientId").lean();
+    const rows = await Admission.find(buildNursingTeamQuery(actor)).select("patientId").lean();
     return rows.map((r) => r.patientId as Types.ObjectId);
   }
 
@@ -199,7 +200,7 @@ export class NursingService {
   async getNursingStats(actor?: NursingActor) {
     const scoped = actor && isTeamScoped(actor);
     const admissionQuery: Record<string, unknown> = scoped
-      ? teamQuery(actor!)
+      ? buildNursingTeamQuery(actor!)
       : { status: { $in: ACTIVE_INPATIENT_STATUSES } };
     if (!scoped) applyBranchConvention(admissionQuery, actor);
     const [totalInpatients, pendingMedications] = await Promise.all([

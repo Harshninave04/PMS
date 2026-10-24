@@ -82,7 +82,7 @@ export const MENUS: MenuSeed[] = [
         children: [
             { name: "Admitted Patients", path: "/nursing/patients" },
             { name: "Vital Signs", path: "/nursing/vitals" },
-            { name: "Nursing Notes", path: "/nursing/notes" },
+            { name: "Daily Nursing Records", path: "/nursing/notes" },
             { name: "Medication Rounds", path: "/nursing/medications" }
         ]
     },
@@ -165,4 +165,3 @@ export function getMenuModuleKey(menu: { moduleKey?: string; path?: string; name
     const match = prefixes.find(([prefix]) => path.startsWith(prefix));
     return match ? match[1] : (menu.name || "").toLowerCase().trim();
 }
-

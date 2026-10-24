@@ -250,8 +250,8 @@ function NursingHubContent() {
           <div className="flex items-center gap-3">
             <FileText className="h-5 w-5 text-cyan-600" />
             <div>
-              <p className="font-semibold text-slate-900 dark:text-white">Write a nursing note</p>
-              <p className="text-xs text-slate-500">Document care and observations</p>
+              <p className="font-semibold text-slate-900 dark:text-white">Daily nursing records</p>
+              <p className="text-xs text-slate-500">Record, review, and print daily care</p>
             </div>
           </div>
         </Link>

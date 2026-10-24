@@ -650,6 +650,27 @@ async function runPermissionTests() {
     assert.equal(canOpenPage([], { all: new Set() }), false, "Uncatalogued page opened for an ordinary role");
   });
 
+  test("Nurses can open Daily Nursing Records", () => {
+    const nursePermissions = new Set(defaultPermissionsFor("NURSE"));
+    const required = permissionsForPage("/nursing/daily-records");
+
+    assert.deepEqual(required, ["nursing.notes:view"]);
+    assert.equal(canOpenPage(required, { all: nursePermissions }), true);
+    assert.equal(canOpenPage(required, { all: new Set() }), false);
+
+    for (const [method, permission] of [
+      ["GET", "nursing.notes:view"],
+      ["POST", "nursing.notes:create"],
+      ["PATCH", "nursing.notes:update"],
+    ] as const) {
+      const url = `http://localhost/api/nursing/daily-records${method === "PATCH" ? "/65f1c2a3b4c5d6e7f8091234" : ""}`;
+      const rule = findRouteRule(new Request(url, { method }));
+      assert.ok(rule, `${method} Daily Nursing Records API is not guarded`);
+      assert.equal(rule.permission, permission);
+      assert.equal(routeRuleAllows(rule, nursePermissions), true);
+    }
+  });
+
   test("No handler grants itself an open guard the manifest does not sanction", () => {
     // The reverse drift is the dangerous one: a route that answers any signed-in
     // user while the manifest promises a permission check. Only endpoints listed in
