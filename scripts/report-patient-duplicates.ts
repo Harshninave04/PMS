@@ -6,34 +6,34 @@ import { isPlaceholderPatientName, normalizePatientName, normalizePatientPhone }
 async function main() {
   await dbConnect();
   const patients = await Patient.find().select("name uhid age gender contact").lean();
-  const byName = new Map<string, typeof patients>();
+  const duplicates = new Map<string, typeof patients>();
   const byPhone = new Map<string, typeof patients>();
+
   for (const patient of patients) {
     const name = normalizePatientName(patient.name);
     const phone = normalizePatientPhone(patient.contact);
-    if (!isPlaceholderPatientName(patient.name) && name) byName.set(name, [...(byName.get(name) ?? []), patient]);
+    if (!isPlaceholderPatientName(patient.name) && name && phone) {
+      const key = `${name}\u0000${phone}`;
+      duplicates.set(key, [...(duplicates.get(key) ?? []), patient]);
+    }
     if (phone) byPhone.set(phone, [...(byPhone.get(phone) ?? []), patient]);
   }
 
-  const duplicateGroups = new Map<string, { matchedBy: Set<string>; patients: typeof patients }>();
-  const addGroups = (lookup: Map<string, typeof patients>, matchedBy: string) => {
-    for (const [key, matches] of lookup) {
-      if (matches.length < 2) continue;
-      const groupKey = matches.map((patient) => String(patient._id)).sort().join(":");
-      const existing = duplicateGroups.get(groupKey) ?? { matchedBy: new Set<string>(), patients: matches };
-      existing.matchedBy.add(matchedBy);
-      duplicateGroups.set(groupKey, existing);
-      void key;
-    }
-  };
-  addGroups(byName, "name");
-  addGroups(byPhone, "phone");
-
-  const report = [...duplicateGroups.values()].map((group) => ({
-    matchedBy: [...group.matchedBy],
-    patients: group.patients.map(({ _id, name, uhid, age, gender, contact }) => ({ id: String(_id), name, uhid, age, gender, phone: contact })),
+  const formatGroup = (group: typeof patients) => group.map(({ _id, name, uhid, age, gender, contact }) => ({
+    id: String(_id), name, uhid, age, gender, phone: contact,
   }));
-  process.stdout.write(`${JSON.stringify({ duplicateGroups: report.length, groups: report }, null, 2)}\n`);
+  const duplicateGroups = [...duplicates.values()].filter((group) => group.length > 1).map(formatGroup);
+  const sharedPhoneGroups = [...byPhone.values()].filter((group) => {
+    const names = new Set(group.filter((patient) => !isPlaceholderPatientName(patient.name)).map((patient) => normalizePatientName(patient.name)));
+    return group.length > 1 && names.size > 1;
+  }).map(formatGroup);
+
+  process.stdout.write(`${JSON.stringify({
+    duplicateGroups: duplicateGroups.length,
+    groups: duplicateGroups,
+    sharedPhoneGroups: sharedPhoneGroups.length,
+    sharedPhones: sharedPhoneGroups,
+  }, null, 2)}\n`);
   await Patient.db?.close();
 }
 

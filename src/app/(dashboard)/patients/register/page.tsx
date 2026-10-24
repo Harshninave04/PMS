@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { User, Shield, Phone, MapPin, ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { PatientDuplicateDialog, type PatientDuplicateMatch } from "@/components/patients/patient-duplicate-dialog";
+import { PatientDuplicateDialog, type PatientDuplicateMatch, type SharedPhoneRelation } from "@/components/patients/patient-duplicate-dialog";
 
 export default function RegisterPatientPage() {
   const router = useRouter();
@@ -20,6 +20,7 @@ export default function RegisterPatientPage() {
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [emergencyRegistration, setEmergencyRegistration] = useState(false);
   const [duplicatePatients, setDuplicatePatients] = useState<PatientDuplicateMatch[]>([]);
+  const [canConfirmSharedPhone, setCanConfirmSharedPhone] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -61,8 +62,11 @@ export default function RegisterPatientPage() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (
+    e?: React.FormEvent,
+    sharedPhone?: { patient: PatientDuplicateMatch; relation: SharedPhoneRelation },
+  ) => {
+    e?.preventDefault();
 
     if (!formData.name.trim() && !emergencyRegistration) {
       toast("Patient full name is required", "error");
@@ -92,6 +96,7 @@ export default function RegisterPatientPage() {
         ...formData,
         emergencyRegistration,
         age: parseInt(formData.age),
+        ...(sharedPhone ? { confirmSharedPhone: true, relatedPatientId: sharedPhone.patient._id, relation: sharedPhone.relation } : {}),
       };
 
       const response = await fetch("/api/patient", {
@@ -108,6 +113,7 @@ export default function RegisterPatientPage() {
       } else {
         if (response.status === 409 && Array.isArray(data.matchingPatients)) {
           setDuplicatePatients(data.matchingPatients);
+          setCanConfirmSharedPhone(data.canConfirmSharedPhone === true);
           return;
         }
         toast(data.message || "Failed to register patient", "error");
@@ -386,7 +392,12 @@ export default function RegisterPatientPage() {
           </Button>
         </div>
       </form>
-      <PatientDuplicateDialog patients={duplicatePatients} onClose={() => setDuplicatePatients([])} />
+      <PatientDuplicateDialog
+        patients={duplicatePatients}
+        canConfirmSharedPhone={canConfirmSharedPhone}
+        onClose={() => { setDuplicatePatients([]); setCanConfirmSharedPhone(false); }}
+        onConfirmSharedPhone={(patient, relation) => void handleSubmit(undefined, { patient, relation })}
+      />
     </div>
   );
 }

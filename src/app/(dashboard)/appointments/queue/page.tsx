@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -216,17 +217,23 @@ export default function AppointmentQueuePage() {
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200/80 dark:border-slate-800">
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-50 text-green-600 dark:bg-green-500/10 border border-green-100 dark:border-green-500/20">
-              <CheckCircle2 className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-slate-500">Completed Today</p>
-              <h3 className="text-2xl font-bold text-slate-900 dark:text-white">{metrics.completed}</h3>
-            </div>
-          </CardContent>
-        </Card>
+        <Link
+          href="/appointments/completed-today"
+          aria-label="View completed patients and prescriptions"
+          className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+        >
+          <Card className="h-full border-slate-200/80 transition hover:border-emerald-300 hover:shadow-md dark:border-slate-800 dark:hover:border-emerald-800">
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-50 text-green-600 dark:bg-green-500/10 border border-green-100 dark:border-green-500/20">
+                <CheckCircle2 className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-slate-500">Completed Today</p>
+                <h3 className="text-2xl font-bold text-slate-900 dark:text-white">{metrics.completed}</h3>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
 

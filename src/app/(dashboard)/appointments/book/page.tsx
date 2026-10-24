@@ -27,7 +27,7 @@ import {
   PlusCircle,
 } from "lucide-react";
 import { usePermissions } from "@/components/permissions/permission-context";
-import { PatientDuplicateDialog, type PatientDuplicateMatch } from "@/components/patients/patient-duplicate-dialog";
+import { PatientDuplicateDialog, type PatientDuplicateMatch, type SharedPhoneRelation } from "@/components/patients/patient-duplicate-dialog";
 
 const QUICK_COMPLAINTS = [
   "General Checkup",
@@ -55,6 +55,7 @@ export default function BookAppointmentPage() {
   const [selectedDept, setSelectedDept] = useState("");
   const [confirmed, setConfirmed] = useState<any>(null);
   const [duplicatePatients, setDuplicatePatients] = useState<PatientDuplicateMatch[]>([]);
+  const [canConfirmSharedPhone, setCanConfirmSharedPhone] = useState(false);
 
   // Registration mode: 'existing' or 'new'
   const [patientMode, setPatientMode] = useState<"existing" | "new">("existing");
@@ -182,8 +183,11 @@ export default function BookAppointmentPage() {
   const selectedPatientObj = patients.find((p) => p._id === formData.patientId);
   const selectedDoctorObj = doctors.find((d) => d._id === formData.doctorId);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (
+    e?: React.FormEvent,
+    sharedPhone?: { patient: PatientDuplicateMatch; relation: SharedPhoneRelation },
+  ) => {
+    e?.preventDefault();
 
     if (patientMode === "existing" && !formData.patientId) {
       toast({ title: "Validation Error", description: "Please select a patient.", variant: "destructive" });
@@ -216,6 +220,7 @@ export default function BookAppointmentPage() {
         paymentStatus: formData.paymentStatus,
         paymentMode: formData.paymentMode,
         emergencyRegistration,
+        ...(sharedPhone ? { confirmSharedPhone: true, relatedPatientId: sharedPhone.patient._id, relation: sharedPhone.relation } : {}),
       };
 
       if (patientMode === "existing") {
@@ -237,6 +242,8 @@ export default function BookAppointmentPage() {
 
       const data = await res.json();
       if (res.ok && data.success) {
+        setDuplicatePatients([]);
+        setCanConfirmSharedPhone(false);
         setConfirmed(data.data);
         toast({
           title: "Appointment Booked!",
@@ -247,6 +254,7 @@ export default function BookAppointmentPage() {
       } else {
         if (res.status === 409 && Array.isArray(data.matchingPatients)) {
           setDuplicatePatients(data.matchingPatients);
+          setCanConfirmSharedPhone(data.canConfirmSharedPhone === true);
           return;
         }
         toast({
@@ -463,6 +471,11 @@ export default function BookAppointmentPage() {
                         <div className="text-[11px] text-slate-500 mt-0.5">
                           UHID: <span className="font-mono">{selectedPatientObj.uhid || "UHID-Pending"}</span> | Phone: {selectedPatientObj.contact}
                         </div>
+                        {selectedPatientObj.sharedPhoneWithPatientId?.name && (
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            Shares phone with: {selectedPatientObj.sharedPhoneWithPatientId.name} ({selectedPatientObj.sharedPhoneRelation})
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="default" className="text-[10px]">Verified</Badge>
@@ -896,14 +909,9 @@ export default function BookAppointmentPage() {
       )}
       <PatientDuplicateDialog
         patients={duplicatePatients}
-        onClose={() => setDuplicatePatients([])}
-        onSelect={(patient) => {
-          setPatients((current) => [patient, ...current.filter((item) => item._id !== patient._id)]);
-          setPatientMode("existing");
-          setFormData((current) => ({ ...current, patientId: patient._id }));
-          setPatientSearch(patient.name);
-          setDebouncedPatientSearch(patient.name);
-        }}
+        canConfirmSharedPhone={canConfirmSharedPhone}
+        onClose={() => { setDuplicatePatients([]); setCanConfirmSharedPhone(false); }}
+        onConfirmSharedPhone={(patient, relation) => void handleSubmit(undefined, { patient, relation })}
       />
     </div>
   );

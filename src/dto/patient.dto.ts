@@ -23,6 +23,13 @@ export interface CreatePatientDto {
     branchId: Types.ObjectId | string;
     isActive?: boolean;
     emergencyRegistration?: boolean;
+    confirmSharedPhone?: boolean;
+    relatedPatientId?: Types.ObjectId | string;
+    relation?: "Spouse" | "Child" | "Parent" | "Sibling" | "Other family" | "Not related";
+    sharedPhoneWithPatientId?: Types.ObjectId | string;
+    sharedPhoneRelation?: "Spouse" | "Child" | "Parent" | "Sibling" | "Other family" | "Not related";
+    sharedPhoneConfirmedBy?: Types.ObjectId | string;
+    sharedPhoneConfirmedAt?: Date;
 }
 
 export interface UpdatePatientDto {
@@ -50,6 +57,10 @@ export interface UpdatePatientDto {
     isMerged?: boolean;
     mergedWith?: Types.ObjectId | string;
     mergeReason?: string;
+    sharedPhoneWithPatientId?: Types.ObjectId | string;
+    sharedPhoneRelation?: "Spouse" | "Child" | "Parent" | "Sibling" | "Other family" | "Not related";
+    sharedPhoneConfirmedBy?: Types.ObjectId | string;
+    sharedPhoneConfirmedAt?: Date;
 }
 
 export interface AddPatientDocumentDto {

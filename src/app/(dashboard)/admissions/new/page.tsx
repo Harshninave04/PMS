@@ -29,7 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
-import { PatientDuplicateDialog, type PatientDuplicateMatch } from "@/components/patients/patient-duplicate-dialog";
+import { PatientDuplicateDialog, type PatientDuplicateMatch, type SharedPhoneRelation } from "@/components/patients/patient-duplicate-dialog";
 
 interface Patient {
   _id: string;
@@ -40,6 +40,8 @@ interface Patient {
   contact: string;
   bloodGroup?: string | null;
   allergies?: string[];
+  sharedPhoneWithPatientId?: string | { name?: string } | null;
+  sharedPhoneRelation?: string;
 }
 
 interface Doctor {
@@ -85,6 +87,7 @@ interface ApiResult<T> {
   data?: T;
   message?: string;
   matchingPatients?: PatientDuplicateMatch[];
+  canConfirmSharedPhone?: boolean;
 }
 
 interface NewPatientForm {
@@ -171,6 +174,7 @@ export default function NewAdmissionPage() {
     contact: "",
   });
   const [duplicatePatients, setDuplicatePatients] = useState<PatientDuplicateMatch[]>([]);
+  const [canConfirmSharedPhone, setCanConfirmSharedPhone] = useState(false);
   const [dateChanged, setDateChanged] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [formData, setFormData] = useState({
@@ -346,8 +350,11 @@ export default function NewAdmissionPage() {
     setPatientListOpen(false);
   };
 
-  const handleCreatePatient = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleCreatePatient = async (
+    event?: React.FormEvent<HTMLFormElement>,
+    sharedPhone?: { patient: PatientDuplicateMatch; relation: SharedPhoneRelation },
+  ) => {
+    event?.preventDefault();
     const emergencyRegistration = formData.admissionType === "EMERGENCY";
     setNewPatientLoading(true);
     try {
@@ -360,17 +367,21 @@ export default function NewAdmissionPage() {
           gender: newPatient.gender,
           contact: newPatient.contact.trim(),
           emergencyRegistration,
+          ...(sharedPhone ? { confirmSharedPhone: true, relatedPatientId: sharedPhone.patient._id, relation: sharedPhone.relation } : {}),
         }),
       });
       const result = (await response.json()) as ApiResult<Patient>;
       if (!response.ok || !result.success || !result.data) {
         if (response.status === 409 && result.matchingPatients) {
           setDuplicatePatients(result.matchingPatients);
+          setCanConfirmSharedPhone(result.canConfirmSharedPhone === true);
           return;
         }
         throw new Error(result.message || "Failed to create patient");
       }
       setPatients((previous) => [result.data!, ...previous]);
+      setDuplicatePatients([]);
+      setCanConfirmSharedPhone(false);
       selectPatient(result.data);
       setNewPatient({ name: "", age: "", gender: "MALE", contact: "" });
       setNewPatientOpen(false);
@@ -466,6 +477,9 @@ export default function NewAdmissionPage() {
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-900 dark:text-white">{selectedPatient.name}</span>{selectedPatient.uhid && <Badge variant="outline">{selectedPatient.uhid}</Badge>}{isRecordedBloodGroup(selectedPatient.bloodGroup) && <Badge variant="outline">Blood group: {selectedPatient.bloodGroup}</Badge>}</div>
                   <p className="text-xs text-slate-600 dark:text-slate-400">{selectedPatient.age} years · {selectedPatient.gender} · {selectedPatient.contact}</p>
+                  {typeof selectedPatient.sharedPhoneWithPatientId === "object" && selectedPatient.sharedPhoneWithPatientId?.name && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Shares phone with: {selectedPatient.sharedPhoneWithPatientId.name} ({selectedPatient.sharedPhoneRelation})</p>
+                  )}
                   {selectedPatient.allergies?.length ? <p role="alert" className="flex items-center gap-1.5 text-xs font-semibold text-rose-700 dark:text-rose-300"><Siren className="h-3.5 w-3.5" /> Allergy warning: {selectedPatient.allergies.join(", ")}</p> : <p className="text-xs text-slate-500 dark:text-slate-400">No allergies recorded</p>}
                 </div>
                 <Button type="button" variant="outline" size="sm" onClick={() => window.open(`/patients/profile?id=${selectedPatient._id}`, "_blank", "noopener,noreferrer")}>View Profile</Button>
@@ -572,12 +586,9 @@ export default function NewAdmissionPage() {
       </Dialog>
       <PatientDuplicateDialog
         patients={duplicatePatients}
-        onClose={() => setDuplicatePatients([])}
-        onSelect={(patient) => {
-          setPatients((current) => [{ ...patient, age: patient.age ?? 0, gender: patient.gender ?? "OTHER", contact: patient.contact ?? "" }, ...current.filter((item) => item._id !== patient._id)]);
-          selectPatient(patient as Patient);
-          setNewPatientOpen(false);
-        }}
+        canConfirmSharedPhone={canConfirmSharedPhone}
+        onClose={() => { setDuplicatePatients([]); setCanConfirmSharedPhone(false); }}
+        onConfirmSharedPhone={(patient, relation) => void handleCreatePatient(undefined, { patient, relation })}
       />
     </div>
   );

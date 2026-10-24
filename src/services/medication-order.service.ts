@@ -125,6 +125,7 @@ export class MedicationOrderService {
         if (status && status !== "ALL") filter.status = status as MedicationOrderStatus;
         const orders = await MedicationOrder.find(filter)
             .populate("prescribedBy", "name")
+            .populate("discontinuedBy", "name")
             .sort({ createdAt: -1 })
             .lean();
         // Attach dose adherence per order: at x time, did the patient get y?
