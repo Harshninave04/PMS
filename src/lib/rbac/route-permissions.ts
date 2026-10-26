@@ -189,6 +189,9 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     // Nursing
     get("/nursing/stats", K("nursing", "patients", "view")),
     get("/nursing/my-patients", K("nursing", "patients", "view")),
+    get("/nursing/daily-records", K("nursing", "notes", "view")),
+    post("/nursing/daily-records", K("nursing", "notes", "create")),
+    { path: "/nursing/daily-records/[id]", method: "PUT", permission: K("nursing", "notes", "update") },
     get("/nursing/handover", K("nursing", "patients", "update")),
     post("/nursing/handover", K("nursing", "patients", "update")),
     get("/nursing/medications", K("nursing", "medications", "view")),

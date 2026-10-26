@@ -18,7 +18,6 @@ import {
   Download,
   HeartPulse,
   Pill,
-  FileText,
   Eye,
   ShieldAlert,
   Loader2,
@@ -51,6 +50,7 @@ export default function MyInpatientsPage() {
 
 function MyInpatientsContent() {
   type HandoverPatient = { admissionId: string; name: string; bedNumber: string | number };
+  type PatientInstructionsPatient = { admissionId: string; name: string; uhid: string };
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -71,9 +71,13 @@ function MyInpatientsContent() {
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [wardFilter, setWardFilter] = useState("ALL");
+  const [activeTab, setActiveTab] = useState<"inpatients" | "instructions">("inpatients");
 
   // Selected Inpatient Modal
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
+  const [instructionsPatient, setInstructionsPatient] = useState<PatientInstructionsPatient | null>(null);
+  const [patientInstructions, setPatientInstructions] = useState<any[]>([]);
+  const [patientInstructionsLoading, setPatientInstructionsLoading] = useState(false);
   const [handoverPatient, setHandoverPatient] = useState<HandoverPatient | null>(null);
   const [handoverNurses, setHandoverNurses] = useState<{ id: string; name: string; email: string }[]>([]);
   const [receivingNurseId, setReceivingNurseId] = useState("");
@@ -150,6 +154,25 @@ function MyInpatientsContent() {
       // Timeline is supplementary.
     } finally {
       setTimelineLoading(false);
+    }
+  };
+
+  const openPatientInstructions = async (patient: PatientInstructionsPatient) => {
+    setInstructionsPatient(patient);
+    setPatientInstructions([]);
+    setPatientInstructionsLoading(true);
+    try {
+      const response = await fetch(`/api/care-tasks?admissionId=${encodeURIComponent(patient.admissionId)}`);
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        toast(result.message || "Failed to load doctor instructions", "error");
+        return;
+      }
+      setPatientInstructions(result.data || []);
+    } catch {
+      toast("Failed to load doctor instructions", "error");
+    } finally {
+      setPatientInstructionsLoading(false);
     }
   };
 
@@ -355,6 +378,7 @@ function MyInpatientsContent() {
           prev.map((t) => (t._id === task._id ? data.data : t))
         );
         if (selectedPatient) openTimeline(selectedPatient);
+        if (instructionsPatient) openPatientInstructions(instructionsPatient);
       } else {
         toast(data.message || "Failed to update instruction", "error");
       }
@@ -496,8 +520,7 @@ function MyInpatientsContent() {
             My Allotted Patients
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Only patients allotted to you by the care-team desk. Doctor
-            instructions for these patients appear in your inbox below.
+            Only patients allotted to you by the care-team desk. Use the tabs to switch between your inpatient roster and doctor instructions.
           </p>
         </div>
 
@@ -534,46 +557,64 @@ function MyInpatientsContent() {
         </div>
       </div>
 
-      <Card className="border-cyan-200 bg-cyan-50/50 shadow-sm dark:border-cyan-900 dark:bg-cyan-950/20">
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="font-semibold text-slate-900 dark:text-white">Shift handover</h2>
-            <p className="text-xs text-slate-600 dark:text-slate-300">
-              Review the latest notes, vitals, medication doses, allergies, and doctor instructions for a patient.
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:min-w-[360px] sm:flex-row">
-            <Select
-              aria-label="Choose patient for shift handover"
-              value={handoverAdmissionId || inpatients[0]?.admissionId || ""}
-              onChange={(event) => setHandoverAdmissionId(event.target.value)}
-              disabled={inpatients.length === 0}
-              className="h-9 text-xs"
-            >
-              {inpatients.length === 0 ? (
-                <option value="">No admitted patients</option>
-              ) : (
-                inpatients.map((patient) => (
-                  <option key={patient.admissionId} value={patient.admissionId}>
-                    Bed {patient.bedNumber} — {patient.name} ({patient.uhid})
-                  </option>
-                ))
-              )}
-            </Select>
-            <Button
-              size="sm"
-              className="shrink-0 bg-cyan-700 text-white hover:bg-cyan-800"
-              onClick={openShiftHandover}
-              disabled={inpatients.length === 0 || timelineLoading}
-            >
-              {timelineLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {timelineLoading ? "Loading..." : "Open shift handover"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <div
+        className="flex gap-1 border-b border-slate-200 dark:border-slate-800"
+        role="tablist"
+        aria-label="Nursing patients"
+        onKeyDown={(event) => {
+          const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+          const currentIndex = event.target instanceof HTMLButtonElement ? tabs.indexOf(event.target) : -1;
+          if (currentIndex < 0) return;
+
+          const nextIndex = event.key === "ArrowRight"
+            ? (currentIndex + 1) % tabs.length
+            : event.key === "ArrowLeft"
+              ? (currentIndex - 1 + tabs.length) % tabs.length
+              : event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? tabs.length - 1
+                  : -1;
+          if (nextIndex < 0) return;
+
+          event.preventDefault();
+          setActiveTab(nextIndex === 0 ? "inpatients" : "instructions");
+          tabs[nextIndex].focus();
+        }}
+      >
+        <button
+          id="nursing-inpatients-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "inpatients"}
+          aria-controls="nursing-inpatients-panel"
+          tabIndex={activeTab === "inpatients" ? 0 : -1}
+          onClick={() => setActiveTab("inpatients")}
+          className={`border-b-2 px-4 py-2 text-sm font-medium transition ${activeTab === "inpatients" ? "border-emerald-600 text-emerald-700 dark:text-emerald-300" : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}
+        >
+          My Allotted Inpatients
+        </button>
+        <button
+          id="nursing-instructions-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "instructions"}
+          aria-controls="nursing-instructions-panel"
+          tabIndex={activeTab === "instructions" ? 0 : -1}
+          onClick={() => setActiveTab("instructions")}
+          className={`border-b-2 px-4 py-2 text-sm font-medium transition ${activeTab === "instructions" ? "border-emerald-600 text-emerald-700 dark:text-emerald-300" : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}
+        >
+          Doctor Instructions
+          {openTasks.length > 0 && (
+            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+              {openTasks.length}
+            </span>
+          )}
+        </button>
+      </div>
 
       {/* Doctor-instructions inbox */}
+      {activeTab === "instructions" && <div id="nursing-instructions-panel" role="tabpanel" aria-labelledby="nursing-instructions-tab" tabIndex={0}>
       <Card className="border shadow-sm">
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -689,8 +730,10 @@ function MyInpatientsContent() {
           )}
         </CardContent>
       </Card>
+      </div>}
 
       {/* Filter Bar */}
+      {activeTab === "inpatients" && <div id="nursing-inpatients-panel" role="tabpanel" aria-labelledby="nursing-inpatients-tab" tabIndex={0} className="space-y-3">
       <Card className="border shadow-sm">
         <CardContent className="p-3">
           <div className="flex flex-col sm:flex-row items-center gap-3">
@@ -750,9 +793,9 @@ function MyInpatientsContent() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Bed & Room</TableHead>
-                  <TableHead>Ward Location</TableHead>
                   <TableHead>Patient Particulars</TableHead>
+                  <TableHead>Ward Location</TableHead>
+                  <TableHead>Bed & Room</TableHead>
                   <TableHead>Admitting Diagnosis</TableHead>
                   <TableHead>Attending Doctor</TableHead>
                   <TableHead>Allergies</TableHead>
@@ -769,16 +812,30 @@ function MyInpatientsContent() {
                   </TableRow>
                 ) : (
                   filteredInpatients.map((p) => (
-                    <TableRow key={p.admissionId} className="text-xs hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                    <TableRow
+                      key={p.admissionId}
+                      tabIndex={0}
+                      aria-label={`View handover details for ${p.name}`}
+                      title="Open patient details and shift handover"
+                      onClick={(event) => {
+                        if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea")) return;
+                        openTimeline(p);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+                        event.preventDefault();
+                        openTimeline(p);
+                      }}
+                      className="cursor-pointer text-xs hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-600 dark:hover:bg-slate-800/40"
+                    >
                       <TableCell>
-                        <div className="font-bold text-slate-900 dark:text-white font-mono text-sm">
-                          Bed {p.bedNumber}
+                        <div className="font-semibold text-slate-900 dark:text-white">
+                          {p.name}
                         </div>
                         <div className="text-[10px] text-slate-400 font-mono">
-                          Room {p.roomNumber}
+                          {p.uhid} • {p.gender}, {p.age}y
                         </div>
                       </TableCell>
-
                       <TableCell>
                         <div className="font-medium text-slate-900 dark:text-white">
                           {p.wardName}
@@ -788,12 +845,12 @@ function MyInpatientsContent() {
                         </div>
                       </TableCell>
 
-                      <TableCell>
-                        <div className="font-semibold text-slate-900 dark:text-white">
-                          {p.name}
+                    <TableCell>
+                        <div className="font-bold text-slate-900 dark:text-white font-mono text-sm">
+                          Bed {p.bedNumber}
                         </div>
                         <div className="text-[10px] text-slate-400 font-mono">
-                          {p.uhid} • {p.gender}, {p.age}y
+                          Room {p.roomNumber}
                         </div>
                       </TableCell>
 
@@ -918,6 +975,45 @@ function MyInpatientsContent() {
                               </Button>
                             </>
                           )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs flex items-center gap-1 text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                            onClick={() => openPatientInstructions(p)}
+                          >
+                            <Eye className="h-3 w-3" />
+                            Doctor Instructions
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs flex items-center gap-1 text-cyan-700 border-cyan-200 hover:bg-cyan-50"
+                            onClick={() => beginNurseTransfer(p)}
+                          >
+                            <ArrowRightLeft className="h-3 w-3" />
+                            Transfer shift
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs flex items-center gap-1 text-rose-600 border-rose-200 hover:bg-rose-50"
+                            onClick={() => router.push(`/nursing/vitals?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
+                          >
+                            <HeartPulse className="h-3 w-3" />
+                            Vitals
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs flex items-center gap-1 text-purple-600 border-purple-200 hover:bg-purple-50"
+                            onClick={() => router.push(`/nursing/medications?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
+                          >
+                            <Pill className="h-3 w-3" />
+                            Meds
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -928,6 +1024,7 @@ function MyInpatientsContent() {
           </div>
         </CardContent>
       </Card>
+      </div>}
 
       <Dialog
         open={!!handoverPatient}
@@ -1010,6 +1107,93 @@ function MyInpatientsContent() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!instructionsPatient}
+        onOpenChange={(open) => {
+          if (!open) {
+            setInstructionsPatient(null);
+            setPatientInstructions([]);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          {instructionsPatient && (
+            <div className="space-y-4">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5 text-emerald-600" />
+                  Doctor Instructions — {instructionsPatient.name}
+                </DialogTitle>
+                <DialogDescription>
+                  Instructions for this patient only · UHID: {instructionsPatient.uhid}
+                </DialogDescription>
+              </DialogHeader>
+
+              {patientInstructionsLoading ? (
+                <div className="flex items-center gap-2 py-6 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading instructions...
+                </div>
+              ) : patientInstructions.length === 0 ? (
+                <p className="py-6 text-sm text-slate-500">
+                  No doctor instructions have been recorded for this patient.
+                </p>
+              ) : (
+                <div className="max-h-[60vh] space-y-3 overflow-y-auto">
+                  {patientInstructions.map((instruction) => (
+                    <div key={instruction._id} className="space-y-2 rounded-lg border p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-slate-900 dark:text-white">{instruction.title}</span>
+                        <Badge
+                          variant="outline"
+                          className={instruction.priority === "STAT"
+                            ? "text-rose-600 border-rose-300"
+                            : instruction.priority === "Urgent"
+                              ? "text-amber-600 border-amber-300"
+                              : ""}
+                        >
+                          {instruction.priority}
+                        </Badge>
+                        <Badge variant="outline">{instruction.status}</Badge>
+                      </div>
+                      {instruction.detail && (
+                        <p className="whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">
+                          {instruction.detail}
+                        </p>
+                      )}
+                      <p className="text-xs text-slate-500">
+                        By {instruction.authorId?.name ?? "Doctor"}
+                        {instruction.createdAt ? ` · ${new Date(instruction.createdAt).toLocaleString()}` : ""}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {instruction.status === "NEW" && (
+                          <Button variant="outline" size="sm" onClick={() => actOnTask(instruction, "ACKNOWLEDGED")}>
+                            Acknowledge
+                          </Button>
+                        )}
+                        {(instruction.status === "NEW" || instruction.status === "ACKNOWLEDGED") && (
+                          <Button variant="outline" size="sm" onClick={() => actOnTask(instruction, "IN_PROGRESS")}>
+                            Start
+                          </Button>
+                        )}
+                        {(instruction.status === "ACKNOWLEDGED" || instruction.status === "IN_PROGRESS") && (
+                          <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => actOnTask(instruction, "COMPLETED")}>
+                            Complete
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setInstructionsPatient(null)}>Close</Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1117,14 +1301,14 @@ function MyInpatientsContent() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="text-xs text-cyan-600 border-cyan-200 hover:bg-cyan-50 justify-start"
+                    className="text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50 justify-start"
                     onClick={() => {
                       setSelectedPatient(null);
                       router.push(`/nursing/notes?patientId=${selectedPatient.patientId}&admissionId=${selectedPatient.admissionId}`);
                     }}
                   >
-                    <FileText className="h-3.5 w-3.5 mr-1.5" />
-                    Nurse Note
+                    <ClipboardList className="h-3.5 w-3.5 mr-1.5" />
+                    Daily Nursing Records
                   </Button>
                 </div>
               </div>

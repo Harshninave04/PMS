@@ -3,6 +3,8 @@ import { Types } from "mongoose";
 import { AuthenticatedUserContext, IPermissionGrant, PERMISSION_KEYS as P } from "@/types/rbac";
 import { ScopeResolver } from "@/lib/rbac/scope-resolver";
 import { ADMIN_ROLE, ALL_ROLES, buildRoleAccess } from "@/lib/rbac/role-access";
+import { isNurseRole } from "@/lib/rbac/roles";
+import { buildNursingTeamQuery } from "@/services/nursing.service";
 
 const hospitalId = new Types.ObjectId();
 
@@ -67,6 +69,18 @@ async function runRoleTests() {
 
   test("There are exactly six roles", () => {
     assert.deepEqual([...ALL_ROLES].sort(), ["ACCOUNTANT", "ADMIN", "DOCTOR", "NURSE", "PHARMACIST", "RECEPTIONIST"]);
+  });
+
+  test("Nurse role variants see only admissions assigned to the current user", () => {
+    const nurseId = new Types.ObjectId();
+    assert.equal(isNurseRole("STAFF_NURSE"), true);
+    assert.equal(isNurseRole("Staff Nurse"), true);
+    assert.equal(isNurseRole("RECEPTIONIST"), false);
+
+    const filter = buildNursingTeamQuery({ userId: nurseId, roleName: "STAFF_NURSE" });
+    assert.deepEqual(filter.assignedNurses, nurseId);
+    assert.deepEqual(filter.status, { $in: ["ADMITTED", "TRANSFERRED"] });
+    assert.equal("$or" in filter, false);
   });
 
   test("Admin holds every permission", () => {

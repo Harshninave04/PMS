@@ -266,6 +266,7 @@ const EXTRA_PAGE_PERMISSIONS: Readonly<Record<string, string>> = {
     "/admin/users/create": permissionKey("admin", "users", "create"),
     "/admin/roles": permissionKey("admin", "roles", "view"),
     "/dashboard": permissionKey("dashboard", "main", "view"),
+    "/nursing/daily-records": permissionKey("nursing", "notes", "view"),
 };
 
 /** Pages that must stay reachable whatever the role holds, or nobody can get out. */
