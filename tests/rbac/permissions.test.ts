@@ -745,13 +745,24 @@ async function runPermissionTests() {
 
       assert.equal(module!.label, menu.name, `Label drift on ${menu.path}`);
       assert.equal(module!.route, menu.path, `Route drift on ${menu.path}`);
+      // /admissions/new is deliberately nav-hidden (see the catalogue): it stays
+      // permission-gated without a sidebar link, so every comparison below is
+      // made against the sub-items the sidebar actually shows.
+      const visibleSubItems = module!.subItems.filter(
+        (subItem) => (menu.children ?? []).some((child) => child.path === subItem.route)
+      );
+      assert.equal(
+        visibleSubItems.length,
+        (menu.children ?? []).length,
+        `Sidebar child without a visible sub-item on ${menu.path}`
+      );
       assert.deepEqual(
-        module!.subItems.map((s) => s.label),
+        visibleSubItems.map((s) => s.label),
         (menu.children ?? []).map((c) => c.name),
         `Sub-item order or names drift on ${menu.path}`
       );
       assert.deepEqual(
-        module!.subItems.map((s) => s.route),
+        visibleSubItems.map((s) => s.route),
         (menu.children ?? []).map((c) => c.path),
         `Sub-item route drift on ${menu.path}`
       );

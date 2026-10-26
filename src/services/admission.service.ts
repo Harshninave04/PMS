@@ -199,6 +199,166 @@ export class AdmissionService {
         return await this.repository.update(admissionId, updateData);
     }
 
+    async requestDischarge(
+        admissionId: Types.ObjectId | string,
+        notes: string | undefined,
+        actorId: Types.ObjectId | string
+    ): Promise<IAdmission | null> {
+        const id = new Types.ObjectId(admissionId.toString());
+        const admission = await this.repository.findById(id);
+        if (!admission) {
+            throw { statusCode: 404, message: "Admission not found" };
+        }
+
+        if (admission.status !== "ADMITTED" && admission.status !== "TRANSFERRED") {
+            throw { statusCode: 400, message: `Cannot flag a patient who is ${admission.status}` };
+        }
+
+        if (admission.dischargeRequested) {
+            throw { statusCode: 409, message: "Discharge is already requested for this stay" };
+        }
+
+        return await this.repository.update(id, {
+            dischargeRequested: true,
+            dischargeRequestedAt: new Date(),
+            dischargeRequestedBy: new Types.ObjectId(actorId.toString()),
+            dischargeRequestNotes: notes?.trim() || "",
+        });
+    }
+
+    async withdrawDischargeRequest(admissionId: Types.ObjectId | string): Promise<IAdmission | null> {
+        const id = new Types.ObjectId(admissionId.toString());
+        const admission = await this.repository.findById(id);
+        if (!admission) {
+            throw { statusCode: 404, message: "Admission not found" };
+        }
+
+        if (!admission.dischargeRequested) {
+            return admission;
+        }
+
+        if (admission.billingRequested) {
+            throw {
+                statusCode: 409,
+                message: "Nursing has already sent this stay to billing. Recall it from billing first."
+            };
+        }
+
+        return await this.repository.update(id, {
+            dischargeRequested: false,
+            $unset: {
+                dischargeRequestedAt: "",
+                dischargeRequestedBy: "",
+                dischargeRequestNotes: "",
+            },
+        });
+    }
+
+    async requestBilling(
+        admissionId: Types.ObjectId | string,
+        dto: { expectedDischargeAt?: Date | string; notes?: string },
+        actorId: Types.ObjectId | string
+    ): Promise<IAdmission | null> {
+        const id = new Types.ObjectId(admissionId.toString());
+        const admission = await this.repository.findById(id);
+        if (!admission) {
+            throw { statusCode: 404, message: "Admission not found" };
+        }
+
+        if (admission.status !== "ADMITTED" && admission.status !== "TRANSFERRED") {
+            throw { statusCode: 400, message: `Cannot send a patient who is ${admission.status}` };
+        }
+
+        if (!admission.dischargeRequested) {
+            throw { statusCode: 400, message: "The doctor has not flagged this stay for discharge yet" };
+        }
+
+        if (admission.billingRequested) {
+            throw { statusCode: 409, message: "This stay has already been sent to billing" };
+        }
+
+        const expected = dto.expectedDischargeAt ? new Date(dto.expectedDischargeAt as string) : null;
+        if (!expected || Number.isNaN(expected.getTime())) {
+            throw { statusCode: 400, message: "Expected discharge date and time are required" };
+        }
+
+        const updateData: any = {
+            billingRequested: true,
+            billingRequestedAt: new Date(),
+            billingRequestedBy: new Types.ObjectId(actorId.toString()),
+            expectedDischargeAt: expected,
+        };
+
+        const noteText = dto.notes?.trim();
+        if (noteText) {
+            updateData.$push = {
+                dischargeNotes: {
+                    text: noteText,
+                    by: new Types.ObjectId(actorId.toString()),
+                    at: new Date(),
+                },
+            };
+        }
+
+        return await this.repository.update(id, updateData);
+    }
+
+    async recallBilling(admissionId: Types.ObjectId | string): Promise<IAdmission | null> {
+        const id = new Types.ObjectId(admissionId.toString());
+        const admission = await this.repository.findById(id);
+        if (!admission) {
+            throw { statusCode: 404, message: "Admission not found" };
+        }
+
+        if (!admission.billingRequested) {
+            return admission;
+        }
+
+        return await this.repository.update(id, {
+            billingRequested: false,
+            $unset: {
+                billingRequestedAt: "",
+                billingRequestedBy: "",
+                expectedDischargeAt: "",
+            },
+        });
+    }
+
+    async addDischargeNote(
+        admissionId: Types.ObjectId | string,
+        text: string,
+        actorId: Types.ObjectId | string
+    ): Promise<IAdmission | null> {
+        const id = new Types.ObjectId(admissionId.toString());
+        const admission = await this.repository.findById(id);
+        if (!admission) {
+            throw { statusCode: 404, message: "Admission not found" };
+        }
+
+        if (admission.status !== "ADMITTED" && admission.status !== "TRANSFERRED") {
+            throw { statusCode: 400, message: "Notes can only be added while the patient is admitted" };
+        }
+
+        if (!admission.dischargeRequested) {
+            throw { statusCode: 400, message: "The doctor has not flagged this stay for discharge yet" };
+        }
+
+        const trimmed = text.trim();
+        if (!trimmed) {
+            throw { statusCode: 400, message: "Note text is required" };
+        }
+
+        return await this.repository.update(id, {
+            $push: {
+                dischargeNotes: {
+                    text: trimmed,
+                    by: new Types.ObjectId(actorId.toString()),
+                    at: new Date(),
+                },
+            },
+        });
+    }
+
     async dischargePatient(dto: DischargeAdmissionDto): Promise<IAdmission | null> {
         const admissionId = new Types.ObjectId(dto.admissionId.toString());
         const admission = await this.repository.findById(admissionId);

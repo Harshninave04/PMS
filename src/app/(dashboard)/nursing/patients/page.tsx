@@ -27,7 +27,12 @@ import {
   CheckCircle2,
   Play,
   Ban,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Banknote,
+  AlertTriangle,
+  Flag,
+  Send,
+  Undo2
 } from "lucide-react";
 
 export default function MyInpatientsPage() {
@@ -75,6 +80,16 @@ function MyInpatientsContent() {
   const [handoverNote, setHandoverNote] = useState("");
   const [handoverNursesLoading, setHandoverNursesLoading] = useState(false);
   const [handoverSubmitting, setHandoverSubmitting] = useState(false);
+
+  // Discharge pipeline: doctor flagged -> nurse reviews, notes, sends to billing.
+  const [dischargePatient, setDischargePatient] = useState<any>(null);
+  const [dischargeTimeline, setDischargeTimeline] = useState<any>(null);
+  const [dischargeTimelineLoading, setDischargeTimelineLoading] = useState(false);
+  const [expectedDischargeAt, setExpectedDischargeAt] = useState("");
+  const [dischargeNoteText, setDischargeNoteText] = useState("");
+  const [dischargeNoteSaving, setDischargeNoteSaving] = useState(false);
+  const [dischargeActing, setDischargeActing] = useState(false);
+  const [flaggedOnly, setFlaggedOnly] = useState(searchParams.get("flagged") === "1");
 
   const loadData = async () => {
     try {
@@ -142,6 +157,134 @@ function MyInpatientsContent() {
     const admissionId = handoverAdmissionId || inpatients[0]?.admissionId;
     const patient = inpatients.find((inpatient) => inpatient.admissionId === admissionId);
     if (patient) openTimeline(patient);
+  };
+
+  const openDischargePanel = async (patient: any) => {
+    setDischargePatient(patient);
+    setDischargeTimeline(null);
+    setDischargeTimelineLoading(true);
+    setExpectedDischargeAt(
+      patient.expectedDischargeAt ? new Date(patient.expectedDischargeAt).toISOString().slice(0, 16) : ""
+    );
+    setDischargeNoteText("");
+    try {
+      const res = await fetch(
+        `/api/care-tasks/timeline?admissionId=${patient.admissionId}`
+      );
+      const data = await res.json();
+      if (res.ok && data.success) setDischargeTimeline(data.data);
+    } catch {
+      // Timeline is supplementary.
+    } finally {
+      setDischargeTimelineLoading(false);
+    }
+  };
+
+  const submitDischargeNote = async () => {
+    if (!dischargePatient || !dischargeNoteText.trim()) return;
+    setDischargeNoteSaving(true);
+    try {
+      const res = await fetch("/api/admission/discharge-note", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          admissionId: dischargePatient.admissionId,
+          text: dischargeNoteText.trim(),
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        throw new Error(result.message || "Failed to add note");
+      }
+      toast("Note added to the discharge case", "success");
+      setDischargePatient((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              dischargeNotes: [
+                ...(prev.dischargeNotes ?? []),
+                { text: dischargeNoteText.trim(), at: new Date().toISOString(), byName: "You" },
+              ],
+            }
+          : prev
+      );
+      setDischargeNoteText("");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Failed to add note", "error");
+    } finally {
+      setDischargeNoteSaving(false);
+    }
+  };
+
+  const sendToBilling = async () => {
+    if (!dischargePatient) return;
+    if (!expectedDischargeAt) {
+      toast("Expected discharge date and time are required", "error");
+      return;
+    }
+    setDischargeActing(true);
+    try {
+      const noteText = dischargeNoteText.trim();
+      if (noteText) {
+        const noteRes = await fetch("/api/admission/discharge-note", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            admissionId: dischargePatient.admissionId,
+            text: noteText,
+          }),
+        });
+        const noteResult = await noteRes.json();
+        if (!noteRes.ok || !noteResult.success) {
+          throw new Error(noteResult.message || "Failed to save the note before sending");
+        }
+      }
+      const res = await fetch("/api/admission/billing-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          admissionId: dischargePatient.admissionId,
+          expectedDischargeAt,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        throw new Error(result.message || "Failed to send to billing");
+      }
+      toast(result.message || "Sent to billing", "success");
+      setDischargePatient((prev: any) =>
+        prev ? { ...prev, billingRequested: true, expectedDischargeAt } : prev
+      );
+      setDischargeNoteText("");
+      await loadData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Failed to send to billing", "error");
+    } finally {
+      setDischargeActing(false);
+    }
+  };
+
+  const recallFromBilling = async () => {
+    if (!dischargePatient) return;
+    setDischargeActing(true);
+    try {
+      const res = await fetch("/api/admission/billing-request", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ admissionId: dischargePatient.admissionId }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        throw new Error(result.message || "Failed to recall from billing");
+      }
+      toast(result.message || "Recalled from billing", "success");
+      setDischargePatient((prev: any) => (prev ? { ...prev, billingRequested: false } : prev));
+      await loadData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Failed to recall from billing", "error");
+    } finally {
+      setDischargeActing(false);
+    }
   };
 
   const beginNurseTransfer = async (patient: HandoverPatient) => {
@@ -229,6 +372,27 @@ function MyInpatientsContent() {
     [tasks]
   );
 
+  const panelPendingDoses = useMemo(
+    () => (dischargeTimeline?.medications ?? []).filter((m: any) => m.status === "PENDING").length,
+    [dischargeTimeline]
+  );
+  const panelExceptionDoses = useMemo(
+    () =>
+      (dischargeTimeline?.medications ?? []).filter((m: any) =>
+        ["WITHHELD", "REFUSED"].includes(m.status)
+      ).length,
+    [dischargeTimeline]
+  );
+  const panelOpenInstructions = useMemo(
+    () =>
+      (dischargeTimeline?.tasks ?? []).filter((t: any) =>
+        ["NEW", "ACKNOWLEDGED", "IN_PROGRESS"].includes(t.status)
+      ).length,
+    [dischargeTimeline]
+  );
+  const panelRoundCount = useMemo(() => (dischargeTimeline?.visits ?? []).length, [dischargeTimeline]);
+  const panelLatestVital = dischargeTimeline?.vitals?.[0];
+
   // Distinct Wards
   const availableWards = useMemo(() => {
     const set = new Set<string>();
@@ -238,8 +402,14 @@ function MyInpatientsContent() {
     return Array.from(set);
   }, [inpatients]);
 
+  const dischargeFlagCount = useMemo(
+    () => inpatients.filter((p) => p.dischargeRequested).length,
+    [inpatients]
+  );
+
   const filteredInpatients = useMemo(() => {
     return inpatients.filter((p) => {
+      if (flaggedOnly && !p.dischargeRequested) return false;
       const q = searchQuery.toLowerCase().trim();
       const patName = (p.name || "").toLowerCase();
       const uhid = (p.uhid || "").toLowerCase();
@@ -264,7 +434,7 @@ function MyInpatientsContent() {
 
       return matchesSearch && matchesWard;
     });
-  }, [inpatients, searchQuery, wardFilter]);
+  }, [inpatients, searchQuery, wardFilter, flaggedOnly]);
 
   const exportCSV = () => {
     if (filteredInpatients.length === 0) {
@@ -548,6 +718,21 @@ function MyInpatientsContent() {
                 ))}
               </Select>
             </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFlaggedOnly((prev) => !prev)}
+              className={`h-9 text-xs flex items-center gap-1.5 shrink-0 ${
+                flaggedOnly
+                  ? "border-amber-300 bg-amber-50 text-amber-700 dark:bg-amber-950/30"
+                  : "text-slate-500"
+              }`}
+              title={flaggedOnly ? "Showing only doctor-flagged discharges" : "Filter to doctor-flagged discharges"}
+            >
+              <Flag className="h-3.5 w-3.5" />
+              Discharge flags ({dischargeFlagCount})
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -633,45 +818,106 @@ function MyInpatientsContent() {
 
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs flex items-center gap-1 text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                            onClick={() => openTimeline(p)}
-                          >
-                            <Eye className="h-3 w-3" />
-                            View handover
-                          </Button>
+                          {p.dischargeRequested ? (
+                            <>
+                              {p.billingRequested ? (
+                                <Badge
+                                  className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px]"
+                                  title={`Sent to billing${p.expectedDischargeAt ? ` • expected discharge ${new Date(p.expectedDischargeAt).toLocaleString()}` : ""}`}
+                                >
+                                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                                  Sent to billing
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  className="bg-amber-100 text-amber-800 border-amber-300 text-[10px]"
+                                  title={
+                                    p.flaggedByName || p.dischargeRequestNotes
+                                      ? `Flagged by ${p.flaggedByName || "doctor"}${p.dischargeRequestNotes ? ` — ${p.dischargeRequestNotes}` : ""}`
+                                      : "Discharge flagged by the doctor"
+                                  }
+                                >
+                                  <Flag className="h-3 w-3 mr-1" />
+                                  Flagged
+                                </Badge>
+                              )}
+                              <Button
+                                size="sm"
+                                className="h-7 px-2 text-xs flex items-center gap-1 bg-sky-700 hover:bg-sky-800 text-white"
+                                onClick={() => openDischargePanel(p)}
+                                title={
+                                  p.billingRequested
+                                    ? "Already sent to billing — open the panel to recall or add notes"
+                                    : "Review the stay and send the case to billing"
+                                }
+                              >
+                                <Banknote className="h-3 w-3" />
+                                Discharge
+                              </Button>
 
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs flex items-center gap-1 text-cyan-700 border-cyan-200 hover:bg-cyan-50"
-                            onClick={() => beginNurseTransfer(p)}
-                          >
-                            <ArrowRightLeft className="h-3 w-3" />
-                            Transfer shift
-                          </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs flex items-center gap-1 text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                                onClick={() => openTimeline(p)}
+                              >
+                                <Eye className="h-3 w-3" />
+                                View handover
+                              </Button>
 
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs flex items-center gap-1 text-rose-600 border-rose-200 hover:bg-rose-50"
-                            onClick={() => router.push(`/nursing/vitals?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
-                          >
-                            <HeartPulse className="h-3 w-3" />
-                            Vitals
-                          </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs flex items-center gap-1 text-cyan-700 border-cyan-200 hover:bg-cyan-50"
+                                onClick={() => beginNurseTransfer(p)}
+                              >
+                                <ArrowRightLeft className="h-3 w-3" />
+                                Transfer shift
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs flex items-center gap-1 text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                                onClick={() => openTimeline(p)}
+                              >
+                                <Eye className="h-3 w-3" />
+                                View handover
+                              </Button>
 
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs flex items-center gap-1 text-purple-600 border-purple-200 hover:bg-purple-50"
-                            onClick={() => router.push(`/nursing/medications?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
-                          >
-                            <Pill className="h-3 w-3" />
-                            Meds
-                          </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs flex items-center gap-1 text-cyan-700 border-cyan-200 hover:bg-cyan-50"
+                                onClick={() => beginNurseTransfer(p)}
+                              >
+                                <ArrowRightLeft className="h-3 w-3" />
+                                Transfer shift
+                              </Button>
+
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs flex items-center gap-1 text-rose-600 border-rose-200 hover:bg-rose-50"
+                                onClick={() => router.push(`/nursing/vitals?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
+                              >
+                                <HeartPulse className="h-3 w-3" />
+                                Vitals
+                              </Button>
+
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs flex items-center gap-1 text-purple-600 border-purple-200 hover:bg-purple-50"
+                                onClick={() => router.push(`/nursing/medications?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
+                              >
+                                <Pill className="h-3 w-3" />
+                                Meds
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1025,6 +1271,279 @@ function MyInpatientsContent() {
                 <Button variant="outline" size="sm" onClick={() => setSelectedPatient(null)}>
                   Close
                 </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Discharge process panel: doctor flag -> nurse review -> billing */}
+      <Dialog
+        open={!!dischargePatient}
+        onOpenChange={(open) => {
+          if (!open && !dischargeActing && !dischargeNoteSaving) setDischargePatient(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
+          {dischargePatient && (
+            <div className="space-y-4 text-xs">
+              <DialogHeader>
+                <div className="flex items-center justify-between border-b pb-3">
+                  <div>
+                    <DialogTitle className="text-base font-bold flex items-center gap-2">
+                      <Banknote className="h-5 w-5 text-sky-700" />
+                      Discharge process — {dischargePatient.name}
+                    </DialogTitle>
+                    <DialogDescription>
+                      UHID: {dischargePatient.uhid} • Review the stay, add notes, then send the case to billing.
+                    </DialogDescription>
+                  </div>
+                  {dischargePatient.billingRequested ? (
+                    <Badge className="bg-emerald-100 text-emerald-800 text-xs shrink-0">
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                      Sent to billing
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-xs shrink-0">
+                      <Flag className="h-3 w-3 mr-1" />
+                      Flagged for discharge
+                    </Badge>
+                  )}
+                </div>
+              </DialogHeader>
+
+              <div className="p-3 border border-amber-200 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/20 rounded-lg space-y-1">
+                <span className="text-[10px] text-amber-700 dark:text-amber-400 uppercase font-semibold block">
+                  Discharge request from the doctor
+                </span>
+                <p className="font-medium text-slate-900 dark:text-white">
+                  Flagged by {dischargePatient.flaggedByName || "the treating doctor"}
+                  {dischargePatient.dischargeRequestedAt
+                    ? ` · ${new Date(dischargePatient.dischargeRequestedAt).toLocaleString()}`
+                    : ""}
+                </p>
+                {dischargePatient.dischargeRequestNotes ? (
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 whitespace-pre-wrap">
+                    “{dischargePatient.dischargeRequestNotes}”
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-500">No note from the doctor.</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg">
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Ward & Bed</span>
+                  <div className="font-bold text-slate-900 dark:text-white mt-0.5">
+                    {dischargePatient.wardName}
+                  </div>
+                  <div className="text-slate-500 text-[11px]">
+                    Room {dischargePatient.roomNumber} · Bed {dischargePatient.bedNumber}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Attending</span>
+                  <div className="font-bold text-slate-900 dark:text-white mt-0.5">
+                    {dischargePatient.doctorName}
+                  </div>
+                  <div className="text-slate-500 text-[11px]">{dischargePatient.insurance}</div>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Patient</span>
+                  <div className="font-bold text-slate-900 dark:text-white mt-0.5">
+                    {dischargePatient.gender}, {dischargePatient.age} years
+                  </div>
+                  <div className="text-slate-500 text-[11px]">
+                    Blood: {dischargePatient.bloodGroup || "Unknown"}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Stay</span>
+                  <div className="font-bold text-slate-900 dark:text-white mt-0.5">
+                    {new Date(dischargePatient.admissionDate).toLocaleDateString()}
+                  </div>
+                  <div className="text-slate-500 text-[11px]">
+                    {Math.max(
+                      1,
+                      Math.ceil(
+                        (Date.now() - new Date(dischargePatient.admissionDate).getTime()) / 86400000
+                      )
+                    )}{" "}
+                    day(s) so far
+                  </div>
+                </div>
+              </div>
+
+              {dischargePatient.allergies && dischargePatient.allergies.length > 0 && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 rounded-lg flex items-center gap-2 text-rose-700 dark:text-rose-300">
+                  <ShieldAlert className="h-4 w-4 shrink-0" />
+                  <span>Allergies on file: {dischargePatient.allergies.join(", ")}</span>
+                </div>
+              )}
+
+              <div className="p-3 border rounded-lg space-y-1.5">
+                <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                  Expected discharge date &amp; time *
+                </span>
+                <Input
+                  type="datetime-local"
+                  value={expectedDischargeAt}
+                  onChange={(event) => setExpectedDischargeAt(event.target.value)}
+                  disabled={dischargePatient.billingRequested || dischargeActing}
+                  className="h-8 text-xs w-64"
+                />
+                <p className="text-[11px] text-slate-500">
+                  Bed, room and nursing charges run until the real discharge from the Admissions desk — this expected
+                  date guides the accountant&apos;s bill cut-off.
+                </p>
+              </div>
+
+              <div className="p-3 border rounded-lg space-y-2">
+                <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                  Review before sending
+                </span>
+                {dischargeTimelineLoading ? (
+                  <div className="flex items-center gap-2 text-[11px] text-slate-500 py-1">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading clinical timeline…
+                  </div>
+                ) : !dischargeTimeline ? (
+                  <p className="text-[11px] text-slate-500">
+                    Clinical timeline unavailable — verify chart details before sending.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-[11px]">
+                      {panelOpenInstructions > 0 ? (
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      ) : (
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                      )}
+                      <span>
+                        Doctor instructions: {panelOpenInstructions} of{" "}
+                        {dischargeTimeline.tasks?.length ?? 0} still open
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px]">
+                      {panelPendingDoses + panelExceptionDoses > 0 ? (
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      ) : (
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                      )}
+                      <span>
+                        Medication doses: {panelPendingDoses} pending
+                        {panelExceptionDoses > 0 ? `, ${panelExceptionDoses} withheld/refused` : ""}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px]">
+                      {panelRoundCount > 0 ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                      ) : (
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      )}
+                      <span>
+                        Doctor rounds recorded: {panelRoundCount}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px]">
+                      {panelLatestVital ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                      ) : (
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      )}
+                      <span>
+                        {panelLatestVital
+                          ? `Latest vitals: BP ${panelLatestVital.bloodPressure ?? "—"}, HR ${panelLatestVital.heartRate ?? "—"}, SpO2 ${panelLatestVital.oxygenSaturation ?? "—"}`
+                          : "No vitals recorded for this stay"}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] text-slate-500">
+                  These are advisories, not blocks — you decide when the stay is ready for billing.
+                </p>
+              </div>
+
+              <div className="p-3 border rounded-lg space-y-2">
+                <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                  Nurse notes for the account desk ({dischargePatient.dischargeNotes?.length ?? 0})
+                </span>
+                {dischargePatient.dischargeNotes &&
+                dischargePatient.dischargeNotes.length > 0 ? (
+                  [...dischargePatient.dischargeNotes].reverse().map((note: any, index: number) => (
+                    <div
+                      key={index}
+                      className="border-t border-slate-100 dark:border-slate-800 py-1.5 first:border-0"
+                    >
+                      <p className="whitespace-pre-wrap text-[11px] text-slate-700 dark:text-slate-200">
+                        {note.text}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {note.byName || "Nurse"} · {note.at ? new Date(note.at).toLocaleString() : ""}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-[11px] text-slate-500">
+                    No notes yet — anything the accountant should know (deposits taken, extra consumables, checkout plans)?
+                  </p>
+                )}
+                <div className="space-y-1.5 pt-1">
+                  <Textarea
+                    rows={2}
+                    maxLength={2000}
+                    placeholder="e.g. relatives deposited Rs 5,000 at the counter; 2 oxygen cylinders consumed…"
+                    value={dischargeNoteText}
+                    onChange={(event) => setDischargeNoteText(event.target.value)}
+                    disabled={dischargeNoteSaving || dischargeActing}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={submitDischargeNote}
+                    disabled={!dischargeNoteText.trim() || dischargeNoteSaving || dischargeActing}
+                  >
+                    {dischargeNoteSaving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                    Add note
+                  </Button>
+                </div>
+              </div>
+
+              <DialogFooter className="pt-2 sm:justify-between gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDischargePatient(null)}
+                  disabled={dischargeActing}
+                >
+                  {dischargePatient.billingRequested ? "Close" : "Cancel"}
+                </Button>
+                {dischargePatient.billingRequested ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                    onClick={recallFromBilling}
+                    disabled={dischargeActing}
+                    title="Pull the case back from billing while the accountant has not prepared the bill yet"
+                  >
+                    {dischargeActing && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                    <Undo2 className="mr-1 h-3.5 w-3.5" />
+                    {dischargeActing ? "Recalling..." : "Recall from billing"}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    className="bg-sky-700 hover:bg-sky-800 text-white"
+                    onClick={sendToBilling}
+                    disabled={dischargeActing || !expectedDischargeAt}
+                    title="Hand this stay to the accountant for the final bill"
+                  >
+                    {dischargeActing && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                    <Send className="mr-1 h-3.5 w-3.5" />
+                    {dischargeActing ? "Sending..." : "Send to billing"}
+                  </Button>
+                )}
               </DialogFooter>
             </div>
           )}

@@ -27,6 +27,13 @@ export interface INursingHandoverRecord {
     handedOverAt: Date;
 }
 
+export interface IDischargeNote {
+    _id?: Types.ObjectId | string;
+    text: string;
+    by: Types.ObjectId | any;
+    at: Date;
+}
+
 export interface IAdmission extends Document {
     patientId: Types.ObjectId | any;
     doctorId: Types.ObjectId | any;
@@ -56,6 +63,18 @@ export interface IAdmission extends Document {
     followUpDate?: Date;
     followUpInstructions?: string;
     dischargeAdvice?: string;
+    // Discharge pipeline: the assigned doctor flags the stay for discharge;
+    // nursing hands it over and billing finalises the bill.
+    dischargeRequested?: boolean;
+    dischargeRequestedAt?: Date;
+    dischargeRequestedBy?: Types.ObjectId | any;
+    dischargeRequestNotes?: string;
+    // Nursing handoff to billing (Phase 2)
+    billingRequested?: boolean;
+    billingRequestedAt?: Date;
+    billingRequestedBy?: Types.ObjectId | any;
+    expectedDischargeAt?: Date;
+    dischargeNotes?: IDischargeNote[];
     // Transfer records
     transferHistory?: ITransferRecord[];
     // Care-team assignment (primary doctor stays in `doctorId`)

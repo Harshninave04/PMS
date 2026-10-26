@@ -2,13 +2,53 @@ import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultAdmissionService, { AdmissionService } from "@/services/admission.service";
-import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto, AssignCareTeamDto } from "@/dto/admission.dto";
+import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto, DischargeRequestDto, BillingRequestDto, DischargeNoteDto, AssignCareTeamDto } from "@/dto/admission.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
 
 interface PopulatedEntity {
     _id?: Types.ObjectId;
     [key: string]: unknown;
+}
+
+function idOfValue(value: unknown): string {
+    const rec = value as { _id?: { toString(): string } } | null | undefined;
+    if (rec && typeof rec === "object" && "_id" in rec && rec._id) return rec._id.toString();
+    return value ? String(value) : "";
+}
+
+// Doctors may only flag their own assigned stays; admins keep the admissions
+// desk. The nurse stage of the pipeline uses its own permissions (Phase 2).
+function dischargeFlagAccessError(
+    context: { userId: Types.ObjectId; roleName: string },
+    admission: { doctorId?: unknown; assignedDoctors?: unknown }
+): string | null {
+    if (isSuperAdminRole(context.roleName)) return null;
+    const role = (context.roleName || "").toUpperCase();
+    if (role === "ADMIN") return null;
+    if (role !== "DOCTOR") return "Only the patient's doctor can flag this stay for discharge";
+    const uid = context.userId.toString();
+    const assigned = Array.isArray(admission.assignedDoctors) ? admission.assignedDoctors : [];
+    const onTeam = assigned.some((doctor) => idOfValue(doctor) === uid) || idOfValue(admission.doctorId) === uid;
+    return onTeam ? null : "Forbidden: You can only flag your own admitted patients";
+}
+
+// The nurse stage of the pipeline: only a nurse assigned to the stay (or
+// admin cover) may send it to billing, recall it, or add discharge notes.
+function billingAccessError(
+    context: { userId: Types.ObjectId; roleName: string },
+    admission: { assignedNurses?: unknown }
+): string | null {
+    if (isSuperAdminRole(context.roleName)) return null;
+    const role = (context.roleName || "").toUpperCase();
+    if (role === "ADMIN") return null;
+    if (role !== "NURSE") return "Only the stay's assigned nurse can manage this discharge process";
+    const uid = context.userId.toString();
+    const assigned = Array.isArray(admission.assignedNurses) ? admission.assignedNurses : [];
+    return assigned.some((nurse) => idOfValue(nurse) === uid)
+        ? null
+        : "Forbidden: Only a nurse assigned to this patient can manage its discharge";
 }
 
 export class AdmissionController {
@@ -322,6 +362,281 @@ export class AdmissionController {
             return NextResponse.json(
                 { success: false, message },
                 { status: 500 }
+            );
+        }
+    }
+
+    // POST /api/admission/discharge-request — doctor flags an active stay so
+    // nursing can start the discharge and billing handover. Not the real
+    // discharge: the stay stays ADMITTED/TRANSFERRED.
+    async requestDischarge(request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_RECORD_UPDATE, "Admission");
+            if (!auth.isAuthorized) return auth.response;
+
+            const data: DischargeRequestDto = await request.json();
+            if (!data.admissionId || !Types.ObjectId.isValid(data.admissionId.toString())) {
+                return NextResponse.json(
+                    { success: false, message: "Valid admission ID is required" },
+                    { status: 400 }
+                );
+            }
+
+            const existing = await this.admissionService.getAdmissionById(new Types.ObjectId(data.admissionId.toString()));
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
+            }
+
+            const accessError = dischargeFlagAccessError(auth.context, existing);
+            if (accessError) {
+                return NextResponse.json({ success: false, message: accessError }, { status: 403 });
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
+                if (admBranch && admBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Admission belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            const admission = await this.admissionService.requestDischarge(data.admissionId, data.notes, auth.context.userId);
+
+            return NextResponse.json(
+                { success: true, message: "Discharge requested. Nursing will take over the discharge process.", data: admission },
+                { status: 200 }
+            );
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to request discharge");
+            return NextResponse.json(
+                { success: false, message },
+                { status: err?.statusCode ?? 500 }
+            );
+        }
+    }
+
+    // PUT /api/admission/discharge-request — withdraw the flag before nursing
+    // takes over (doctor may correct a premature request).
+    async withdrawDischargeRequest(request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.CLINICAL_RECORD_UPDATE, "Admission");
+            if (!auth.isAuthorized) return auth.response;
+
+            const data: DischargeRequestDto = await request.json();
+            if (!data.admissionId || !Types.ObjectId.isValid(data.admissionId.toString())) {
+                return NextResponse.json(
+                    { success: false, message: "Valid admission ID is required" },
+                    { status: 400 }
+                );
+            }
+
+            const existing = await this.admissionService.getAdmissionById(new Types.ObjectId(data.admissionId.toString()));
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
+            }
+
+            const accessError = dischargeFlagAccessError(auth.context, existing);
+            if (accessError) {
+                return NextResponse.json({ success: false, message: accessError }, { status: 403 });
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
+                if (admBranch && admBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Admission belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            const admission = await this.admissionService.withdrawDischargeRequest(data.admissionId);
+
+            return NextResponse.json(
+                { success: true, message: "Discharge request withdrawn", data: admission },
+                { status: 200 }
+            );
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to withdraw the discharge request");
+            return NextResponse.json(
+                { success: false, message },
+                { status: err?.statusCode ?? 500 }
+            );
+        }
+    }
+
+    // POST /api/admission/billing-request — nurse hands a flagged stay to the
+    // accountant; requires an expected discharge date and an assigned nurse.
+    async requestBilling(request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+            const auth = await authorizeRequest(request, "nursing.patients:update", "Admission");
+            if (!auth.isAuthorized) return auth.response;
+
+            const data: BillingRequestDto = await request.json();
+            if (!data.admissionId || !Types.ObjectId.isValid(data.admissionId.toString())) {
+                return NextResponse.json(
+                    { success: false, message: "Valid admission ID is required" },
+                    { status: 400 }
+                );
+            }
+
+            const existing = await this.admissionService.getAdmissionById(new Types.ObjectId(data.admissionId.toString()));
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
+            }
+
+            const accessError = billingAccessError(auth.context, existing);
+            if (accessError) {
+                return NextResponse.json({ success: false, message: accessError }, { status: 403 });
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
+                if (admBranch && admBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Admission belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            const admission = await this.admissionService.requestBilling(
+                data.admissionId,
+                { expectedDischargeAt: data.expectedDischargeAt, notes: data.notes },
+                auth.context.userId
+            );
+
+            return NextResponse.json(
+                { success: true, message: "Sent to billing. The accountant can now prepare the final bill.", data: admission },
+                { status: 200 }
+            );
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to send the stay to billing");
+            return NextResponse.json(
+                { success: false, message },
+                { status: err?.statusCode ?? 500 }
+            );
+        }
+    }
+
+    // PUT /api/admission/billing-request — nurse recalls a stay from billing
+    // while no invoice has been raised (Phase 3 adds the invoice check).
+    async recallBilling(request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+            const auth = await authorizeRequest(request, "nursing.patients:update", "Admission");
+            if (!auth.isAuthorized) return auth.response;
+
+            const data: BillingRequestDto = await request.json();
+            if (!data.admissionId || !Types.ObjectId.isValid(data.admissionId.toString())) {
+                return NextResponse.json(
+                    { success: false, message: "Valid admission ID is required" },
+                    { status: 400 }
+                );
+            }
+
+            const existing = await this.admissionService.getAdmissionById(new Types.ObjectId(data.admissionId.toString()));
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
+            }
+
+            const accessError = billingAccessError(auth.context, existing);
+            if (accessError) {
+                return NextResponse.json({ success: false, message: accessError }, { status: 403 });
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
+                if (admBranch && admBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Admission belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            const admission = await this.admissionService.recallBilling(data.admissionId);
+
+            return NextResponse.json(
+                { success: true, message: "Recalled from billing. The stay is back in your discharge list.", data: admission },
+                { status: 200 }
+            );
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to recall the stay from billing");
+            return NextResponse.json(
+                { success: false, message },
+                { status: err?.statusCode ?? 500 }
+            );
+        }
+    }
+
+    // POST /api/admission/discharge-note — nurse appends a note to the
+    // discharge case for the accountant's context.
+    async addDischargeNote(request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+            const auth = await authorizeRequest(request, "nursing.patients:update", "Admission");
+            if (!auth.isAuthorized) return auth.response;
+
+            const data: DischargeNoteDto = await request.json();
+            if (!data.admissionId || !Types.ObjectId.isValid(data.admissionId.toString())) {
+                return NextResponse.json(
+                    { success: false, message: "Valid admission ID is required" },
+                    { status: 400 }
+                );
+            }
+            if (!data.text || !data.text.trim()) {
+                return NextResponse.json(
+                    { success: false, message: "Note text is required" },
+                    { status: 400 }
+                );
+            }
+
+            const existing = await this.admissionService.getAdmissionById(new Types.ObjectId(data.admissionId.toString()));
+            if (!existing) {
+                return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
+            }
+
+            const accessError = billingAccessError(auth.context, existing);
+            if (accessError) {
+                return NextResponse.json({ success: false, message: accessError }, { status: 403 });
+            }
+
+            if (auth.context.branchId && auth.grant.orgScope === "BRANCH") {
+                const admBranch = (existing.branchId as PopulatedEntity)?._id?.toString() || existing.branchId?.toString();
+                if (admBranch && admBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json(
+                        { success: false, message: "Forbidden: Admission belongs to another branch" },
+                        { status: 403 }
+                    );
+                }
+            }
+
+            await this.admissionService.addDischargeNote(
+                data.admissionId,
+                data.text,
+                auth.context.userId
+            );
+
+            return NextResponse.json(
+                { success: true, message: "Note added to the discharge case" },
+                { status: 200 }
+            );
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to add the discharge note");
+            return NextResponse.json(
+                { success: false, message },
+                { status: err?.statusCode ?? 500 }
             );
         }
     }

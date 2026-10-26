@@ -84,6 +84,8 @@ export class NursingService {
       .populate("doctorId", "name email contact")
       .populate("assignedNurses", "name email")
       .populate("assignedDoctors", "name email")
+      .populate("dischargeRequestedBy", "name")
+      .populate({ path: "dischargeNotes.by", select: "name" })
       .populate({
         path: "bedId",
         populate: {
@@ -176,6 +178,25 @@ export class NursingService {
         latestVitalFlag: latestVitalData?.flag as VitalFlag | undefined,
         lastRoundAt: latestRoundAt.get(admissionId)?.toISOString(),
         roundedToday: roundsToday.has(admissionId),
+        dischargeRequested: Boolean(adm.dischargeRequested),
+        dischargeRequestedAt: adm.dischargeRequestedAt as Date | undefined,
+        flaggedByName:
+          typeof (adm.dischargeRequestedBy as Record<string, unknown> | undefined)?.name === "string"
+            ? (adm.dischargeRequestedBy as Record<string, unknown>).name
+            : undefined,
+        dischargeRequestNotes: (adm.dischargeRequestNotes as string | undefined) || undefined,
+        billingRequested: Boolean(adm.billingRequested),
+        billingRequestedAt: adm.billingRequestedAt as Date | undefined,
+        expectedDischargeAt: adm.expectedDischargeAt as Date | undefined,
+        dischargeNotes: Array.isArray(adm.dischargeNotes)
+          ? (adm.dischargeNotes as Array<Record<string, unknown>>).map((note) => ({
+              text: note.text,
+              at: note.at,
+              byName: typeof (note.by as Record<string, unknown> | undefined)?.name === "string"
+                ? (note.by as Record<string, unknown>).name
+                : "Nurse",
+            }))
+          : [],
       };
     });
   }

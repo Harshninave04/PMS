@@ -136,6 +136,9 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     get("/clinical/stats", K("clinical", "consultations", "view")),
     get("/clinical/visits", K("clinical", "rounds", "view")),
     post("/clinical/visits", K("clinical", "rounds", "create")),
+    get("/clinical/rounds", K("patients", "profile", "view")),
+    post("/clinical/rounds", K("clinical", "rounds", "create")),
+    post("/clinical/visits/[id]/addendum", K("clinical", "rounds", "create")),
     { path: "/prescription", method: "GET", permission: K("clinical", "prescriptions", "view") },
     post("/prescription", K("clinical", "prescriptions", "prescribe")),
     { path: "/prescription/[id]", method: "GET", permission: K("clinical", "prescriptions", "view") },
@@ -152,6 +155,15 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     { path: "/admission/[id]", method: "PUT", permission: K("admissions", "current", "update") },
     { path: "/admission/[id]", method: "DELETE", permission: K("admissions", "current", "delete") },
     post("/admission/discharge", K("admissions", "discharge", "discharge")),
+    // Doctor-side discharge pipeline: flag/withdraw a pending discharge before
+    // nursing takes over. Doctors already hold the rounds permissions.
+    post("/admission/discharge-request", K("clinical", "rounds", "update")),
+    put("/admission/discharge-request", K("clinical", "rounds", "update")),
+    // Nurse-side discharge pipeline: hand the flagged stay to billing, recall
+    // it before invoicing, and append discharge notes for the accountant.
+    post("/admission/billing-request", K("nursing", "patients", "update")),
+    put("/admission/billing-request", K("nursing", "patients", "update")),
+    post("/admission/discharge-note", K("nursing", "patients", "update")),
     post("/admission/transfer", K("admissions", "transfer", "create")),
     get("/admission/stats", K("admissions", "current", "view")),
     { path: "/admission/[id]/care-team", method: "PUT", permission: K("admissions", "current", "update") },
@@ -351,6 +363,8 @@ export const ROUTE_ALTERNATIVES: Readonly<Record<string, readonly string[]>> = {
     "GET /care-tasks/timeline": [K("nursing", "medications", "view"), K("nursing", "notes", "view"), K("opd", "queue", "view"), K("clinical", "consultations", "view"), K("dashboard", "main", "view")],
     "GET /clinical/visits": [K("clinical", "consultations", "view"), K("nursing", "notes", "view"), K("dashboard", "main", "view")],
     "POST /clinical/visits": [K("clinical", "consultations", "create")],
+    "POST /clinical/rounds": [K("clinical", "consultations", "create")],
+    "POST /clinical/visits/[id]/addendum": [K("clinical", "consultations", "create")],
     "GET /medication-orders": [K("clinical", "prescriptions", "view"), K("nursing", "medications", "view"), K("dashboard", "main", "view")],
     "POST /medication-orders": [K("clinical", "prescriptions", "prescribe")],
     "PUT /medication-orders/[id]": [K("clinical", "prescriptions", "update")],
