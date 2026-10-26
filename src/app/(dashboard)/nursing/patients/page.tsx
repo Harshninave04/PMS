@@ -922,15 +922,6 @@ function MyInpatientsContent() {
                                 View handover
                               </Button>
 
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 px-2 text-xs flex items-center gap-1 text-cyan-700 border-cyan-200 hover:bg-cyan-50"
-                                onClick={() => beginNurseTransfer(p)}
-                              >
-                                <ArrowRightLeft className="h-3 w-3" />
-                                Transfer shift
-                              </Button>
                             </>
                           ) : (
                             <>
@@ -944,35 +935,6 @@ function MyInpatientsContent() {
                                 View handover
                               </Button>
 
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 px-2 text-xs flex items-center gap-1 text-cyan-700 border-cyan-200 hover:bg-cyan-50"
-                                onClick={() => beginNurseTransfer(p)}
-                              >
-                                <ArrowRightLeft className="h-3 w-3" />
-                                Transfer shift
-                              </Button>
-
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 px-2 text-xs flex items-center gap-1 text-rose-600 border-rose-200 hover:bg-rose-50"
-                                onClick={() => router.push(`/nursing/vitals?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
-                              >
-                                <HeartPulse className="h-3 w-3" />
-                                Vitals
-                              </Button>
-
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 px-2 text-xs flex items-center gap-1 text-purple-600 border-purple-200 hover:bg-purple-50"
-                                onClick={() => router.push(`/nursing/medications?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
-                              >
-                                <Pill className="h-3 w-3" />
-                                Meds
-                              </Button>
                             </>
                           )}
                           <Button
@@ -995,25 +957,6 @@ function MyInpatientsContent() {
                             Transfer shift
                           </Button>
 
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs flex items-center gap-1 text-rose-600 border-rose-200 hover:bg-rose-50"
-                            onClick={() => router.push(`/nursing/vitals?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
-                          >
-                            <HeartPulse className="h-3 w-3" />
-                            Vitals
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs flex items-center gap-1 text-purple-600 border-purple-200 hover:bg-purple-50"
-                            onClick={() => router.push(`/nursing/medications?patientId=${p.patientId}&admissionId=${p.admissionId}`)}
-                          >
-                            <Pill className="h-3 w-3" />
-                            Meds
-                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
