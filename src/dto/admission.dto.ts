@@ -91,3 +91,19 @@ export interface DischargeAdmissionDto {
     dischargeAdvice?: string;
     notes?: string;
 }
+
+export interface DischargeRequestDto {
+    admissionId: Types.ObjectId | string;
+    notes?: string;
+}
+
+export interface BillingRequestDto {
+    admissionId: Types.ObjectId | string;
+    expectedDischargeAt: Date | string;
+    notes?: string;
+}
+
+export interface DischargeNoteDto {
+    admissionId: Types.ObjectId | string;
+    text: string;
+}

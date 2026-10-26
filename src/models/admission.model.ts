@@ -57,6 +57,15 @@ const nursingHandoverSchema = new Schema(
     { _id: true }
 );
 
+const dischargeNoteSchema = new Schema(
+    {
+        text: { type: String, required: true, trim: true },
+        by: { type: Types.ObjectId, ref: 'User', required: true },
+        at: { type: Date, default: Date.now, required: true }
+    },
+    { _id: true }
+);
+
 const admissionSchema = new Schema<IAdmission>(
     {
         patientId: {
@@ -180,6 +189,45 @@ const admissionSchema = new Schema<IAdmission>(
             type: [nursingHandoverSchema],
             default: []
         },
+        // Discharge pipeline: the assigned doctor flags the stay; nursing
+        // hands it over and billing finalises the bill. The stay keeps its
+        // ADMITTED/TRANSFERRED status until the real discharge lands.
+        dischargeRequested: {
+            type: Boolean,
+            default: false
+        },
+        dischargeRequestedAt: {
+            type: Date
+        },
+        dischargeRequestedBy: {
+            type: Types.ObjectId,
+            ref: 'User'
+        },
+        dischargeRequestNotes: {
+            type: String,
+            trim: true
+        },
+        // Nursing handoff to billing (Phase 2): the assigned nurse reviews the
+        // stay and hands it to the accountant; billingRequested flips back off
+        // on a recall until the accountant invoices the case.
+        billingRequested: {
+            type: Boolean,
+            default: false
+        },
+        billingRequestedAt: {
+            type: Date
+        },
+        billingRequestedBy: {
+            type: Types.ObjectId,
+            ref: 'User'
+        },
+        expectedDischargeAt: {
+            type: Date
+        },
+        dischargeNotes: {
+            type: [dischargeNoteSchema],
+            default: []
+        },
         // Patient Transfer History
         transferHistory: {
             type: [transferHistorySchema],
@@ -188,6 +236,7 @@ const admissionSchema = new Schema<IAdmission>(
     }, { timestamps: true });
 
 admissionSchema.index({ assignedNurses: 1, status: 1 });
+admissionSchema.index({ dischargeRequested: 1, billingRequested: 1, status: 1 });
 admissionSchema.index({ doctorId: 1, status: 1 });
 admissionSchema.index({ patientId: 1, status: 1 });
 

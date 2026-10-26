@@ -17,7 +17,8 @@ import {
   RefreshCw,
   Loader2,
   ShieldAlert,
-  ArrowRightLeft
+  ArrowRightLeft,
+  ClipboardCheck
 } from "lucide-react";
 
 interface NursingPatient {
@@ -28,6 +29,7 @@ interface NursingPatient {
   bedNumber: string | number;
   wardName?: string;
   allergies?: string[];
+  dischargeRequested?: boolean;
 }
 
 interface NursingStats {
@@ -172,6 +174,7 @@ function NursingHubContent() {
 
   const handoverPatient = inpatients.find((patient) => patient.admissionId === handoverAdmissionId)
     ?? inpatients[0];
+  const dischargeFlagCount = inpatients.filter((patient) => patient.dischargeRequested).length;
   const latestVitals = handoverData?.vitals[0];
   const latestNursingNote = handoverData?.notes.find((note) => note.recordType === "Nursing Note");
   const pendingDoses = handoverData?.medications.filter((medication) => medication.status === "PENDING") ?? [];
@@ -227,13 +230,26 @@ function NursingHubContent() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Link href="/nursing/patients" className="rounded-xl border bg-white p-4 shadow-sm transition-colors hover:border-emerald-300 hover:bg-emerald-50/50 dark:bg-slate-900 dark:hover:bg-emerald-950/20">
           <div className="flex items-center gap-3">
             <Users className="h-5 w-5 text-emerald-600" />
             <div>
               <p className="font-semibold text-slate-900 dark:text-white">My patients</p>
               <p className="text-xs text-slate-500">{inpatients.length} currently admitted</p>
+            </div>
+          </div>
+        </Link>
+        <Link href="/nursing/patients?flagged=1" className="rounded-xl border bg-white p-4 shadow-sm transition-colors hover:border-amber-300 hover:bg-amber-50/50 dark:bg-slate-900 dark:hover:bg-amber-950/20">
+          <div className="flex items-center gap-3">
+            <ClipboardCheck className={`h-5 w-5 ${dischargeFlagCount > 0 ? "text-amber-600" : "text-slate-400"}`} />
+            <div>
+              <p className="font-semibold text-slate-900 dark:text-white">Discharge flags</p>
+              <p className="text-xs text-slate-500">
+                {dischargeFlagCount > 0
+                  ? `${dischargeFlagCount} of ${inpatients.length} flagged for discharge`
+                  : "No discharge flags yet"}
+              </p>
             </div>
           </div>
         </Link>

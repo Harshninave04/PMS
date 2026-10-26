@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
-  AlertTriangle, Ban, Check, ChevronDown, ChevronRight, ClipboardList, Clock3, Info, Printer,
+  AlertTriangle, Ban, Check, ChevronDown, ChevronRight, ClipboardList, Clock3, DoorOpen, Info, Printer,
   FilePlus2, Loader2, Pill, Plus, RefreshCw, Search, Send,
   UserRound, X,
 } from "lucide-react";
@@ -52,11 +52,14 @@ interface InpatientRow {
   admissionDate: string;
   doctorName: string;
   doctorId?: string;
+  assignedDoctors?: Array<{ _id?: string; name?: string }>;
   assignedNurses?: Array<{ _id?: string; name?: string }>;
   latestVital?: LatestVital;
   latestVitalFlag?: VitalFlag;
   lastRoundAt?: string;
   roundedToday: boolean;
+  dischargeRequested?: boolean;
+  dischargeRequestedAt?: string;
 }
 
 interface PersonName { _id?: string; name?: string }
@@ -260,6 +263,10 @@ function nurseSummary(patient: InpatientRow): { short: string; full: string; una
   const extra = names.length - 2;
   return { short: extra > 0 ? `${shown} +${extra} more` : shown, full: names.join(", "), unassigned: false };
 }
+function canManageDischargeFlag(patient: InpatientRow, currentUserId?: string): boolean {
+  if (!currentUserId) return true;
+  return patient.doctorId === currentUserId || (patient.assignedDoctors ?? []).some((doctor) => doctor._id === currentUserId);
+}
 function hasDraftContent(draft?: Draft): boolean {
   if (!draft) return false;
   return Boolean(draft.condition || draft.notes.trim() || draft.orders.length || draft.medicine.medicationName.trim() || draft.medicine.dosage.trim() || draft.instructionTitle.trim());
@@ -317,6 +324,9 @@ export default function WardRoundsPage() {
   const [stopReason, setStopReason] = useState("");
   const [stopping, setStopping] = useState(false);
   const [stoppingTaskId, setStoppingTaskId] = useState("");
+  const [flagDialogOpen, setFlagDialogOpen] = useState(false);
+  const [flagNotes, setFlagNotes] = useState("");
+  const [flagSaving, setFlagSaving] = useState(false);
   const [addendumTarget, setAddendumTarget] = useState<Round | null>(null);
   const [addendumText, setAddendumText] = useState("");
   const [addendumSaving, setAddendumSaving] = useState(false);
@@ -541,6 +551,35 @@ export default function WardRoundsPage() {
     finally { setAddendumSaving(false); }
   };
 
+  const confirmFlagDischarge = async () => {
+    const admissionId = selectedAdmissionId;
+    if (!admissionId) return;
+    setFlagSaving(true);
+    try {
+      const response = await fetch("/api/admission/discharge-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ admissionId, notes: flagNotes.trim() || undefined }) });
+      const result = await response.json() as ApiResult<unknown>;
+      if (!response.ok || !result.success) throw new Error(result.message || "Could not flag this stay for discharge");
+      toast("Discharge flagged — nursing will take over", "success");
+      setFlagDialogOpen(false); setFlagNotes("");
+      await loadRoster();
+    } catch (error) { toast(error instanceof Error ? error.message : "Could not flag this stay for discharge", "error"); }
+    finally { setFlagSaving(false); }
+  };
+  const withdrawDischargeFlag = async () => {
+    const admissionId = selectedAdmissionId;
+    if (!admissionId) return;
+    setFlagSaving(true);
+    try {
+      const response = await fetch("/api/admission/discharge-request", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ admissionId }) });
+      const result = await response.json() as ApiResult<unknown>;
+      if (!response.ok || !result.success) throw new Error(result.message || "Could not withdraw the discharge flag");
+      toast("Discharge flag withdrawn", "success");
+      setFlagDialogOpen(false); setFlagNotes("");
+      await loadRoster();
+    } catch (error) { toast(error instanceof Error ? error.message : "Could not withdraw the discharge flag", "error"); }
+    finally { setFlagSaving(false); }
+  };
+
   return (
     <main className="mx-auto max-w-[1500px] space-y-4 pb-8">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -548,7 +587,7 @@ export default function WardRoundsPage() {
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-900"><span className="font-semibold text-slate-900 dark:text-white">Rounded {roundCount}/{inpatients.length} today</span><div className="mt-1.5 h-1.5 w-40 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${inpatients.length ? (roundCount / inpatients.length) * 100 : 0}%` }} /></div></div>
       </header>
 
-      <div className="space-y-2 lg:hidden"><Label htmlFor="patient-roster-search-mobile">Find patient</Label><Input id="patient-roster-search-mobile" value={rosterSearch} onChange={(event) => setRosterSearch(event.target.value)} placeholder="Search name, UHID, or bed" /><Select id="patient-top-select" value={visiblePatients.some((patient) => patient.admissionId === selectedAdmissionId) ? selectedAdmissionId : ""} onChange={(event) => setSelectedAdmissionId(event.target.value)} disabled={!visiblePatients.length}><option value="">Select patient</option>{visiblePatients.map((patient) => <option key={patient.admissionId} value={patient.admissionId}>{cleanRoundDisplayText(patient.name)} - Bed {cleanRoundDisplayText(patient.bedNumber)} - {cleanRoundDisplayText(patient.wardName)}{hasDraftContent(drafts[patient.admissionId]) ? " - Unsaved" : ""}</option>)}</Select><div className="flex flex-wrap gap-1.5">{(["All", "Not rounded", "Needs attention"] as const).map((filter) => <button key={filter} type="button" aria-pressed={rosterFilter === filter} onClick={() => setRosterFilter(filter)} className={`rounded-full border px-2.5 py-1 text-xs ${rosterFilter === filter ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"}`}>{filter}</button>)}</div></div>
+      <div className="space-y-2 lg:hidden"><Label htmlFor="patient-roster-search-mobile">Find patient</Label><Input id="patient-roster-search-mobile" value={rosterSearch} onChange={(event) => setRosterSearch(event.target.value)} placeholder="Search name, UHID, or bed" /><Select id="patient-top-select" value={visiblePatients.some((patient) => patient.admissionId === selectedAdmissionId) ? selectedAdmissionId : ""} onChange={(event) => setSelectedAdmissionId(event.target.value)} disabled={!visiblePatients.length}><option value="">Select patient</option>{visiblePatients.map((patient) => <option key={patient.admissionId} value={patient.admissionId}>{cleanRoundDisplayText(patient.name)} - Bed {cleanRoundDisplayText(patient.bedNumber)} - {cleanRoundDisplayText(patient.wardName)}{patient.dischargeRequested ? " - Flagged for discharge" : ""}{hasDraftContent(drafts[patient.admissionId]) ? " - Unsaved" : ""}</option>)}</Select><div className="flex flex-wrap gap-1.5">{(["All", "Not rounded", "Needs attention"] as const).map((filter) => <button key={filter} type="button" aria-pressed={rosterFilter === filter} onClick={() => setRosterFilter(filter)} className={`rounded-full border px-2.5 py-1 text-xs ${rosterFilter === filter ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"}`}>{filter}</button>)}</div></div>
 
       <div className="grid items-start gap-4 lg:grid-cols-[290px_minmax(0,1fr)] xl:grid-cols-[310px_minmax(0,1fr)]">
         <Card className="hidden rounded-2xl border-slate-200 shadow-sm dark:border-slate-800 lg:block lg:sticky lg:top-3"><CardContent className="space-y-3 p-4">
@@ -563,7 +602,7 @@ export default function WardRoundsPage() {
             const hasPatientDraft = hasDraftContent(drafts[patient.admissionId]);
             const nurses = nurseSummary(patient);
             return <button key={patient.admissionId} type="button" onClick={() => { setSelectedAdmissionId(patient.admissionId); setRoundError(""); }} className={`w-full rounded-xl border p-3 text-left transition ${selected ? "border-emerald-500 bg-emerald-50/70 ring-1 ring-emerald-500/20 dark:bg-emerald-950/30" : "border-slate-200 hover:border-emerald-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/60"}`}>
-              <div className="flex items-start justify-between gap-2"><span className="font-semibold text-sm text-slate-900 dark:text-white">{patient.name}</span><span className="flex shrink-0 items-center gap-1">{hasPatientDraft && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">Unsaved</Badge>}<Badge className={`border-0 text-[10px] ${status.className}`}>{status.label}</Badge></span></div>
+              <div className="flex items-start justify-between gap-2"><span className="font-semibold text-sm text-slate-900 dark:text-white">{patient.name}</span><span className="flex shrink-0 items-center gap-1">{hasPatientDraft && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">Unsaved</Badge>}{patient.dischargeRequested && <Badge className="border-0 bg-amber-100 text-[10px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-200" title="Discharge flagged — nursing will take over">Flagged</Badge>}<Badge className={`border-0 text-[10px] ${status.className}`}>{status.label}</Badge></span></div>
               <p className="mt-1 text-xs text-slate-500">Bed {cleanRoundDisplayText(patient.bedNumber)} - {cleanRoundDisplayText(patient.wardName)}</p><p title={cleanRoundDisplayText(nurses.full)} className={`mt-1 truncate text-xs ${nurses.unassigned ? "text-slate-500" : "text-slate-600 dark:text-slate-300"}`}>Nurse: {cleanRoundDisplayText(nurses.short)}</p><p className="mt-1 truncate text-xs text-slate-500">{cleanRoundDisplayText(patient.diagnosis)}</p>
               {patient.allergies.length > 0 && <p className="mt-2 flex items-center gap-1 truncate text-[11px] font-medium text-rose-700 dark:text-rose-300"><AlertTriangle className="h-3 w-3 shrink-0" />{patient.allergies.join(", ")}</p>}
             </button>;
@@ -583,6 +622,10 @@ export default function WardRoundsPage() {
                 {latestFlag && <Badge className={`py-0 text-[10px] ${latestFlag === "CRITICAL" ? "bg-rose-600 text-white" : latestFlag === "WATCH" ? "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"}`}>{latestFlag}</Badge>}
                 {(() => { const nurses = nurseSummary(selectedPatient); return <span title={nurses.full} className={`text-xs ${nurses.unassigned ? "text-slate-500" : "text-slate-600 dark:text-slate-300"}`}>Nurse: {nurses.short}</span>; })()}
                 <span className="text-xs text-slate-600 dark:text-slate-300">{activeOrders.length} active meds</span><span className="text-xs text-slate-500">Last round: {todayRound ? formatDateTime(todayRound.visitedAt ?? todayRound.dateRecorded ?? todayRound.createdAt, displayTimeZone) : selectedPatient.lastRoundAt ? formatDateTime(selectedPatient.lastRoundAt, displayTimeZone) : "not yet"}</span>
+                {selectedPatient.dischargeRequested && <Badge className="bg-amber-100 py-0 text-[10px] text-amber-900 dark:bg-amber-950/50 dark:text-amber-200" title={`Discharge flagged${selectedPatient.dischargeRequestedAt ? ` on ${formatDateTime(selectedPatient.dischargeRequestedAt, displayTimeZone)}` : ""} — nursing will take over`}>Discharge flagged</Badge>}
+                {canManageDischargeFlag(selectedPatient, currentTimeline?.currentUserId) && (selectedPatient.dischargeRequested
+                  ? <Button type="button" size="sm" variant="outline" className="ml-auto h-7 px-2.5 text-xs" disabled={flagSaving} onClick={() => { setFlagDialogOpen(true); setFlagNotes(""); }}>Withdraw flag</Button>
+                  : <Button type="button" size="sm" variant="outline" className="ml-auto h-7 shrink-0 px-2.5 text-xs" disabled={flagSaving} onClick={() => { setFlagDialogOpen(true); setFlagNotes(""); }}><DoorOpen className="mr-1 h-3.5 w-3.5" />Flag for discharge</Button>)}
               </div>
             </CardContent></Card>
 
@@ -697,6 +740,7 @@ export default function WardRoundsPage() {
         </section>
       </div>
 
+      <Dialog open={flagDialogOpen} onOpenChange={(open) => { if (!open && !flagSaving) { setFlagDialogOpen(false); setFlagNotes(""); } }}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>{selectedPatient?.dischargeRequested ? "Withdraw discharge flag" : "Flag for discharge"}</DialogTitle><DialogDescription>{selectedPatient?.dischargeRequested ? "Remove the request before nursing takes over the discharge process. The patient stays admitted." : "Request the nursing team to start the discharge and billing process. The patient remains admitted until the final discharge."}</DialogDescription></DialogHeader>{!selectedPatient?.dischargeRequested && <div className="space-y-1.5"><Label htmlFor="discharge-flag-notes">Note for nursing (optional)</Label><Textarea id="discharge-flag-notes" rows={3} maxLength={1000} value={flagNotes} onChange={(event) => setFlagNotes(event.target.value)} placeholder="Anything nursing or billing should prepare, e.g. pending observation" /></div>}<DialogFooter><Button type="button" variant="outline" disabled={flagSaving} onClick={() => setFlagDialogOpen(false)}>Cancel</Button>{selectedPatient?.dischargeRequested ? <Button type="button" disabled={flagSaving} onClick={() => void withdrawDischargeFlag()} className="bg-amber-600 text-white hover:bg-amber-700">{flagSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <><DoorOpen className="mr-2 h-4 w-4" />Withdraw flag</>}</Button> : <Button type="button" disabled={flagSaving} onClick={() => void confirmFlagDischarge()} className="bg-emerald-600 text-white hover:bg-emerald-700">{flagSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <><DoorOpen className="mr-2 h-4 w-4" />Flag for discharge</>}</Button>}</DialogFooter></DialogContent></Dialog>
       <Dialog open={Boolean(stopTarget)} onOpenChange={(open) => { if (!open && !stopping) { setStopTarget(null); setStopReason(""); } }}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>Stop medication order</DialogTitle><DialogDescription>{stopTarget ? `Stop ${stopTarget.medicationName} and cancel its future pending doses?` : ""}</DialogDescription></DialogHeader><div className="space-y-1.5"><Label htmlFor="stop-reason">Reason</Label><Textarea id="stop-reason" rows={3} value={stopReason} onChange={(event) => setStopReason(event.target.value)} placeholder="Record why this order is being stopped" /></div><DialogFooter><Button type="button" variant="outline" onClick={() => setStopTarget(null)} disabled={stopping}>Cancel</Button><Button type="button" disabled={stopping || !stopReason.trim()} onClick={() => void confirmStopOrder()} className="bg-rose-600 text-white hover:bg-rose-700">{stopping ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Ban className="mr-2 h-4 w-4" />}Stop order</Button></DialogFooter></DialogContent></Dialog>
       <Dialog open={Boolean(addendumTarget)} onOpenChange={(open) => { if (!open && !addendumSaving) { setAddendumTarget(null); setAddendumText(""); } }}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>Add to round note</DialogTitle><DialogDescription>Saved rounds are unchanged; this will be appended as a timestamped addendum.</DialogDescription></DialogHeader><div className="space-y-1.5"><Label htmlFor="round-addendum">Addendum</Label><Textarea id="round-addendum" rows={4} maxLength={4000} value={addendumText} onChange={(event) => setAddendumText(event.target.value)} placeholder="Add a correction or later observation" /></div><DialogFooter><Button type="button" variant="outline" disabled={addendumSaving} onClick={() => setAddendumTarget(null)}>Cancel</Button><Button type="button" disabled={addendumSaving || !addendumText.trim()} onClick={() => void saveAddendum()} className="bg-emerald-600 text-white hover:bg-emerald-700">{addendumSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="mr-2 h-4 w-4" />}Append addendum</Button></DialogFooter></DialogContent></Dialog>
     </main>
