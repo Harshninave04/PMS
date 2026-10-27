@@ -34,6 +34,16 @@ export interface IDischargeNote {
     at: Date;
 }
 
+export interface IBillingMedicalSupply {
+    nursingDay: number;
+    category: string;
+    itemName: string;
+    quantity: number;
+    notes?: string;
+    author: Types.ObjectId | { _id: Types.ObjectId; name?: string };
+    recordedAt: Date;
+}
+
 export interface IAdmission extends Document {
     patientId: Types.ObjectId | any;
     doctorId: Types.ObjectId | any;
@@ -74,6 +84,7 @@ export interface IAdmission extends Document {
     billingRequestedAt?: Date;
     billingRequestedBy?: Types.ObjectId | any;
     expectedDischargeAt?: Date;
+    billingMedicalSupplies?: IBillingMedicalSupply[];
     dischargeNotes?: IDischargeNote[];
     // Transfer records
     transferHistory?: ITransferRecord[];

@@ -1,6 +1,6 @@
 import admissionRepository, { AdmissionRepository } from "@/repositories/admission.repository";
 import { Types } from "mongoose";
-import { IAdmission } from "@/interfaces/admission.interface";
+import { IBillingMedicalSupply, IAdmission } from "@/interfaces/admission.interface";
 import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, DischargeAdmissionDto, AssignCareTeamDto } from "@/dto/admission.dto";
 import Bed from "@/models/bed.model";
 import Admission from "@/models/admission.model";
@@ -256,7 +256,7 @@ export class AdmissionService {
 
     async requestBilling(
         admissionId: Types.ObjectId | string,
-        dto: { expectedDischargeAt?: Date | string; notes?: string },
+        dto: { expectedDischargeAt?: Date | string; notes?: string; medicalSupplies: IBillingMedicalSupply[] },
         actorId: Types.ObjectId | string
     ): Promise<IAdmission | null> {
         const id = new Types.ObjectId(admissionId.toString());
@@ -287,6 +287,7 @@ export class AdmissionService {
             billingRequestedAt: new Date(),
             billingRequestedBy: new Types.ObjectId(actorId.toString()),
             expectedDischargeAt: expected,
+            billingMedicalSupplies: dto.medicalSupplies,
         };
 
         const noteText = dto.notes?.trim();

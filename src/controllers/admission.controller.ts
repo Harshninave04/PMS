@@ -7,6 +7,8 @@ import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
 import DailyNursingRecord from "@/models/daily-nursing-record.model";
+import NursingMedicalSupply from "@/models/nursing-medical-supply.model";
+import type { IBillingMedicalSupply } from "@/interfaces/admission.interface";
 import { stayDayNumber } from "@/lib/hospital-time";
 import { isNurseRole } from "@/lib/rbac/roles";
 
@@ -546,9 +548,27 @@ export class AdmissionController {
                 }
             }
 
+            const medicalSupplies = await NursingMedicalSupply.find({ admissionId: existing._id })
+                .select("nursingDay category itemName quantity notes author recordedAt")
+                .sort({ nursingDay: 1, recordedAt: 1 })
+                .lean();
+            const billingMedicalSupplies: IBillingMedicalSupply[] = medicalSupplies.map((supply) => ({
+                nursingDay: supply.nursingDay,
+                category: supply.category,
+                itemName: supply.itemName,
+                quantity: supply.quantity,
+                ...(supply.notes ? { notes: supply.notes } : {}),
+                author: supply.author,
+                recordedAt: supply.recordedAt,
+            }));
+
             const admission = await this.admissionService.requestBilling(
                 data.admissionId,
-                { expectedDischargeAt: data.expectedDischargeAt, notes: data.notes },
+                {
+                    expectedDischargeAt: data.expectedDischargeAt,
+                    notes: data.notes,
+                    medicalSupplies: billingMedicalSupplies,
+                },
                 auth.context.userId
             );
 
