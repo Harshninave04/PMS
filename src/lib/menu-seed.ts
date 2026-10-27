@@ -107,7 +107,8 @@ export const MENUS: MenuSeed[] = [
             { name: "Create Bill", path: "/finance/invoice/create" },
             { name: "Bills", path: "/finance/invoices" },
             { name: "Payments", path: "/finance/payments" },
-            { name: "Outstanding Dues", path: "/finance/outstanding" }
+            { name: "Outstanding Dues", path: "/finance/outstanding" },
+            { name: "Rates", path: "/finance/rates" }
         ]
     },
     {

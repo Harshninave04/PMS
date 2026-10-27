@@ -375,3 +375,14 @@ export async function requireAnyPermission(
 
   return denied(403, "Forbidden: you do not have permission to view this", "FORBIDDEN");
 }
+
+/**
+ * Probe a permission that is not the route's own guard — e.g. the billing
+ * discount cap, where holding the discount clearance decides whether a bill
+ * discount above the configured share of the gross may be entered.
+ */
+export async function hasRequestPermission(permission: string): Promise<boolean> {
+  const resolved = await resolveRequestIdentity();
+  if ("response" in resolved) return false;
+  return hasResolvedSubItemPermission(resolved.identity.permissions, permission);
+}

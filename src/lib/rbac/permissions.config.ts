@@ -103,6 +103,13 @@ const SPECIAL_ACTIONS_BY_ROUTE: Readonly<Record<string, readonly SpecialActionDe
     "/admissions/discharge": [{ action: "discharge", label: "Discharge" }],
     "/pharmacy/dispensing": [{ action: "dispense", label: "Dispense" }],
     "/finance/payments": [{ action: "refund", label: "Refund" }],
+    // Create Bill: a discount above the configured share of the gross needs a
+    // clearance the ordinary billing-create permission does not imply, and so
+    // does charging free-text items outside the rate list.
+    "/finance/invoice/create": [
+        { action: "discount", label: "Discount above limit" },
+        { action: "custom", label: "Custom item" }
+    ],
 };
 
 /** Every Reports sub-item can export its data. */

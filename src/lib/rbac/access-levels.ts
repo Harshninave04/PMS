@@ -65,6 +65,7 @@ export const SPECIAL_ACTION_LABELS: Readonly<Record<string, string>> = {
     discharge: "Can discharge patients",
     dispense: "Can dispense medicines",
     refund: "Can give refunds",
+    custom: "Can bill custom items",
     export: "Can export reports",
 };
 

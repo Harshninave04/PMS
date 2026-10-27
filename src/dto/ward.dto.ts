@@ -5,6 +5,8 @@ export interface CreateWardDto {
     wardCode: string;
     wardType?: string; // Optional due to default in schema
     floor: number;
+    bedRatePerDay?: number;
+    nursingRatePerDay?: number;
     organizationId: Types.ObjectId | string;
     isActive?: boolean;
 }
@@ -14,6 +16,8 @@ export interface UpdateWardDto {
     wardCode?: string;
     wardType?: string;
     floor?: number;
+    bedRatePerDay?: number;
+    nursingRatePerDay?: number;
     organizationId?: Types.ObjectId | string;
     isActive?: boolean;
 }

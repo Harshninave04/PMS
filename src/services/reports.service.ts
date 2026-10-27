@@ -371,7 +371,7 @@ export class ReportsService {
     invoices.forEach((inv: any) => {
       const finalAmt = Number(inv.finalAmount || 0);
       const paidAmt = Number(inv.paidAmount || (inv.status === "PAID" ? finalAmt : 0));
-      const disc = Number(inv.discountAmount || 0);
+      const disc = Number(inv.discount ?? inv.discountAmount ?? 0);
       const tax = Number(inv.taxAmount || 0);
 
       grossBilled += finalAmt;

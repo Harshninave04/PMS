@@ -1,6 +1,6 @@
-# Billing & Discharge Flow — Implementation Plan (Agent Handoff Document)
+﻿# Billing & Discharge Flow — Implementation Plan (Agent Handoff Document)
 
-Status: IN PROGRESS (Phase 1 implemented awaiting verification; Phase 2 nurse screen next)
+Status: IN PROGRESS (Phase 1 + 2 verified; Phase 3 implemented — see Section 13)
 Last updated: 2026-10-24
 
 Purpose of this file: any new agent/sesssion picks up the plan from here WITHOUT re-analyzing the
@@ -57,8 +57,10 @@ and where the accountant can add/edit rows before settling.
 - [x] Nurse has no discharge process — DONE (Phase 2, see Section 12): flagged cases carry a
       primary "Discharge" action on `/nursing/patients`, opening the review panel with
       everything the accountant needs plus a nurse note thread and the Send/Recall controls.
-- [ ] Accountant workspace — being brainstormed; `/finance/invoice/create` is a temporary
-      placeholder until this design is finalized.
+- [x] Accountant workspace — DONE (Phase 3, see Section 13): `/finance/invoice/create` consumes
+      the billing queue, auto-drafts bed/nursing + doctor rounds + med rows, supports manual
+      invoices, settles via the existing invoice/payment APIs (invoice-first, UNPAID), and the
+      Payments ledger + Outstanding dues pages are rebuilt and wired.
 
 ---
 
@@ -74,6 +76,10 @@ Wiped (temporary; recover from git history if the reference UI is ever needed):
 - `src/app/(dashboard)/finance/outstanding/page.tsx` — the 447-line "Outstanding Payments &
   Aging Analysis" screen (0-30/31-60/61-90/90+ buckets, quick-collect modal, reminder toast)
   was replaced by a placeholder rendering only "Outstanding dues".
+
+(UPDATE 2026-10-24: all three wiped screens are rebuilt in Phase 3 — Create Bill is now the
+discharge-driven workspace; Payments and Outstanding are rebuilt leaner (receipt ledger +
+quick collect/aging). The manuals of the old reference UI live in git history.)
 
 Kept — everything else in the billing stack is REQUIRED and untouched:
 
@@ -142,12 +148,21 @@ Missing for the new flow (add later, keep additive so old records stay valid):
    `paidAmount = finalAmount, status = PAID`, then `POST /api/payment` added the same amount again
    (`payment.service.ts:19-40`), leaving `paidAmount = 2 x finalAmount`. The new accountant
    workspace must either (a) save the invoice UNPAID and let the payment record do the ledger
-   update, or (b) subtract before creating the payment. Bills list + Finance Hub read these fields.
+   update, or (b) subtract before creating the payment.
+   **FIXED in Phase 3** — option (a): the workspace always saves UNPAID and records any instant
+   collection as a Payment afterwards; no earlier mutation of paidAmount happens.
 2. Invoice/receipt numbers are 4-digit RANDOM codes (`INV-YYYYMM-####`) with no uniqueness —
    replace with a counter sequence (pattern already exists: `src/models/opd-token-counter.model.ts`).
+   **FIXED in Phase 3** — `src/models/billing-counter.model.ts` + `src/lib/billing-numbers.ts`
+   (`INV-YYYYMM-0001` / `REC-YYYYMM-0001`, atomic upsert `$inc`).
 3. Invoice + payment creation is NOT atomic — wrap in a Mongo session/transaction
    (`src/lib/mongo-transaction-support.ts` exists, unused here).
+   **MITIGATED in Phase 3 by design**: the invoice is created first (UNPAID), and only then is a
+   payment recorded as a separate, idempotent ledger event — a crash between the two leaves an
+   unpaid invoice, never a corrupted balance. Full session/transaction wiring stays open for a
+   future pass.
 4. "Send Reminder" on Outstanding is a client-side toast only (no notification exists).
+   **STILL OPEN** — the rebuilt Outstanding page keeps the toast with an explanatory tooltip.
 
 ---
 
@@ -174,11 +189,12 @@ Phase 2 — Nurse discharge process [DONE 2026-10-24 — see Section 12]
   - Submit button transitions the case to AWAITING_BILLING (or creates a BillingRequest doc).
   - Register endpoint(s) + permissions.
 
-Phase 3 — Accountant Create Bill workspace (rebuild `/finance/invoice/create`)
+Phase 3 — Accountant Create Bill workspace [DONE 2026-10-24 — see Section 13]
   - Consume pending billing requests; auto-draft rows: bed charges, doctor charges, pharmacy,
     care/procedures; support adding custom rows; keep GST/discount math.
   - Settle via POST /api/invoice (+ POST /api/payment), fixing defect 7.1 in the same change.
   - Trim Accountant default permissions if the "Billing only" sidebar is still wanted.
+    (Not needed: the catalogue path is unchanged; permissions were registered only at route level.)
 
 Verification after each phase:
 - `npm run typecheck`
@@ -291,8 +307,84 @@ Open for Phase 3: accountant workspace consumes stays with
 
 ---
 
+## 13. Phase 3 — Accountant Create Bill Workspace (implemented 2026-10-24)
+
+Design decisions (user-confirmed):
+- Rates: per-ward-category day rates + a flat doctor-round fee originally lived as editable
+  DEFAULTS in `src/lib/billing-rates.ts` (removed 2026-10-27 — replaced by real rate fields:
+  `Ward.bedRatePerDay`/`nursingRatePerDay` with optional per-bed overrides, configured in the
+  Wards & Beds admin screens; doctor rounds bill from `Doctor.consultationFee` per doctor.
+  Unset rates make the matching draft rows red and block save; no seed/backfill was run).
+- Medications: rows are compiled from every eMAR dose recorded GIVEN (NursingMedication),
+  grouped by drug+dosage; each row ships with price 0 (red, blocks save until priced).
+- Settlement is INVOICE-FIRST: save UNPAID, then optionally collect payment (fixes defect 7.1 —
+  no paidAmount is ever written alongside an immediate payment).
+- Pay transparency stays in the existing endpoints; nothing about old records changes.
+
+Backend:
+
+- `src/models/billing-counter.model.ts` + `src/lib/billing-numbers.ts` — sequential
+  `INV-YYYYMM-0001` / `REC-YYYYMM-0001` (defect 7.2). Wired into invoice.controller.createInvoice
+  and payment.service.createPayment.
+- `src/models/invoice.model.ts`, `invoice.interface.ts`, `dto/invoice.dto.ts` — additive
+  `admissionId` link (Section 6 §"missing for the new flow"); validated + stored through the
+  normal create path.
+- NEW `src/services/billing-flow.service.ts` —
+  `getBillingQueue(actor)` (stays with `dischargeRequested && billingRequested`, active,
+  branch-convention scoped, each annotated with its non-cancelled linked invoice),
+  `buildAdmissionDraft(admissionId, actor)` (branch-checked stay context + suggested rows:
+  bed day-rate × days to cut-off [`expectedDischargeAt` or today], nursing rate × days,
+  doctor-round fee × rounds counted from ClinicalRecord Progress-Note/Rounds, one row per
+  GIVEN drug+dosage) and `getLinkedInvoice(admissionId)`.
+- `src/controllers/admission.controller.ts` + NEW `src/app/api/admission/billing-queue/route.ts`
+  — GET queue, route guard `billing.invoices:view`, controller guard
+  `PERMISSION_KEYS.BILLING_INVOICE_VIEW` ("Admission").
+- `src/controllers/invoice.controller.ts` + NEW `src/app/api/invoice/draft/route.ts` — GET draft
+  (+ linked invoice), same guard pair ("Invoice").
+- `src/lib/rbac/route-permissions.ts` — `GET /admission/billing-queue` and `GET /invoice/draft`
+  registered under `billing.invoices:view`. ACCOUNTANT (and RECEPTIONIST) already hold it —
+  **no permission-catalogue or role default change**.
+- Post-bill locks (Phase 2 "Open for Phase 3" items) in `src/services/admission.service.ts`:
+  `recallBilling` and `addDischargeNote` now 409 once a non-cancelled invoice exists for the
+  stay; `dischargePatient` refuses to free the bed while `billingRequested` is set and no bill
+  has been raised ("accountant must finalize the bill before discharge"). Unflagged stays keep
+  discharging exactly as before.
+
+Accountant UI:
+
+- `src/app/(dashboard)/finance/invoice/create/page.tsx` REBUILT — billing queue card (sent-to-
+  billing stays, oldest handoff first; billed rows show invoice number/status) + charge
+  workspace: stay context (bed/ward-type, attending, insurance, doctor's flag note, latest
+  nurse note, allergies), fully editable rows (qty/rate/disc/tax per row + extra header
+  discount), GST/discount totals matching the Invoice model, due date + notes, "Save bill
+  (UNPAID)", then an optional **Collect payment** dialog (POST /api/payment) — the workspace
+  also keeps a **manual invoice** mode (patient search via GET /api/patient + free rows) so the
+  pre-pipeline billing contract is preserved.
+- `src/app/(dashboard)/finance/payments/page.tsx` REBUILT — receipt ledger (GET /api/payment)
+  with search/method filter, KPIs (filtered sum, count, by-method chips), receipt detail + print.
+- `src/app/(dashboard)/finance/outstanding/page.tsx` REBUILT — aging register
+  (GET /api/finance/outstanding) with grand total + 4 bucket cards, quick-collect dialog
+  (POST /api/payment) and contact/reminder actions (reminder stays a toast — defect 7.4 open).
+- `src/app/(dashboard)/finance/page.tsx` — Create Invoice workstation badge now shows
+  "N awaiting bill" (queue count) when cases are pending.
+
+Pipeline end state: Doctor flag → Nurse review/send → **Accountant bill (this phase)** →
+payment → front-desk discharge frees the bed (`dischargePatient` now refuses billingRequested
+stays until an invoice exists).
+
+Remaining / not in scope:
+- Defect 7.3 full session-wiring and 7.4 notifications (see Section 7 status note).
+- Medicine unit-price autofill for eMAR rows (rows are priced manually today; the DB
+  charge-rate tables now live on Ward/Bed + Doctor.consultationFee — see the 2026-10-27 log).
+
+---
+
 ## 10. Progress Log
 
+- 2026-10-24: Phase 3 implemented + verified: accountant Create Bill workspace (see
+  Section 13). TypeScript check clean; `npm test` full 12-file RBAC suite green.
+  Defects 7.1 (instant-collect double count) and 7.2 (random invoice/receipt numbers)
+  fixed; 7.3 deliberately mitigated invoice-first, 7.4 stays toast-only.
 - 2026-10-24: Phase 2 verification LOGGED: typecheck clean; `npm test` full suite green
   227/227 across all 12 RBAC files — the new `/admission/billing-request` (POST+PUT) and
   `/admission/discharge-note` (POST) route registrations satisfy the route-coverage
@@ -329,3 +421,70 @@ Open for Phase 3: accountant workspace consumes stays with
   ("Payments" / "Outstanding dues" text only). Remaining billing UI: Finance Hub
   (`/finance`) and Bills (`/finance/invoices`) — the Bills list still collects partial
   payments via its modal, so invoice/payment backends remain exercised.
+
+- 2026-10-27: New multi-phase "Create Bill rework" task started (Phase 0 read-only
+  audit reported and approved: no schema field changes needed out of the box; proposals
+  approved with conditions — Invoice partial unique index via one-off script using the
+  isActive fallback, and bed segments reuse Admission.transferHistory). Phase 1 bug list
+  implemented: server-side recomputation of invoice totals (prices cannot be trusted
+  from the client), shared round2/fmtMoney + en-IN date helpers, payment guardrails
+  (amount > 0, no overpay, block on cancelled/fully-paid invoices), duplicate-admission
+  protection (pre-check + race-safe 409 on unique-index violation, isActive kept in
+  sync with status, cancelled bills free the stay), client race/dirty guards in
+  openCase, collect flow switched to close-then-reload (no double invoice), billed
+  queue cards gained View invoice / Print deep links, Mongoose legacy-name enrichment
+  for the billing queue (doctor name, sent-by via handover fallback), and the
+  reports discountAmount source bug fixed. Verification: typecheck clean; 
+pm test
+  full 12-file RBAC suite green; production build succeeded; 
+pm run lint baseline
+  failures unchanged by this phase (no new rule hits introduced). Pending user action:
+  take a mongodump, then run 
+px tsx scripts/create-bill-unique-index.ts to create
+  the partial unique index — the API pre-check covers duplicates until then.
+
+- 2026-10-27: Phase 2 (Create Bill simplification) implemented: per-row discount and
+  tax inputs/columns removed from the billing table (schema kept optional, API still
+  accepts them for backward compatibility, client sends 0), GST/tax row and the due
+  date input removed from the workspace; the bill discount is now entered once at
+  bill level and REQUIRES a reason (stored on the new optional Invoice.discountReason
+  field, enforced on client and server). Discounts above 10% of the gross are blocked
+  unless the caller holds the new special-action permission illing.create:discount
+  ("Discount above limit" on Create Bill in the permission matrix / guard helper
+  hasRequestPermission). Rate-₹0 rows render red and block save on the client; the
+  server rejects them as well ("delete the row if it is not chargeable") — this also
+  stops eMAR dose rows at price 0 from being billed before Phase 3.3 wires pharmacy
+  prices. Deleting an auto-generated (draft) row now demands a typed reason via a
+  prompt; the reason is appended to the invoice notes. Verification: typecheck clean;
+  full 
+pm test 12-file suite green (210 checks); build succeeds; lint profile
+  unchanged (only the file's pre-existing baseline hits; no new rule hits).
+
+- 2026-10-27: Phase 3.1 (dynamic rates) implemented: src/lib/billing-rates.ts deleted
+  (grep-confirmed single importer). Ward.bedRatePerDay/
+ursingRatePerDay and optional
+  per-bed overrides Bed.bedRatePerDay/
+ursingRatePerDay added (optional fields, no
+  seeds/backfill), editable from the Wards and Beds admin screens with sanitation on the
+  API (blank keeps stored value, numbers must be >= 0). The billing draft now prices bed
+  + nursing rows from bed override -> ward rate, and splits doctor-round rows per doctor
+  priced from that doctor's consultationFee (joined via ClinicalRecord doctor/author
+  User id; unattributed rounds emit a red row). Unset ward rate / unset doctor fee keep
+  the row price at 0 - red, saves blocked, fixed in the master, never written back from
+  the bill. The Wards list shows the configured rates. Verification: typecheck clean;
+  full 
+pm test suite green; build succeeds; lint unchanged (pre-existing hits only).
+
+- 2026-10-27: Phase 3.2 (Service master + autocomplete) implemented. New 'Service'
+  collection (name unique, category, defaultRate >= 0, active flag) driven from
+  Billing > Rates (/finance/rates, screenshot-style admin table) with the standard
+  RBAC sub-item 'billing.rates' (view/create/update/delete | API guards
+  /api/service + /api/service/[id]). Billing sidebar gains a 'Rates' entry. The
+  Create Bill description field autocompletes over active services (top 6 matches,
+  picking one pre-fills name + rate into the row snapshot); free-text rows outside
+  the rate master now need the new 'Custom item' clearance (billing.create:custom,
+  declared as a special action next to the discount one, granted by nobody by
+  default - SUPER_ADMIN implicit). Verification: typecheck clean, full npm test
+  suite green (menu/route/catalogue/preset checks cover the new sub-item), build
+  succeeds; lint profile unchanged apart from the one pre-existing-pattern
+  disable documented inline on the two initial-load effects.
