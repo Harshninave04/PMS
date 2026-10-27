@@ -8,6 +8,15 @@ import { PERMISSION_KEYS } from "@/types/rbac";
 import Room from "@/models/room.model";
 import Ward from "@/models/ward.model";
 
+// Per-bed rate overrides must be money-safe: unset keeps the ward rate, a set
+// value must be finite and >= 0. Returns NaN for an unusable value.
+function sanitiseRateField(value: unknown): number | undefined {
+    if (value === undefined || value === null || value === "") return undefined;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric >= 0) return numeric;
+    return Number.NaN;
+}
+
 export class BedController {
     constructor(private bedService: BedService = defaultBedService) { }
 
@@ -47,6 +56,14 @@ export class BedController {
             if (!ward) {
                 return NextResponse.json({ success: false, message: "Room is outside your organization scope" }, { status: 403 });
             }
+
+            const bedRate = sanitiseRateField(raw.bedRatePerDay);
+            const nursingRate = sanitiseRateField(raw.nursingRatePerDay);
+            if (Number.isNaN(bedRate) || Number.isNaN(nursingRate)) {
+                return NextResponse.json({ success: false, message: "Rates must be zero or positive numbers" }, { status: 400 });
+            }
+            if (bedRate !== undefined) data.bedRatePerDay = bedRate;
+            if (nursingRate !== undefined) data.nursingRatePerDay = nursingRate;
 
             const bed = await this.bedService.createBed(data);
 
@@ -173,14 +190,22 @@ export class BedController {
             }
 
             const data: UpdateBedDto = await request.json();
-            
+
             if (data.roomId && !Types.ObjectId.isValid(data.roomId)) {
                  return NextResponse.json(
                     { success: false, message: "Invalid room ID format" },
                     { status: 400 }
                 );
             }
-            
+
+            const bedRate = sanitiseRateField(data.bedRatePerDay);
+            const nursingRate = sanitiseRateField(data.nursingRatePerDay);
+            if (Number.isNaN(bedRate) || Number.isNaN(nursingRate)) {
+                return NextResponse.json({ success: false, message: "Rates must be zero or positive numbers" }, { status: 400 });
+            }
+            if (bedRate === undefined) delete data.bedRatePerDay; else data.bedRatePerDay = bedRate;
+            if (nursingRate === undefined) delete data.nursingRatePerDay; else data.nursingRatePerDay = nursingRate;
+
             const bed = await this.bedService.updateBed(new Types.ObjectId(id), data);
 
             return NextResponse.json(

@@ -24,6 +24,13 @@ export class PaymentController {
                 );
             }
 
+            if (!Types.ObjectId.isValid(data.invoiceId.toString()) || !Types.ObjectId.isValid(data.patientId.toString())) {
+                return NextResponse.json(
+                    { success: false, message: "Invalid invoice or patient reference" },
+                    { status: 400 }
+                );
+            }
+
             // Enforce branch boundary
             if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
                 data.branchId = auth.context.branchId.toString();

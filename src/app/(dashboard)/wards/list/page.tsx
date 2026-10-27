@@ -21,8 +21,13 @@ interface WardItem {
   floor: number;
   organizationId: { _id: string; organizationName: string } | string;
   isActive: boolean;
+  bedRatePerDay?: number | null;
+  nursingRatePerDay?: number | null;
   createdAt?: string;
 }
+
+/** Defaults for the billing draft; blank in the form keeps the stored value. */
+interface RateInput { bedRatePerDay: number | ""; nursingRatePerDay: number | "" }
 
 interface OrganizationOption {
   _id: string;
@@ -59,6 +64,7 @@ export default function ManageWardsPage() {
   // Create / Edit Dialog State
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingWard, setEditingWard] = useState<WardItem | null>(null);
+  const [rates, setRates] = useState<RateInput>({ bedRatePerDay: "", nursingRatePerDay: "" });
   const [form, setForm] = useState<{ wardName: string; wardCode: string; wardType: string; floor: number | ""; organizationId: string; isActive: boolean }>({
     wardName: "",
     wardCode: "",
@@ -129,6 +135,7 @@ export default function ManageWardsPage() {
   const openCreate = () => {
     setSaveError("");
     setEditingWard(null);
+    setRates({ bedRatePerDay: "", nursingRatePerDay: "" });
     setForm({
       wardName: "",
       wardCode: "",
@@ -140,9 +147,15 @@ export default function ManageWardsPage() {
     setDialogOpen(true);
   };
 
+  const rateHasValue = (value: number | "") => value !== "" && Number.isFinite(Number(value)) && Number(value) >= 0;
+
   const openEdit = (ward: WardItem) => {
     setSaveError("");
     setEditingWard(ward);
+    setRates({
+      bedRatePerDay: typeof ward.bedRatePerDay === "number" ? ward.bedRatePerDay : "",
+      nursingRatePerDay: typeof ward.nursingRatePerDay === "number" ? ward.nursingRatePerDay : "",
+    });
     setForm({
       wardName: ward.wardName,
       wardCode: ward.wardCode,
@@ -168,17 +181,35 @@ export default function ManageWardsPage() {
       toast("Ward code must use uppercase letters or numbers, with no spaces.", "warning");
       return;
     }
+    if (
+      (rates.bedRatePerDay !== "" && !rateHasValue(rates.bedRatePerDay)) ||
+      (rates.nursingRatePerDay !== "" && !rateHasValue(rates.nursingRatePerDay))
+    ) {
+      setSaveError("Rates must be zero or positive numbers.");
+      toast("Rates must be zero or positive numbers.", "warning");
+      return;
+    }
 
     setSaveError("");
     setSaveLoading(true);
     try {
       const method = editingWard ? "PUT" : "POST";
       const url = editingWard ? `/api/ward/${editingWard._id}` : "/api/ward";
-      
+
+      const payload: Record<string, unknown> = {
+        ...form,
+        wardName,
+        wardCode,
+        floor: Number(form.floor),
+        organizationId: idOf(form.organizationId),
+      };
+      if (rates.bedRatePerDay !== "") payload.bedRatePerDay = Number(rates.bedRatePerDay);
+      if (rates.nursingRatePerDay !== "") payload.nursingRatePerDay = Number(rates.nursingRatePerDay);
+
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, wardName, wardCode, floor: Number(form.floor), organizationId: idOf(form.organizationId) })
+        body: JSON.stringify(payload)
       });
       const json = await res.json();
 
@@ -301,6 +332,7 @@ export default function ManageWardsPage() {
                   <TableHead className="font-semibold text-xs uppercase tracking-wider">Ward Code</TableHead>
                   <TableHead className="font-semibold text-xs uppercase tracking-wider">Ward Type</TableHead>
                   <TableHead className="font-semibold text-xs uppercase tracking-wider">Floor</TableHead>
+                  <TableHead className="font-semibold text-xs uppercase tracking-wider">Bed / Nursing ₹/day</TableHead>
                   <TableHead className="font-semibold text-xs uppercase tracking-wider">Organization</TableHead>
                   <TableHead className="font-semibold text-xs uppercase tracking-wider">Status</TableHead>
                   <TableHead className="text-right font-semibold text-xs uppercase tracking-wider">Actions</TableHead>
@@ -321,6 +353,17 @@ export default function ManageWardsPage() {
                         <Layers className="h-3.5 w-3.5 opacity-60" />
                         {ward.floor}
                       </span>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs font-medium">
+                      {typeof ward.bedRatePerDay === "number" || typeof ward.nursingRatePerDay === "number" ? (
+                        <>
+                          {typeof ward.bedRatePerDay === "number" ? `₹${ward.bedRatePerDay}` : "—"}
+                          {" / "}
+                          {typeof ward.nursingRatePerDay === "number" ? `₹${ward.nursingRatePerDay}` : "—"}
+                        </>
+                      ) : (
+                        <span className="text-rose-500 font-semibold" title="No billing rates configured — Create Bill will show red rows">not set</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-slate-550 font-medium text-xs">
                       <span className="inline-flex items-center gap-1">
@@ -429,6 +472,33 @@ export default function ManageWardsPage() {
               </Select>
             </div>
 
+            <div className="grid gap-4 grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="bedRatePerDay" className="font-semibold text-slate-700 dark:text-slate-350">Bed Rate ₹ / day</Label>
+                <Input
+                  id="bedRatePerDay"
+                  type="number"
+                  min={0}
+                  placeholder="e.g. 900"
+                  value={rates.bedRatePerDay}
+                  onChange={(e) => { setSaveError(""); setRates((p) => ({ ...p, bedRatePerDay: e.target.value === "" ? "" : Number(e.target.value) })); }}
+                />
+                <p className="text-[10px] text-slate-400">Used by Create Bill — blank keeps the stored value / unset</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="nursingRatePerDay" className="font-semibold text-slate-700 dark:text-slate-350">Nursing ₹ / day</Label>
+                <Input
+                  id="nursingRatePerDay"
+                  type="number"
+                  min={0}
+                  placeholder="e.g. 250"
+                  value={rates.nursingRatePerDay}
+                  onChange={(e) => { setSaveError(""); setRates((p) => ({ ...p, nursingRatePerDay: e.target.value === "" ? "" : Number(e.target.value) })); }}
+                />
+                <p className="text-[10px] text-slate-400">Charged with the bed row by stay days</p>
+              </div>
+            </div>
+
             <div className="flex items-center gap-2 pt-2">
               <Label className="cursor-pointer font-semibold text-slate-755 dark:text-slate-350">Active Status</Label>
               <button
@@ -448,7 +518,7 @@ export default function ManageWardsPage() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="text-xs">
                 Cancel
               </Button>
-              <Button type="submit" disabled={saveLoading || !form.wardName.trim() || !form.wardCode.trim() || form.floor === "" || !Number.isFinite(Number(form.floor))} className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
+              <Button type="submit" disabled={saveLoading || !form.wardName.trim() || !form.wardCode.trim() || form.floor === "" || !Number.isFinite(Number(form.floor)) || (rates.bedRatePerDay !== "" && !rateHasValue(rates.bedRatePerDay)) || (rates.nursingRatePerDay !== "" && !rateHasValue(rates.nursingRatePerDay))} className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
                 {saveLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                 {editingWard ? "Save Changes" : "Create Ward"}
               </Button>

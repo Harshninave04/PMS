@@ -43,6 +43,17 @@ export default function InvoicesListPage() {
   const [cashierName, setCashierName] = useState("Main Billing Counter");
   const [recordingPayment, setRecordingPayment] = useState(false);
 
+  // Deep-link targets from the billing queue cards: /finance/invoices?open=…
+  // opens the invoice modal, ?print=… opens it and triggers the print dialog.
+  const [pendingLook, setPendingLook] = useState<{ id: string; print: boolean } | null>(() => {
+    if (typeof window === "undefined") return null; // the client component still SSRs
+    const params = new URLSearchParams(window.location.search);
+    const openId = params.get("open");
+    const printId = params.get("print");
+    if (!openId && !printId) return null;
+    return { id: (openId || printId) as string, print: !!printId };
+  });
+
   const { toast } = useToast();
 
   const fetchInvoices = async () => {
@@ -65,6 +76,34 @@ export default function InvoicesListPage() {
   useEffect(() => {
     fetchInvoices();
   }, []);
+
+  useEffect(() => {
+    if (!pendingLook || loading) return;
+    const { id, print } = pendingLook;
+    const resolve = async () => {
+      let inv = invoices.find((row: any) => row._id === id);
+      if (!inv) {
+        try {
+          const res = await fetch(`/api/invoice/${id}`);
+          const data = await res.json();
+          if (data.success && data.data) inv = data.data;
+        } catch {
+          /* falls through to the toast below */
+        }
+      }
+      if (!inv) {
+        toast("That invoice could not be opened", "error");
+      } else {
+        setSelectedInvoice(inv);
+        if (print) {
+          setTimeout(() => window.print(), 700);
+        }
+      }
+      setPendingLook(null);
+    };
+    void resolve();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingLook, loading]);
 
   const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();

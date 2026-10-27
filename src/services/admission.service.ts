@@ -5,6 +5,8 @@ import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, Discharge
 import Bed from "@/models/bed.model";
 import Admission from "@/models/admission.model";
 import User from "@/models/user.model";
+import Invoice from "@/models/invoice.model";
+import { getLinkedInvoice } from "@/services/billing-flow.service";
 
 export class AdmissionService {
     constructor(private repository: AdmissionRepository = admissionRepository) { }
@@ -314,6 +316,14 @@ export class AdmissionService {
             return admission;
         }
 
+        const linkedInvoice = await getLinkedInvoice(id);
+        if (linkedInvoice) {
+            throw {
+                statusCode: 409,
+                message: "The accountant has already raised a bill for this stay; the case can no longer be recalled."
+            };
+        }
+
         return await this.repository.update(id, {
             billingRequested: false,
             $unset: {
@@ -343,6 +353,14 @@ export class AdmissionService {
             throw { statusCode: 400, message: "The doctor has not flagged this stay for discharge yet" };
         }
 
+        const linkedInvoice = await getLinkedInvoice(id);
+        if (linkedInvoice) {
+            throw {
+                statusCode: 409,
+                message: "A bill has already been raised for this stay; discharge notes are locked."
+            };
+        }
+
         const trimmed = text.trim();
         if (!trimmed) {
             throw { statusCode: 400, message: "Note text is required" };
@@ -368,6 +386,18 @@ export class AdmissionService {
 
         if (admission.status === "DISCHARGED") {
             throw { statusCode: 400, message: "Patient is already discharged" };
+        }
+
+        // Discharge-pipeline rule: a stay the nurse handed to billing cannot be
+        // discharged until the accountant's invoice exists (then the bed frees).
+        if (admission.billingRequested) {
+            const linkedInvoice = await getLinkedInvoice(admissionId);
+            if (!linkedInvoice) {
+                throw {
+                    statusCode: 409,
+                    message: "Nursing sent this stay to billing but no bill has been raised yet. The accountant must finalize the bill before this patient can be discharged."
+                };
+            }
         }
 
         // Free the bed

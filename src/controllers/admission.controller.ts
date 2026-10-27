@@ -6,6 +6,7 @@ import { CreateAdmissionDto, UpdateAdmissionDto, TransferAdmissionDto, Discharge
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
+import { getBillingQueue, BillingActor } from "@/services/billing-flow.service";
 import DailyNursingRecord from "@/models/daily-nursing-record.model";
 import { stayDayNumber } from "@/lib/hospital-time";
 import { isNurseRole } from "@/lib/rbac/roles";
@@ -673,6 +674,37 @@ export class AdmissionController {
         } catch (error: unknown) {
             const err = error as { statusCode?: number; message?: string };
             const message = err?.message || (error instanceof Error ? error.message : "Failed to add the discharge note");
+            return NextResponse.json(
+                { success: false, message },
+                { status: err?.statusCode ?? 500 }
+            );
+        }
+    }
+
+    // GET /api/admission/billing-queue — the accountant's intake list: every
+    // stay nursing sent to billing, annotated with any invoice already raised.
+    async getBillingQueue(request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.BILLING_INVOICE_VIEW, "Admission");
+            if (!auth.isAuthorized) return auth.response;
+
+            const actor: BillingActor = {
+                userId: auth.context.userId,
+                roleName: auth.context.roleName,
+                isSuperAdmin: isSuperAdminRole(auth.context.roleName),
+                branchId: auth.context.branchId,
+                orgScope: auth.grant.orgScope,
+            };
+            const queue = await getBillingQueue(actor);
+
+            return NextResponse.json(
+                { success: true, count: queue.length, data: queue },
+                { status: 200 }
+            );
+        } catch (error: unknown) {
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to load the billing queue");
             return NextResponse.json(
                 { success: false, message },
                 { status: err?.statusCode ?? 500 }

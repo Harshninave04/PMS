@@ -34,6 +34,17 @@ const wardSchema = new Schema<IWard>(
             type: Number,
             required: true
         },
+        // Billing rates are configured per ward (nursing also) and snapshotted
+        // into invoices at billing time. Optional by design: unset rates make
+        // the matching draft rows red and block save until configured.
+        bedRatePerDay: {
+            type: Number,
+            min: 0
+        },
+        nursingRatePerDay: {
+            type: Number,
+            min: 0
+        },
         organizationId: {
             type: Types.ObjectId,
             ref: 'Organization',

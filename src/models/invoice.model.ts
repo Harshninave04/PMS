@@ -7,6 +7,19 @@ const invoiceSchema = new Schema<IInvoice>({
         ref: "Patient",
         required: true
     },
+    // Additive link for the discharge-to-bill pipeline (Phase 3). Uniqueness
+    // comes from the partial unique index created by
+    // scripts/create-bill-unique-index.ts (never at startup): one non-cancelled
+    // invoice per stay. isActive excludes CANCELLED rows because $ne/$in are
+    // unsupported in partialFilterExpression.
+    admissionId: {
+        type: Types.ObjectId,
+        ref: "Admission"
+    },
+    isActive: {
+        type: Boolean,
+        default: true
+    },
     invoiceNumber: {
         type: String,
         index: true
@@ -35,6 +48,11 @@ const invoiceSchema = new Schema<IInvoice>({
     discount: {
         type: Number,
         required: true
+    },
+    discountReason: {
+        type: String,
+        trim: true,
+        maxlength: 300
     },
     taxAmount: {
         type: Number,

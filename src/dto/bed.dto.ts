@@ -5,6 +5,8 @@ export interface CreateBedDto {
     roomId: Types.ObjectId | string;
     bedType?: string; // Optional due to default in schema
     status?: string; // Optional due to default in schema
+    bedRatePerDay?: number;
+    nursingRatePerDay?: number;
     isActive?: boolean;
 }
 
@@ -13,5 +15,7 @@ export interface UpdateBedDto {
     roomId?: Types.ObjectId | string;
     bedType?: string;
     status?: string;
+    bedRatePerDay?: number;
+    nursingRatePerDay?: number;
     isActive?: boolean;
 }

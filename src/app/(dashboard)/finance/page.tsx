@@ -20,18 +20,26 @@ import { useToast } from "@/components/ui/toast";
 
 export default function FinanceHubPage() {
   const [stats, setStats] = useState<any>(null);
+  const [queueCount, setQueueCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
   const fetchStats = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/finance/stats");
+      const [res, queueRes] = await Promise.all([
+        fetch("/api/finance/stats"),
+        fetch("/api/admission/billing-queue"),
+      ]);
       const data = await res.json();
       if (data.success) {
         setStats(data.data);
       } else {
         toast(data.message || "Failed to load financial statistics", "error");
+      }
+      if (queueRes.ok) {
+        const queueData = await queueRes.json();
+        if (queueData.success) setQueueCount((queueData.count ?? queueData.data?.length ?? 0) as number);
       }
     } catch (err: any) {
       toast("Error fetching financial overview: " + err.message, "error");
@@ -50,7 +58,7 @@ export default function FinanceHubPage() {
       description: "Bill a patient for consultation, bed, pharmacy or procedures",
       path: "/finance/invoice/create",
       icon: FilePlus2,
-      badge: "Billing Counter",
+      badge: queueCount > 0 ? `${queueCount} awaiting bill` : "Billing Counter",
       color: "border-emerald-200 hover:border-emerald-500 bg-emerald-50/20 dark:bg-emerald-950/10"
     },
     {

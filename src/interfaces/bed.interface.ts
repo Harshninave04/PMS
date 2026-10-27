@@ -4,5 +4,8 @@ export interface IBed extends Document {
     roomId: Types.ObjectId,
     bedType: string,
     status: string,
+    /** Optional per-bed overrides of the ward billing rates (unset = ward rate). */
+    bedRatePerDay?: number,
+    nursingRatePerDay?: number,
     isActive: boolean
 }

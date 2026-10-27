@@ -9,6 +9,16 @@ import Bed from "@/models/bed.model";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
+// Billing rates must stay money-safe: undefined keeps the field unset
+// ("fall back to the ward rate"), anything set must be finite and >= 0.
+// Returns NaN to signal an unusable value the caller must reject.
+function sanitiseRateField(value: unknown): number | undefined {
+    if (value === undefined || value === null || value === "") return undefined;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric >= 0) return numeric;
+    return Number.NaN;
+}
+
 export class WardController {
     constructor(private wardService: WardService = defaultWardService) { }
 
@@ -60,6 +70,14 @@ export class WardController {
             if (!/^[A-Z0-9_-]+$/.test(data.wardCode)) {
                 return NextResponse.json({ success: false, message: "Ward code must use uppercase letters or numbers, with no spaces" }, { status: 400 });
             }
+
+            const bedRate = sanitiseRateField(raw.bedRatePerDay);
+            const nursingRate = sanitiseRateField(raw.nursingRatePerDay);
+            if (Number.isNaN(bedRate) || Number.isNaN(nursingRate)) {
+                return NextResponse.json({ success: false, message: "Rates must be zero or positive numbers" }, { status: 400 });
+            }
+            if (bedRate !== undefined) data.bedRatePerDay = bedRate;
+            if (nursingRate !== undefined) data.nursingRatePerDay = nursingRate;
 
             const ward = await this.wardService.createWard(data);
 
@@ -236,6 +254,14 @@ export class WardController {
                     { status: 400 }
                 );
             }
+
+            const bedRate = sanitiseRateField(data.bedRatePerDay);
+            const nursingRate = sanitiseRateField(data.nursingRatePerDay);
+            if (Number.isNaN(bedRate) || Number.isNaN(nursingRate)) {
+                return NextResponse.json({ success: false, message: "Rates must be zero or positive numbers" }, { status: 400 });
+            }
+            if (bedRate === undefined) delete data.bedRatePerDay; else data.bedRatePerDay = bedRate;
+            if (nursingRate === undefined) delete data.nursingRatePerDay; else data.nursingRatePerDay = nursingRate;
 
             const ward = await this.wardService.updateWard(new Types.ObjectId(id), data);
 

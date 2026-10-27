@@ -12,11 +12,13 @@ export interface InvoiceItemDto {
 
 export interface CreateInvoiceDto {
     patientId: Types.ObjectId | string;
+    admissionId?: Types.ObjectId | string;
     invoiceNumber?: string;
     department?: string;
     items: InvoiceItemDto[];
     totalAmount: number;
     discount: number;
+    discountReason?: string;
     taxAmount?: number;
     finalAmount: number;
     paidAmount?: number;
@@ -26,6 +28,7 @@ export interface CreateInvoiceDto {
     notes?: string;
     status?: string;
     branchId?: Types.ObjectId | string;
+    isActive?: boolean;
 }
 
 export interface UpdateInvoiceDto {
@@ -35,6 +38,7 @@ export interface UpdateInvoiceDto {
     items?: InvoiceItemDto[];
     totalAmount?: number;
     discount?: number;
+    discountReason?: string;
     taxAmount?: number;
     finalAmount?: number;
     paidAmount?: number;
@@ -44,4 +48,5 @@ export interface UpdateInvoiceDto {
     notes?: string;
     status?: string;
     branchId?: Types.ObjectId | string;
+    isActive?: boolean;
 }

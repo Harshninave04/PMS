@@ -35,6 +35,15 @@ const bedSchema = new Schema<IBed>(
             ],
             default: 'AVAILABLE'
         },
+        // Optional per-bed overrides of the ward billing rates (unset = ward rate).
+        bedRatePerDay: {
+            type: Number,
+            min: 0
+        },
+        nursingRatePerDay: {
+            type: Number,
+            min: 0
+        },
         isActive: {
             type: Boolean,
             default: true
