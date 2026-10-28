@@ -30,6 +30,15 @@ export interface IInvoice extends Document {
     paymentMethod?: string;
     dueDate?: Date;
     notes?: string;
+    /** Draft-vs-final audit trail: what was submitted vs what the server computed. */
+    audit?: {
+        source: "CASE" | "MANUAL";
+        submittedFinalAmount?: number;
+        serverFinalAmount: number;
+        drift: number;
+        at: Date;
+    } | null;
     status: "PAID" | "UNPAID" | "PARTIALLY_PAID" | "CANCELLED" | string;
+    billingStatus?: "BILLING_COMPLETED" | string;
     branchId?: Types.ObjectId;
 }

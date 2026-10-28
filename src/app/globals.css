@@ -44,3 +44,43 @@ body {
 .dark .scrollbar-slim::-webkit-scrollbar-thumb:hover {
   background: #475569; /* slate-600 */
 }
+
+/* Printing: only the marked #print-area (invoice card, payment receipt)
+   goes on paper — the dashboard shell, filters and behind-the-modal content
+   are hidden. Elements marked .no-print are dropped even inside the area. */
+@media print {
+  body * {
+    visibility: hidden !important;
+    box-shadow: none !important;
+  }
+  #print-area,
+  #print-area * {
+    visibility: visible !important;
+  }
+  #print-area {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: 0 !important;
+    background: #ffffff !important;
+    color: #171717 !important;
+  }
+  #print-area,
+  #print-area * {
+    color: #171717 !important;
+    background: transparent !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  @page {
+    margin: 12mm;
+  }
+}

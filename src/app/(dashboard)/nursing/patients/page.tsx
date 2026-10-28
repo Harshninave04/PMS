@@ -54,6 +54,7 @@ function MyInpatientsContent() {
   const { toast } = useToast();
 
   const [inpatients, setInpatients] = useState<any[]>([]);
+  const [recentDischarges, setRecentDischarges] = useState<Array<{ admissionId: string; name: string; uhid: string; dischargeDate?: string; billingStatus?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [handoverAdmissionId, setHandoverAdmissionId] = useState("");
@@ -90,11 +91,15 @@ function MyInpatientsContent() {
 
   const loadData = async () => {
     try {
-      const rosterRes = await fetch("/api/nursing/my-patients");
-      const data = await rosterRes.json();
+      const [rosterRes, historyRes] = await Promise.all([
+        fetch("/api/nursing/my-patients"),
+        fetch("/api/nursing/my-patients?history=discharged"),
+      ]);
+      const [data, historyData] = await Promise.all([rosterRes.json(), historyRes.json()]);
       if (data.success) {
         const patients = data.data || [];
         setInpatients(patients);
+        if (historyRes.ok && historyData.success) setRecentDischarges(historyData.data || []);
         const transferAdmissionId = searchParams.get("transferAdmissionId");
         const transferPatient = patients.find((patient: HandoverPatient) => patient.admissionId === transferAdmissionId);
         if (transferAdmissionId && transferPatient) {
@@ -532,6 +537,35 @@ function MyInpatientsContent() {
         </div>
       </div>
 
+      {recentDischarges.length > 0 && (
+        <Card className="border-rose-200 bg-rose-50/40 dark:border-rose-900 dark:bg-rose-950/10">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+              Recently Discharged <Badge className="bg-rose-700 text-white">PATIENT OUT</Badge>
+            </CardTitle>
+            <CardDescription>Read-only history for stays previously assigned to you.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {recentDischarges.slice(0, 8).map((patient) => (
+              <div key={patient.admissionId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-white px-3 py-2 dark:border-rose-900 dark:bg-slate-900">
+                <div>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{patient.name} <span className="font-mono text-xs text-slate-500">{patient.uhid}</span></p>
+                  <p className="text-xs text-slate-500">{patient.dischargeDate ? new Date(patient.dischargeDate).toLocaleString() : "Discharge time unavailable"}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {patient.billingStatus === "BILLING_COMPLETED" && <Badge className="bg-emerald-100 text-emerald-800">Billing Completed</Badge>}
+                  <Badge variant="outline" className="border-rose-300 text-rose-800">DISCHARGED</Badge>
+                  <span className="text-xs text-slate-600 dark:text-slate-300">Patient has left the hospital.</span>
+                  <Button variant="outline" size="sm" onClick={() => void openTimeline({ ...patient, discharged: true })}>
+                    <Eye className="mr-1 h-3.5 w-3.5" /> View history
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <div
         className="flex gap-1 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -702,6 +736,7 @@ function MyInpatientsContent() {
                           {p.dischargeRequested ? (
                             <>
                               {p.billingRequested ? (
+                                <>
                                 <Badge
                                   className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px]"
                                   title={`Sent to billing${p.expectedDischargeAt ? ` • expected discharge ${new Date(p.expectedDischargeAt).toLocaleString()}` : ""}`}
@@ -709,6 +744,9 @@ function MyInpatientsContent() {
                                   <CheckCircle2 className="h-3 w-3 mr-1" />
                                   Sent to billing
                                 </Badge>
+                                {p.billingStatus === "BILLING_COMPLETED" && <Badge className="border-emerald-300 bg-emerald-100 text-[10px] text-emerald-800">Billing Completed</Badge>}
+                                <Badge className="border-amber-300 bg-amber-100 text-[10px] text-amber-800">Discharge Pending</Badge>
+                                </>
                               ) : (
                                 <Badge
                                   className="bg-amber-100 text-amber-800 border-amber-300 text-[10px]"
@@ -1085,6 +1123,11 @@ function MyInpatientsContent() {
                 <span className="text-[10px] text-slate-400 uppercase font-semibold block">
                   Shift handover — care instructions, medication, vitals, and notes
                 </span>
+                {selectedPatient?.discharged && (
+                  <p className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-2 text-[11px] font-medium text-rose-800">
+                    Patient discharged. This admission is closed; new nursing entries are not allowed.
+                  </p>
+                )}
                 {timelineLoading ? (
                   <div className="flex items-center gap-2 text-[11px] text-slate-500 py-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading timeline…
@@ -1119,7 +1162,7 @@ function MyInpatientsContent() {
                             <span className="truncate">
                               {t.title} <span className="text-slate-400">• {t.status} • {t.authorId?.name ?? "Doctor"}</span>
                             </span>
-                            {["NEW", "ACKNOWLEDGED", "IN_PROGRESS"].includes(t.status) && (
+                            {!selectedPatient?.discharged && ["NEW", "ACKNOWLEDGED", "IN_PROGRESS"].includes(t.status) && (
                               <Button
                                 variant="outline"
                                 size="sm"

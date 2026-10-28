@@ -204,7 +204,9 @@ export class CareTaskController {
             await dbConnect();
             const auth = await authorizeRequest(request, PERMISSION_KEYS.NURSING_TASK_VIEW, "Admission");
             if (!auth.isAuthorized) return auth.response;
-            const data = await nursingService.getMyPatients(auth.filter, actorOf(auth));
+            const data = new URL(request.url).searchParams.get("history") === "discharged"
+                ? await nursingService.getMyDischargedPatients(actorOf(auth))
+                : await nursingService.getMyPatients(auth.filter, actorOf(auth));
             return NextResponse.json({ success: true, data }, { status: 200 });
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : "Failed to fetch inpatients";

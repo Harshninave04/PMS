@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { CareTask, canTransitionCareTask, type CareTaskStatus } from "@/models/care-task.model";
 import Admission from "@/models/admission.model";
 import { CreateCareTaskDto } from "@/dto/care-task.dto";
+import { CLOSED_ADMISSION_NURSING_MESSAGE } from "@/lib/discharge-workflow";
 
 const ACTIVE_STATUSES = ["ADMITTED", "TRANSFERRED"];
 
@@ -48,7 +49,12 @@ export class CareTaskService {
         const admission = await Admission.findById(new Types.ObjectId(data.admissionId.toString())).lean();
         if (!admission) throw { statusCode: 404, message: "Admission not found" };
         if (!ACTIVE_STATUSES.includes(admission.status)) {
-            throw { statusCode: 400, message: `Cannot add instructions to a ${admission.status} admission` };
+            throw {
+                statusCode: 400,
+                message: admission.status === "DISCHARGED"
+                    ? CLOSED_ADMISSION_NURSING_MESSAGE
+                    : `Cannot add instructions to a ${admission.status} admission`,
+            };
         }
         if (idOf(admission.patientId) !== new Types.ObjectId(data.patientId.toString()).toString()) {
             throw { statusCode: 400, message: "Patient does not belong to this admission" };
@@ -95,6 +101,16 @@ export class CareTaskService {
     ) {
         const task = await CareTask.findById(new Types.ObjectId(id.toString()));
         if (!task) throw { statusCode: 404, message: "Instruction not found" };
+        const admission = await Admission.findById(task.admissionId).select("status").lean();
+        if (!admission) throw { statusCode: 404, message: "Admission not found" };
+        if (!ACTIVE_STATUSES.includes(admission.status)) {
+            throw {
+                statusCode: 400,
+                message: admission.status === "DISCHARGED"
+                    ? CLOSED_ADMISSION_NURSING_MESSAGE
+                    : `Cannot update instructions for a ${admission.status} admission`,
+            };
+        }
         const from = task.status as CareTaskStatus;
         if (from === to) return task;
         if (!canTransitionCareTask(from, to)) {

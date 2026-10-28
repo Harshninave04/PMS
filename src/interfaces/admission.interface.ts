@@ -83,6 +83,9 @@ export interface IAdmission extends Document {
     billingRequested?: boolean;
     billingRequestedAt?: Date;
     billingRequestedBy?: Types.ObjectId | any;
+    billingInvoiceClaimId?: Types.ObjectId;
+    billingInvoiceClaimedAt?: Date;
+    billingInvoiceId?: Types.ObjectId | any;
     expectedDischargeAt?: Date;
     billingMedicalSupplies?: IBillingMedicalSupply[];
     dischargeNotes?: IDischargeNote[];

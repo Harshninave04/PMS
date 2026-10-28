@@ -6,6 +6,9 @@ import { PERMISSION_KEYS } from "@/types/rbac";
 import { ClinicalRecord } from "@/models/clinical-record.model";
 import { Diagnosis } from "@/models/diagnosis.model";
 import { Vitals } from "@/models/vitals.model";
+import Admission from "@/models/admission.model";
+import { isNurseRole } from "@/lib/rbac/roles";
+import { CLOSED_ADMISSION_NURSING_MESSAGE } from "@/lib/discharge-workflow";
 import {
   isDoctorActor,
   getAssignedPatientIds,
@@ -163,6 +166,29 @@ export class ClinicalController {
       if (patient) filter.patient = patient;
       if (admissionId) filter.admissionId = admissionId;
 
+      if (isNurseRole(authResult.context.roleName)) {
+        const stayQuery: Record<string, unknown> = {
+          ...authResult.filter,
+          status: { $in: ["ADMITTED", "TRANSFERRED", "DISCHARGED"] },
+          assignedNurses: authResult.context.userId,
+        };
+        if (admissionId) {
+          if (!Types.ObjectId.isValid(admissionId)) {
+            return NextResponse.json({ success: false, error: "Invalid admission ID" }, { status: 400 });
+          }
+          stayQuery._id = new Types.ObjectId(admissionId);
+        }
+        if (patient) {
+          if (!Types.ObjectId.isValid(patient)) return NextResponse.json({ success: false, error: "Invalid patient ID" }, { status: 400 });
+          stayQuery.patientId = new Types.ObjectId(patient);
+        }
+        const stays = await Admission.find(stayQuery).select("_id").lean();
+        if (admissionId && stays.length === 0) {
+          return NextResponse.json({ success: false, error: "Forbidden: Admission is outside your care team or branch" }, { status: 403 });
+        }
+        filter.admissionId = { $in: stays.map((stay) => stay._id) };
+      }
+
       // Doctor isolation: only vitals for patients assigned to the doctor
       if (isDoctorActor(authResult.context)) {
         const doctorId = authResult.context.doctorProfileId!;
@@ -191,17 +217,44 @@ export class ClinicalController {
 
       const body = await req.json();
 
-      if (body.admissionId && body.patient) {
-        const { default: Admission } = await import("@/models/admission.model");
-        const adm = await Admission.findById(body.admissionId).select("patientId").lean() as { patientId?: unknown } | null;
-        const idOf = (v: unknown): string => {
-          const rec = v as { _id?: { toString(): string } };
-          if (rec && typeof rec === "object" && rec !== null && "_id" in rec && rec._id) return rec._id.toString();
-          return String(v ?? "");
-        };
-        if (!adm || idOf(adm.patientId) !== new Types.ObjectId(body.patient.toString()).toString()) {
-          return NextResponse.json({ success: false, error: "Admission does not belong to this patient" }, { status: 400 });
+      if (isNurseRole(authResult.context.roleName) && (!body.admissionId || !body.patient)) {
+        return NextResponse.json({ success: false, error: "A valid assigned admission is required for nursing vitals" }, { status: 400 });
+      }
+      if (body.admissionId && !body.patient) {
+        return NextResponse.json({ success: false, error: "Patient is required when vitals are linked to an admission" }, { status: 400 });
+      }
+
+      if (body.admissionId || (isNurseRole(authResult.context.roleName) && body.patient)) {
+        if (body.admissionId && !Types.ObjectId.isValid(String(body.admissionId))) {
+          return NextResponse.json({ success: false, error: "Invalid admission ID" }, { status: 400 });
         }
+        if (body.patient && !Types.ObjectId.isValid(String(body.patient))) {
+          return NextResponse.json({ success: false, error: "Invalid patient ID" }, { status: 400 });
+        }
+        const query: Record<string, unknown> = {
+          ...authResult.filter,
+          patientId: new Types.ObjectId(body.patient.toString()),
+          status: { $in: ["ADMITTED", "TRANSFERRED"] },
+        };
+        if (body.admissionId) query._id = new Types.ObjectId(body.admissionId.toString());
+        if (isNurseRole(authResult.context.roleName)) query.assignedNurses = authResult.context.userId;
+        const adm = await Admission.findOne(query).select("_id patientId").lean();
+        if (!adm) {
+          if (body.admissionId) {
+            const closed = await Admission.findOne({
+              ...authResult.filter,
+              _id: new Types.ObjectId(body.admissionId.toString()),
+              patientId: new Types.ObjectId(body.patient.toString()),
+              status: "DISCHARGED",
+              ...(isNurseRole(authResult.context.roleName) ? { assignedNurses: authResult.context.userId } : {}),
+            }).select("_id").lean();
+            if (closed) {
+              return NextResponse.json({ success: false, error: CLOSED_ADMISSION_NURSING_MESSAGE }, { status: 409 });
+            }
+          }
+          return NextResponse.json({ success: false, error: "Admission is not active or does not belong to this care team" }, { status: 403 });
+        }
+        body.admissionId = adm._id.toString();
       }
 
       // Doctor isolation: vitals recorded by a doctor are attributed to them
@@ -305,10 +358,26 @@ export class ClinicalController {
       const authResult = await authorizeRequest(req, PERMISSION_KEYS.NURSING_VITALS_UPDATE, "ClinicalRecord");
       if (!authResult.isAuthorized) return authResult.response;
 
+      const vitalsRecord = await Vitals.findById(params.id).select("recordedBy admissionId").lean();
+      if (!vitalsRecord) return NextResponse.json({ success: false, error: "Vitals record not found" }, { status: 404 });
+      if (vitalsRecord.admissionId) {
+        const admissionQuery: Record<string, unknown> = {
+          ...authResult.filter,
+          _id: vitalsRecord.admissionId,
+        };
+        if (isNurseRole(authResult.context.roleName)) admissionQuery.assignedNurses = authResult.context.userId;
+        const stay = await Admission.findOne(admissionQuery).select("status").lean();
+        if (!stay) return NextResponse.json({ success: false, error: "Forbidden: Vitals are outside your admission or branch scope" }, { status: 403 });
+        if (stay.status === "DISCHARGED") {
+          return NextResponse.json({ success: false, error: CLOSED_ADMISSION_NURSING_MESSAGE }, { status: 409 });
+        }
+      } else if (isNurseRole(authResult.context.roleName)) {
+        return NextResponse.json({ success: false, error: "A linked active admission is required to update nursing vitals" }, { status: 403 });
+      }
+
       // Doctor isolation: a doctor can only delete their own vitals entries
       if (isDoctorActor(authResult.context)) {
-        const vitals = await Vitals.findById(params.id).select("recordedBy").lean();
-        if (!vitals || vitals.recordedBy?.toString() !== authResult.context.userId.toString()) {
+        if (vitalsRecord.recordedBy?.toString() !== authResult.context.userId.toString()) {
           return NextResponse.json({ success: false, error: "Forbidden: You can only delete your own vitals entries" }, { status: 403 });
         }
       }

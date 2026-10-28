@@ -488,3 +488,49 @@ pm test suite green; build succeeds; lint unchanged (pre-existing hits only).
   suite green (menu/route/catalogue/preset checks cover the new sub-item), build
   succeeds; lint profile unchanged apart from the one pre-existing-pattern
   disable documented inline on the two initial-load effects.
+
+- 2026-10-28: Phase 3.3 (draft extras) implemented on top of the merged nursing
+  supplies work (PR #20). The discharge billing draft now also generates: one row
+  per Lab / Radiology / Procedure / Diet Clinical Order placed on the stay (grouped
+  by order title, priced from the Services rate list, red + editable when
+  unmatched); an hourly ICU monitoring row (stay days x 24) for ICU/CCU/NICU/PICU
+  wards priced from an 'ICU Monitoring' service entry; and medication rows priced
+  from the pharmacy stock list (Medicine.unitPrice, exact case-insensitive name
+  match) instead of always 0 - unmatched medicines stay red with a hint.
+  Consumables/equipment were already covered by the nursing medical supplies
+  panel (Sanchit's merge), consultation fees already bill per round (Phase 3.1),
+  and ambulance / OT timing have no source data - those stay available as
+  Services picked via autocomplete instead of fake auto-rows. Verification:
+  typecheck clean, full npm test suite green, build succeeds, lint = baseline
+  (create page unchanged at its 9 pre-existing hits; billing-flow lint-clean).
+
+- 2026-10-28: Phase 3.4 (pending orders warning) implemented. The charge draft
+  now also reports active MedicationOrders (status ACTIVE) and the count of
+  eMAR doses still PENDING. Create Bill shows an amber disclosure listing the
+  pending orders (up to 6 + overflow) and requires an explicit confirmation
+  checkbox - 'Confirmed - pending items were handled outside this bill' -
+  before the bill can be saved; the save gate only applies to admission
+  (non-manual) invoices, and the state resets on every case switch / manual
+  mode. Doses recorded GIVEN are unaffected and bill as before. Verification:
+  typecheck clean, full npm test suite green, build succeeds, lint unchanged
+  (create page stays at its 9 pre-existing hits, billing-flow lint-clean).
+
+- 2026-10-28: Phase 3.5 (bed transfer segments) implemented. The bed + nursing
+  draft rows are now built per stay segment from Admission.transferHistory:
+  the first segment starts at the admission date on the first transfer's
+  from-bed, intermediate segments cover each transfer interval on the previous
+  to-bed, and the current bed covers the last interval up to the billing
+  cut-off (same ceiling-day convention; transferHistory beds are populated
+  through room + ward so bed overrides / ward rates resolve per segment).
+  Segment rows carry the date range in their detail and a '(segment N)' suffix
+  when the stay had transfers. The ICU monitoring row now prices only the
+  hours actually spent in ICU/CCU/NICU/PICU segments. Verification: typecheck
+  clean, full npm test suite green, build succeeds, lint clean for the service.
+
+- **Phase 3.6 — Advances/deposits (done).** Payment schema: `invoiceId` optional, new `type` enum (`PAYMENT` default / `ADVANCE` / `REFUND`) + `admissionId` optional ref, compound index `{ admissionId, type, invoiceId }` (interface + DTOs updated). `payment.service.createPayment`: ADVANCE = ledger-only receipt (rejects `invoiceId`, requires valid admission whose patient matches), REFUND = requires invoice + `paidAmount > 0`, capped at collected, recalculates invoice status (PAID/UNPAID/PARTIALLY_PAID); bare payments without an invoice are rejected (record an ADVANCE instead). `invoice.controller.createInvoice`: after a bill is created, unconsumed advances for the stay (`type ADVANCE`, `invoiceId: null`, oldest first, capped at `finalAmount`) are linked to the invoice and `paidAmount/balanceAmount/status` updated. `payment.controller` validation rewritten; refunds gated by the new special action `billing.payments:refund` (nobody by default, superadmin implicit; 403 otherwise). Payments ledger page: "Record advance" dialog (patient search → active-stay picker → amount/method/notes), ADVANCE/REFUND type badges, "Refund this receipt" in the receipt dialog, net-collections total (refunds subtracted). Billing draft: context now returns `advancesAvailable`/`advanceTotal` (unconsumed ADVANCE receipts for the stay); the create page shows an emerald "Advances to use" box — no bill line, applied automatically at save. Verified: typecheck, 10-suite tests, build, lint (no new hits).
+
+- **Phase 3.7 — Split payment lines (done).** Payment schema gained `receiptGroupId` (indexed): a bill may be collected in several lines (e.g. cash part + card part), each line becoming its own receipt number under one shared group. `CreatePaymentDto` accepts `lines: [{ amount, method, notes? }]`; `payment.service.createPayment` validates every line (amount > 0, method required), caps the line total at the invoice balance, creates one receipt per line with a fresh `REC` number, and updates the invoice once (paidAmount/balanceAmount/status, paymentMethod = first line's method). Single-line posts keep the old payload shape. The create-bill collect dialog is now a multi-line editor (add/remove lines, running total vs pending balance); the outstanding quick-collect and invoices-page dialogs stay single-line and continue to work unchanged. Verified: typecheck, 10-suite tests, build, lint (no new hits).
+
+- **Phase 3.8 — Print/PDF output (done).** Global `@media print` stylesheet in `globals.css`: only the marked `#print-area` prints (dashboard shell, filters and behind-the-modal content hidden via the visibility pattern), monochrome forced (white paper, dark text) so dark mode cannot print white-on-white, `@page` margins set. The tax-invoice modal on the invoices page (also reached via `/finance/invoices?print=<id>` auto-print from the create flow) is marked `#print-area` with `no-print` on its buttons; the payments receipt dialog gained `id="print-area"` plus a printable receipt header (hospital name, "OFFICIAL PAYMENT RECEIPT", receipt number, footer note) with the refund/print actions marked `no-print`. `DialogContent` now accepts an `id` prop and its built-in close button is `no-print`. Browsers' "Save as PDF" yields the same clean sheet. Verified: typecheck, tests, build, lint (no new hits; dialog.tsx and invoices-page hits are pre-existing).
+
+- **2026-10-28 Wrap-up — transactions + audit trail (done).** Mongo transactions now guard the two multi-write billing flows, using the existing house pattern (`supportsMongoTransactions` from lib/mongo-transaction-support; session only when the topology is a replica set, plain writes otherwise): (1) invoice creation + advance application in invoice.controller.createInvoice — repository/service accept an optional `{ session }`; a failed advance link can no longer leave a half-applied bill; (2) payment.service.createPayment — invoice fetch, receipt writes (single or split lines) and the invoice balance update all commit or roll back together. Draft-vs-final audit trail: `validateAndRecomputeTotals` keeps the client-submitted final amount, and every bill is stamped with `audit { source: CASE|MANUAL, submittedFinalAmount, serverFinalAmount, drift, at }` at insert time (server-set only); the invoice modal shows a drift note when the submitted and computed totals differ. RBAC re-audit: all new/changed endpoints keep in-file route guards (payments POST = billing.payments:create + controller-level refund clearance; invoice POST = billing.create:create; service routes = billing.rates:*). Verified: typecheck, full 10-suite test run, build, lint (no new hits; pre-existing baselines unchanged: payment.service anonymous-default warning, invoices page 22, payments page 4, create page 9).

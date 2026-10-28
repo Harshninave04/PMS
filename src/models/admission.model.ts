@@ -234,6 +234,19 @@ const admissionSchema = new Schema<IAdmission>(
             type: Types.ObjectId,
             ref: 'User'
         },
+        // Atomic application-level claim prevents simultaneous accountants
+        // from creating two invoices for one stay when the optional unique
+        // index has not yet been deployed. A stale claim is reclaimable.
+        billingInvoiceClaimId: {
+            type: Types.ObjectId
+        },
+        billingInvoiceClaimedAt: {
+            type: Date
+        },
+        billingInvoiceId: {
+            type: Types.ObjectId,
+            ref: 'Invoice'
+        },
         expectedDischargeAt: {
             type: Date
         },

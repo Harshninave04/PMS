@@ -79,10 +79,30 @@ const invoiceSchema = new Schema<IInvoice>({
     notes: {
         type: String
     },
+    // Draft-vs-final audit trail (wrap-up phase): what the billing desk
+    // submitted before the server recomputed the authoritative totals.
+    audit: {
+        type: {
+            // CASE = billed from a nursing-flagged stay draft; MANUAL = free-hand invoice.
+            source: { type: String, enum: ["CASE", "MANUAL"], required: true },
+            submittedFinalAmount: { type: Number },
+            serverFinalAmount: { type: Number, required: true },
+            drift: { type: Number, required: true },
+            at: { type: Date, required: true },
+        },
+        default: null,
+    },
     status: {
         type: String,
         enum: ["PAID", "UNPAID", "PARTIALLY_PAID", "CANCELLED"],
         default: "UNPAID"
+    },
+    // Final-bill workflow state is separate from collection state. A finalized
+    // credit invoice is BILLING_COMPLETED even while a balance remains due.
+    billingStatus: {
+        type: String,
+        enum: ["BILLING_COMPLETED"],
+        default: "BILLING_COMPLETED",
     },
     branchId: {
         type: Types.ObjectId,
