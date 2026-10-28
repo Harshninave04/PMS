@@ -66,6 +66,19 @@ const dischargeNoteSchema = new Schema(
     { _id: true }
 );
 
+const billingMedicalSupplySchema = new Schema(
+    {
+        nursingDay: { type: Number, required: true, min: 1, max: 7 },
+        category: { type: String, required: true },
+        itemName: { type: String, required: true },
+        quantity: { type: Number, required: true, min: 0.01 },
+        notes: { type: String },
+        author: { type: Types.ObjectId, ref: 'User', required: true },
+        recordedAt: { type: Date, required: true },
+    },
+    { _id: true }
+);
+
 const admissionSchema = new Schema<IAdmission>(
     {
         patientId: {
@@ -223,6 +236,10 @@ const admissionSchema = new Schema<IAdmission>(
         },
         expectedDischargeAt: {
             type: Date
+        },
+        billingMedicalSupplies: {
+            type: [billingMedicalSupplySchema],
+            default: []
         },
         dischargeNotes: {
             type: [dischargeNoteSchema],

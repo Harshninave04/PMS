@@ -24,8 +24,6 @@ import {
   BedDouble,
   ClipboardList,
   CheckCircle2,
-  Play,
-  Ban,
   ArrowRightLeft,
   Banknote,
   AlertTriangle,
@@ -60,10 +58,6 @@ function MyInpatientsContent() {
   const [refreshing, setRefreshing] = useState(false);
   const [handoverAdmissionId, setHandoverAdmissionId] = useState("");
 
-  // Doctor instructions for my allotted patients
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(true);
-
   // Shared stay timeline (instructions + meds + vitals + notes)
   const [timeline, setTimeline] = useState<any>(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -71,7 +65,6 @@ function MyInpatientsContent() {
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [wardFilter, setWardFilter] = useState("ALL");
-  const [activeTab, setActiveTab] = useState<"inpatients" | "instructions">("inpatients");
 
   // Selected Inpatient Modal
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
@@ -97,10 +90,7 @@ function MyInpatientsContent() {
 
   const loadData = async () => {
     try {
-      const [rosterRes, tasksRes] = await Promise.all([
-        fetch("/api/nursing/my-patients"),
-        fetch("/api/care-tasks"),
-      ]);
+      const rosterRes = await fetch("/api/nursing/my-patients");
       const data = await rosterRes.json();
       if (data.success) {
         const patients = data.data || [];
@@ -113,14 +103,6 @@ function MyInpatientsContent() {
         }
       } else {
         toast("Failed to load inpatients", "error");
-      }
-      try {
-        const tasksData = await tasksRes.json();
-        if (tasksRes.ok && tasksData.success) setTasks(tasksData.data || []);
-      } catch {
-        // Tasks are supplementary; roster is primary.
-      } finally {
-        setTasksLoading(false);
       }
     } catch (err) {
       toast("An error occurred while loading patient roster", "error");
@@ -136,7 +118,6 @@ function MyInpatientsContent() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    setTasksLoading(true);
     loadData();
   };
 
@@ -274,7 +255,13 @@ function MyInpatientsContent() {
       if (!res.ok || !result.success) {
         throw new Error(result.message || "Failed to send to billing");
       }
-      toast(result.message || "Sent to billing", "success");
+      const supplyCount = Array.isArray(result.data?.billingMedicalSupplies)
+        ? result.data.billingMedicalSupplies.length
+        : 0;
+      toast(
+        `${result.message || "Sent to billing"} ${supplyCount} medical supply record${supplyCount === 1 ? "" : "s"} included.`,
+        "success"
+      );
       setDischargePatient((prev: any) =>
         prev ? { ...prev, billingRequested: true, expectedDischargeAt } : prev
       );
@@ -374,9 +361,6 @@ function MyInpatientsContent() {
       const data = await res.json();
       if (res.ok && data.success) {
         toast(`Instruction ${status.toLowerCase()}`, "success");
-        setTasks((prev) =>
-          prev.map((t) => (t._id === task._id ? data.data : t))
-        );
         if (selectedPatient) openTimeline(selectedPatient);
         if (instructionsPatient) openPatientInstructions(instructionsPatient);
       } else {
@@ -386,15 +370,6 @@ function MyInpatientsContent() {
       toast("Error updating instruction", "error");
     }
   };
-
-  const openTasks = useMemo(
-    () => tasks.filter((t) => ["NEW", "ACKNOWLEDGED", "IN_PROGRESS"].includes(t.status)),
-    [tasks]
-  );
-  const doneTasks = useMemo(
-    () => tasks.filter((t) => ["COMPLETED", "CANCELLED"].includes(t.status)),
-    [tasks]
-  );
 
   const panelPendingDoses = useMemo(
     () => (dischargeTimeline?.medications ?? []).filter((m: any) => m.status === "PENDING").length,
@@ -520,7 +495,7 @@ function MyInpatientsContent() {
             My Allotted Patients
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Only patients allotted to you by the care-team desk. Use the tabs to switch between your inpatient roster and doctor instructions.
+            Only patients allotted to you by the care-team desk.
           </p>
         </div>
 
@@ -561,179 +536,28 @@ function MyInpatientsContent() {
         className="flex gap-1 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
         aria-label="Nursing patients"
-        onKeyDown={(event) => {
-          const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-          const currentIndex = event.target instanceof HTMLButtonElement ? tabs.indexOf(event.target) : -1;
-          if (currentIndex < 0) return;
-
-          const nextIndex = event.key === "ArrowRight"
-            ? (currentIndex + 1) % tabs.length
-            : event.key === "ArrowLeft"
-              ? (currentIndex - 1 + tabs.length) % tabs.length
-              : event.key === "Home"
-                ? 0
-                : event.key === "End"
-                  ? tabs.length - 1
-                  : -1;
-          if (nextIndex < 0) return;
-
-          event.preventDefault();
-          setActiveTab(nextIndex === 0 ? "inpatients" : "instructions");
-          tabs[nextIndex].focus();
-        }}
       >
         <button
           id="nursing-inpatients-tab"
           type="button"
           role="tab"
-          aria-selected={activeTab === "inpatients"}
+          aria-selected="true"
           aria-controls="nursing-inpatients-panel"
-          tabIndex={activeTab === "inpatients" ? 0 : -1}
-          onClick={() => setActiveTab("inpatients")}
-          className={`border-b-2 px-4 py-2 text-sm font-medium transition ${activeTab === "inpatients" ? "border-emerald-600 text-emerald-700 dark:text-emerald-300" : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}
+          tabIndex={0}
+          className="border-b-2 border-emerald-600 px-4 py-2 text-sm font-medium text-emerald-700 dark:text-emerald-300"
         >
           My Allotted Inpatients
         </button>
-        <button
-          id="nursing-instructions-tab"
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "instructions"}
-          aria-controls="nursing-instructions-panel"
-          tabIndex={activeTab === "instructions" ? 0 : -1}
-          onClick={() => setActiveTab("instructions")}
-          className={`border-b-2 px-4 py-2 text-sm font-medium transition ${activeTab === "instructions" ? "border-emerald-600 text-emerald-700 dark:text-emerald-300" : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}
-        >
-          Doctor Instructions
-          {openTasks.length > 0 && (
-            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
-              {openTasks.length}
-            </span>
-          )}
-        </button>
       </div>
 
-      {/* Doctor-instructions inbox */}
-      {activeTab === "instructions" && <div id="nursing-instructions-panel" role="tabpanel" aria-labelledby="nursing-instructions-tab" tabIndex={0}>
-      <Card className="border shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <ClipboardList className="h-5 w-5 text-emerald-600" />
-            Doctor Instructions
-            {openTasks.length > 0 && (
-              <Badge className="bg-amber-100 text-amber-800 border-amber-300">
-                {openTasks.length} open
-              </Badge>
-            )}
-          </CardTitle>
-          <CardDescription>
-            New instructions from doctors for your allotted patients. Acknowledge,
-            start and complete each one here.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {tasksLoading ? (
-            <div className="flex items-center gap-2 text-xs text-slate-500 py-4">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading instructions…
-            </div>
-          ) : tasks.length === 0 ? (
-            <p className="text-xs text-slate-500 py-4">
-              No instructions yet. When a doctor leaves a note for your patient,
-              it appears here — not in the general roster.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {openTasks.length === 0 && (
-                <p className="text-xs text-emerald-600 font-medium py-1">
-                  All caught up — {doneTasks.length} completed.
-                </p>
-              )}
-              {openTasks.slice(0, 10).map((t) => (
-                <div
-                  key={t._id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border p-3"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-xs text-slate-900 dark:text-white">
-                        {t.title}
-                      </span>
-                      <Badge
-                        variant="outline"
-                        className={
-                          t.priority === "STAT"
-                            ? "text-[10px] text-rose-600 border-rose-300"
-                            : t.priority === "Urgent"
-                              ? "text-[10px] text-amber-600 border-amber-300"
-                              : "text-[10px] text-slate-500"
-                        }
-                      >
-                        {t.priority}
-                      </Badge>
-                      <Badge variant="outline" className="text-[10px]">
-                        {t.status}
-                      </Badge>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1 truncate">
-                      {t.patientId?.name ?? "Patient"} • by{" "}
-                      {t.authorId?.name ?? "Doctor"} •{" "}
-                      {t.createdAt ? new Date(t.createdAt).toLocaleString() : ""}
-                      {t.detail ? ` — ${t.detail}` : ""}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {t.status === "NEW" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => actOnTask(t, "ACKNOWLEDGED")}
-                      >
-                        <CheckCircle2 className="h-3 w-3 mr-1" />
-                        Acknowledge
-                      </Button>
-                    )}
-                    {(t.status === "NEW" || t.status === "ACKNOWLEDGED") && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => actOnTask(t, "IN_PROGRESS")}
-                      >
-                        <Play className="h-3 w-3 mr-1" />
-                        Start
-                      </Button>
-                    )}
-                    {(t.status === "ACKNOWLEDGED" || t.status === "IN_PROGRESS") && (
-                      <Button
-                        size="sm"
-                        className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                        onClick={() => actOnTask(t, "COMPLETED")}
-                      >
-                        <CheckCircle2 className="h-3 w-3 mr-1" />
-                        Done
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs text-slate-400"
-                      title="Cancel instruction"
-                      onClick={() => actOnTask(t, "CANCELLED")}
-                    >
-                      <Ban className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      </div>}
-
       {/* Filter Bar */}
-      {activeTab === "inpatients" && <div id="nursing-inpatients-panel" role="tabpanel" aria-labelledby="nursing-inpatients-tab" tabIndex={0} className="space-y-3">
+      <div
+        id="nursing-inpatients-panel"
+        role="tabpanel"
+        aria-labelledby="nursing-inpatients-tab"
+        tabIndex={0}
+        className="space-y-3"
+      >
       <Card className="border shadow-sm">
         <CardContent className="p-3">
           <div className="flex flex-col sm:flex-row items-center gap-3">
@@ -967,7 +791,7 @@ function MyInpatientsContent() {
           </div>
         </CardContent>
       </Card>
-      </div>}
+      </div>
 
       <Dialog
         open={!!handoverPatient}

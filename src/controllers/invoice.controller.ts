@@ -3,6 +3,8 @@ import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultInvoiceService, { InvoiceService } from "@/services/invoice.service";
 import Invoice from "@/models/invoice.model";
+import Admission from "@/models/admission.model";
+import Organization from "@/models/organization.model";
 import { CreateInvoiceDto, UpdateInvoiceDto } from "@/dto/invoice.dto";
 import { authorizeRequest, hasRequestPermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
@@ -146,6 +148,7 @@ export class InvoiceController {
                 roleName: auth.context.roleName,
                 isSuperAdmin: isSuperAdminRole(auth.context.roleName),
                 branchId: auth.context.branchId,
+                organizationId: auth.context.organizationId,
                 orgScope: auth.grant.orgScope,
             };
             const draft = await buildAdmissionDraft(admissionId, actor);
@@ -194,6 +197,44 @@ export class InvoiceController {
                 );
             }
 
+            // An inpatient bill must belong to the exact patient and stay the
+            // accountant is authorized to access. Do this before duplicate
+            // lookup so an out-of-scope admission cannot be probed by ID.
+            let linkedAdmission: { branchId?: Types.ObjectId } | null = null;
+            if (data.admissionId) {
+                const admissionId = new Types.ObjectId(data.admissionId.toString());
+                const admissionQuery: Record<string, unknown> = {
+                    _id: admissionId,
+                    patientId: new Types.ObjectId(data.patientId),
+                    status: { $in: ["ADMITTED", "TRANSFERRED"] },
+                };
+                if (auth.grant.orgScope === "BRANCH") {
+                    const allowedBranch = auth.context.branchId?.toString() || auth.context.organizationId?.toString();
+                    if (!allowedBranch || !Types.ObjectId.isValid(allowedBranch)) {
+                        return NextResponse.json({ success: false, message: "Branch scope is missing" }, { status: 403 });
+                    }
+                    admissionQuery.branchId = new Types.ObjectId(allowedBranch);
+                } else if (auth.grant.orgScope === "ORGANIZATION") {
+                    const organizationId = auth.context.organizationId?.toString();
+                    if (!organizationId || !Types.ObjectId.isValid(organizationId)) {
+                        return NextResponse.json({ success: false, message: "Organization scope is missing" }, { status: 403 });
+                    }
+                    admissionQuery.branchId = {
+                        $in: await Organization.find({
+                            $or: [{ _id: new Types.ObjectId(organizationId) }, { headQuarter: new Types.ObjectId(organizationId) }],
+                        }).distinct("_id"),
+                    };
+                }
+                const admission = await Admission.findOne(admissionQuery).select("branchId").lean();
+                if (!admission) {
+                    return NextResponse.json(
+                        { success: false, message: "The patient and active admission do not match or are outside your access scope" },
+                        { status: 404 }
+                    );
+                }
+                linkedAdmission = admission;
+            }
+
             // Server does not trust client totals: validate rows and recompute
             // gross/discount/tax/final from price * quantity.
             const totals = validateAndRecomputeTotals(data);
@@ -238,7 +279,9 @@ export class InvoiceController {
             }
 
             // Enforce branch boundary
-            if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
+            if (linkedAdmission?.branchId) {
+                data.branchId = linkedAdmission.branchId.toString();
+            } else if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
                 data.branchId = auth.context.branchId.toString();
             } else if (data.branchId && !Types.ObjectId.isValid(data.branchId)) {
                 delete (data as { branchId?: string }).branchId;

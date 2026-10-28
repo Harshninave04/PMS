@@ -39,7 +39,22 @@ interface ItemRow {
   price: number;
   // "draft" rows were generated from the clinical records; deleting them from
   // the bill requires a typed reason (kept in the invoice notes).
-  source?: "draft" | "manual";
+  source?: "draft" | "manual" | "supply";
+  nursingSupplyId?: string;
+}
+
+interface NursingSupplyRow {
+  id: string;
+  itemName: string;
+  category: string;
+  quantity: number;
+  nursingDay: number;
+  notes?: string;
+  recordedAt: string;
+  nurseName: string;
+  serviceName?: string;
+  rate?: number;
+  missingRate: boolean;
 }
 
 const emptyRow: ItemRow = { name: "", quantity: 1, price: 0 };
@@ -86,6 +101,10 @@ export default function CreateInvoicePage() {
   const [selectedCase, setSelectedCase] = useState<any>(null);
   const [draftLoading, setDraftLoading] = useState(false);
   const [invoiceInfo, setInvoiceInfo] = useState<any>(null);
+  const [nurseNotes, setNurseNotes] = useState<Array<{ text: string; at?: string; nurseName: string }>>([]);
+  const [medicalSupplies, setMedicalSupplies] = useState<NursingSupplyRow[]>([]);
+  const [selectedSupplyIds, setSelectedSupplyIds] = useState<string[]>([]);
+  const [nurseNotesExpanded, setNurseNotesExpanded] = useState(false);
 
   const [manualMode, setManualMode] = useState(false);
   const [manualPatients, setManualPatients] = useState<any[]>([]);
@@ -177,6 +196,10 @@ export default function CreateInvoicePage() {
     setDiscountReason("");
     setNotes("");
     setInvoiceInfo(row.invoice ?? null);
+    setNurseNotes([]);
+    setMedicalSupplies([]);
+    setSelectedSupplyIds([]);
+    setNurseNotesExpanded(false);
     if (row.invoice) {
       markClean({ mode: String(row.admissionId), patient: "", items: [], discount: 0, discountReason: "", notes: "" });
       return;
@@ -199,6 +222,10 @@ export default function CreateInvoicePage() {
         res.ok && data.success
           ? `IPD bill for ${data.data.context.patient.name} (stay #${String(row.admissionId).slice(-6).toUpperCase()})`
           : "";
+      if (res.ok && data.success) {
+        setNurseNotes(data.data.context.nurseNotes || []);
+        setMedicalSupplies(data.data.context.medicalSupplies || []);
+      }
       if (!res.ok || !data.success) {
         toast(data.message || "Failed to load the charge draft", "error");
       }
@@ -297,10 +324,26 @@ export default function CreateInvoicePage() {
       )
     );
 
+  const transferredSupplyIds = new Set(items.map((item) => item.nursingSupplyId).filter(Boolean) as string[]);
+  const addSuppliesToBill = (ids: string[]) => {
+    const additions = medicalSupplies
+      .filter((supply) => ids.includes(supply.id) && !transferredSupplyIds.has(supply.id))
+      .map((supply): ItemRow => ({
+        name: supply.serviceName || supply.itemName,
+        quantity: num(supply.quantity),
+        price: supply.rate ?? 0,
+        source: "supply",
+        nursingSupplyId: supply.id,
+      }));
+    if (additions.length === 0) return;
+    setItems((rows) => [...rows, ...additions]);
+    setSelectedSupplyIds([]);
+  };
+
   // Draft rows carry clinical charges, so removing one is an accounting event:
   // it needs a typed reason (appended to the invoice notes). Manual rows go free.
   const removeRow = (index: number, row: ItemRow) => {
-    if (row.source === "draft") {
+    if (row.source === "draft" || row.source === "supply") {
       const reason = window.prompt(`Deleting the auto-generated line "${row.name}" requires a reason (e.g. "patient did not use the service")`, "");
       const trimmed = reason?.trim() ?? "";
       if (!trimmed) {
@@ -310,7 +353,7 @@ export default function CreateInvoicePage() {
       setNotes((prev) => (prev ? `${prev}\nRemoved line (${row.name}): ${trimmed}` : `Removed line (${row.name}): ${trimmed}`));
     }
     setItems((rows: ItemRow[]) =>
-      row.source === "draft"
+      row.source === "draft" || row.source === "supply"
         ? rows.filter((_, i) => i !== index)
         : rows.length === 1
           ? [{ ...emptyRow }]
@@ -364,7 +407,7 @@ export default function CreateInvoicePage() {
       const serviceNameSet = new Set(services.map((service) => service.name.trim().toLowerCase()));
       const customRow = validRows.find(
         (row) =>
-          row.source !== "draft" &&
+          row.source !== "draft" && row.source !== "supply" &&
           row.name.trim() !== "" &&
           !serviceNameSet.has(row.name.trim().toLowerCase())
       );
@@ -778,15 +821,95 @@ export default function CreateInvoicePage() {
                   </p>
                 )}
 
-                <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 flex items-start gap-2 text-[11px] text-amber-800 dark:bg-amber-950/20">
-                  <StickyNote className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-semibold block">Nurse notes ({selectedQueueRow?.nurseNoteCount ?? 0})</span>
-                    <span className="whitespace-pre-wrap">
-                      {selectedQueueRow?.latestNurseNote || "None recorded"}
-                    </span>
+                <section className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-[11px] text-amber-900 dark:bg-amber-950/20">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 text-left font-semibold"
+                    aria-expanded={nurseNotesExpanded}
+                    onClick={() => setNurseNotesExpanded((expanded) => !expanded)}
+                  >
+                    <StickyNote className="h-3.5 w-3.5 shrink-0" />
+                    Nurse notes ({selectedQueueRow?.nurseNoteCount ?? nurseNotes.length})
+                    <span className="ml-auto text-slate-500">{nurseNotesExpanded ? "Hide" : "Show"}</span>
+                  </button>
+                  {nurseNotesExpanded && (
+                    <div className="mt-2 space-y-2">
+                      {nurseNotes.length ? nurseNotes.map((note, index) => (
+                        <article key={`${note.at || "note"}-${index}`} className="rounded border border-amber-200 bg-white/70 p-2">
+                          <div className="mb-1 flex flex-wrap justify-between gap-x-3 text-[10px] text-slate-500">
+                            <span>{note.nurseName}</span>
+                            <time>{note.at ? new Date(note.at).toLocaleString("en-IN") : "Time unavailable"}</time>
+                          </div>
+                          <p className="whitespace-pre-wrap">{note.text}</p>
+                        </article>
+                      )) : <p className="text-slate-500">No nurse notes recorded.</p>}
+                    </div>
+                  )}
+                </section>
+
+                <section className="rounded-lg border p-3 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold">Nursing Medical Supplies</h3>
+                      <p className="text-[11px] text-slate-500">All supplies recorded during this admission, across every hospital day.</p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!selectedSupplyIds.length}
+                      onClick={() => addSuppliesToBill(selectedSupplyIds)}
+                    >
+                      Add selected to bill ({selectedSupplyIds.length})
+                    </Button>
                   </div>
-                </div>
+                  {medicalSupplies.length === 0 ? (
+                    <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-500">No nursing medical supplies recorded for this admission.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {medicalSupplies.map((supply) => {
+                        const transferred = transferredSupplyIds.has(supply.id);
+                        const checked = selectedSupplyIds.includes(supply.id);
+                        return (
+                          <div key={supply.id} className="grid grid-cols-[auto_1fr_auto] items-start gap-2 rounded-md border p-2 text-xs">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${supply.itemName} Day ${supply.nursingDay}`}
+                              className="mt-1"
+                              checked={checked}
+                              disabled={transferred}
+                              onChange={(event) => setSelectedSupplyIds((ids) => event.target.checked
+                                ? [...ids, supply.id]
+                                : ids.filter((id) => id !== supply.id))}
+                            />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <span className="font-semibold">{supply.itemName}</span>
+                                <span className="text-slate-500">{supply.category} · Qty {supply.quantity} · Day {supply.nursingDay}</span>
+                              </div>
+                              {supply.notes && <p className="mt-1 whitespace-pre-wrap text-slate-600">{supply.notes}</p>}
+                              <p className="mt-1 text-[10px] text-slate-500">
+                                {supply.nurseName} · {supply.recordedAt ? new Date(supply.recordedAt).toLocaleString("en-IN") : "Time unavailable"}
+                              </p>
+                              {supply.missingRate && <p className="mt-1 font-medium text-rose-700">Rate missing in Services. Add the line to the bill and enter a rate before saving.</p>}
+                              {!supply.missingRate && <p className="mt-1 text-emerald-700">Catalogue rate: {fmtMoney(supply.rate || 0)}</p>}
+                              {transferred && <p className="mt-1 font-medium text-sky-700">Added to bill</p>}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={transferred}
+                              onClick={() => addSuppliesToBill([supply.id])}
+                            >
+                              {transferred ? "Added" : "Add to Bill"}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
 
                 <ItemsEditor
                   items={items}

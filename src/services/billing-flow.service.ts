@@ -8,6 +8,9 @@ import "@/models/doctor.model";
 import Doctor from "@/models/doctor.model";
 import { ClinicalRecord } from "@/models/clinical-record.model";
 import NursingMedication from "@/models/nursing-medication.model";
+import NursingMedicalSupply from "@/models/nursing-medical-supply.model";
+import Service from "@/models/service.model";
+import Organization from "@/models/organization.model";
 import Invoice from "@/models/invoice.model";
 import { Types } from "mongoose";
 import { num, round2 } from "@/lib/money";
@@ -17,6 +20,7 @@ export interface BillingActor {
     roleName?: string;
     isSuperAdmin?: boolean;
     branchId?: Types.ObjectId | string;
+    organizationId?: Types.ObjectId | string;
     orgScope?: string;
 }
 
@@ -344,12 +348,31 @@ async function buildDoctorRoundRows(rounds: Array<Record<string, unknown>>): Pro
 // as GIVEN (drugs have no unit master price yet, so price is left editable).
 export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, actor?: BillingActor) {
     const id = new Types.ObjectId(admissionId.toString());
-    const admission = await Admission.findById(id)
+    const admissionFilter: Record<string, unknown> = { _id: id };
+    if (actor && !actor.isSuperAdmin && actor.orgScope === "BRANCH") {
+        const allowedBranch = actor.branchId?.toString() || actor.organizationId?.toString();
+        if (!allowedBranch || !Types.ObjectId.isValid(allowedBranch)) {
+            throw { statusCode: 403, message: "Forbidden: Branch scope is missing" };
+        }
+        admissionFilter.branchId = new Types.ObjectId(allowedBranch);
+    } else if (actor && !actor.isSuperAdmin && actor.orgScope === "ORGANIZATION") {
+        const organizationId = actor.organizationId?.toString();
+        if (!organizationId || !Types.ObjectId.isValid(organizationId)) {
+            throw { statusCode: 403, message: "Forbidden: Organization scope is missing" };
+        }
+        const organizationBranchIds = await Organization.find({
+            $or: [{ _id: new Types.ObjectId(organizationId) }, { headQuarter: new Types.ObjectId(organizationId) }],
+        }).distinct("_id");
+        admissionFilter.branchId = { $in: organizationBranchIds };
+    }
+
+    const admission = await Admission.findOne(admissionFilter)
         .populate("patientId", "name uhid age gender contact bloodGroup allergies insurance")
         .populate("doctorId", "name")
         .populate("dischargeRequestedBy", "name")
         .populate("billingRequestedBy", "name")
         .populate("nursingHandoverHistory.fromNurseId", "name")
+        .populate("dischargeNotes.by", "name")
         .populate({
             path: "bedId",
             populate: {
@@ -362,13 +385,6 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
     if (!admission) {
         throw { statusCode: 404, message: "Admission not found" };
     }
-    if (actor && !actor.isSuperAdmin && actor.orgScope === "BRANCH" && actor.branchId) {
-        const admBranch = admission.branchId?.toString();
-        if (admBranch && admBranch !== actor.branchId.toString()) {
-            throw { statusCode: 403, message: "Forbidden: Admission belongs to another branch" };
-        }
-    }
-
     const bed = admission.bedId as Record<string, unknown> | undefined;
     const room = bed?.roomId as Record<string, unknown> | undefined;
     const ward = room?.wardId as Record<string, unknown> | undefined;
@@ -379,10 +395,11 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
         ? (admission.dischargeNotes as Array<Record<string, unknown>>).map((note) => ({
               text: note.text,
               at: note.at as Date,
+              nurseName: (note.by as { name?: string } | undefined)?.name || "Nurse",
           }))
         : [];
 
-    const [rounds, givenDoses] = await Promise.all([
+    const [rounds, givenDoses, supplyRecords] = await Promise.all([
         ClinicalRecord.find({
             admissionId: id,
             recordType: "Progress Note",
@@ -397,7 +414,38 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
             .sort({ scheduledTime: 1 })
             .limit(2000)
             .lean(),
+        NursingMedicalSupply.find({ admissionId: id, patient: admission.patientId })
+            .populate("author", "name")
+            .sort({ nursingDay: 1, recordedAt: 1 })
+            .lean(),
     ]);
+
+    const supplyNames = Array.from(new Set(supplyRecords.map((record) => String(record.itemName || "").trim()).filter(Boolean)));
+    const matchingServices = supplyNames.length
+        ? await Service.find({
+              active: true,
+              $or: supplyNames.map((name) => ({ name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" } })),
+          }).select("name category defaultRate").lean()
+        : [];
+    const serviceByName = new Map(matchingServices.map((service) => [service.name.trim().toLowerCase(), service]));
+    const medicalSupplies = supplyRecords.map((record) => {
+        const service = serviceByName.get(String(record.itemName || "").trim().toLowerCase());
+        const rate = service && Number(service.defaultRate) > 0 ? Number(service.defaultRate) : undefined;
+        const author = record.author as { name?: string } | undefined;
+        return {
+            id: String(record._id),
+            itemName: record.itemName,
+            category: record.category,
+            quantity: record.quantity,
+            nursingDay: record.nursingDay,
+            notes: record.notes || "",
+            recordedAt: record.recordedAt,
+            nurseName: author?.name || "Nurse",
+            serviceName: service?.name,
+            rate,
+            missingRate: rate === undefined,
+        };
+    });
 
     const admissionDate = new Date(admission.admissionDate as Date);
     const cutoffDate = admission.expectedDischargeAt
@@ -459,6 +507,7 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
         roundCount: rounds.length,
         doseUnits: givenDoses.length,
         nurseNotes: notes,
+        medicalSupplies,
     };
 
     return { context, items };

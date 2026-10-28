@@ -10,6 +10,7 @@ import Admission from "@/models/admission.model";
 import User from "@/models/user.model";
 import Role from "@/models/role.model";
 import DailyNursingRecord from "@/models/daily-nursing-record.model";
+import NursingMedicalSupply, { NURSING_SUPPLY_CATEGORIES } from "@/models/nursing-medical-supply.model";
 import { stayDayNumber } from "@/lib/hospital-time";
 import { isNurseRole } from "@/lib/rbac/roles";
 
@@ -465,21 +466,158 @@ export class NursingController {
       try { admission = await assertAssignedNursingAdmission(admissionId, patientId, auth); }
       catch (e: unknown) { const err = e as { statusCode?: number; message?: string }; return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 }); }
       const now = new Date();
-      const nursingDay = stayDayNumber(new Date(admission.admissionDate), now);
+      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), now));
+      const requestedDay = body.nursingDay;
+      if (typeof requestedDay !== "number" || !Number.isInteger(requestedDay) || requestedDay !== currentDay) {
+        return NextResponse.json(
+          { success: false, message: `Nursing records can only be added for the current hospital day (Day ${currentDay})` },
+          { status: 400 }
+        );
+      }
+      const nursingDay = requestedDay;
       const allowed = ["observations", "procedures", "medicationAdministration", "progress", "additionalNotes", "vitals", "status"] as const;
       const payload: Record<string, unknown> = {};
       for (const key of allowed) if (body[key] !== undefined) payload[key] = body[key];
       if (payload.status !== "Draft" && payload.status !== "Final") payload.status = "Draft";
       if (payload.status === "Final") payload.finalizedAt = now;
+      const primaryRecord = await DailyNursingRecord.findOne({
+        admissionId: admission._id,
+        nursingDay,
+        correctionOf: { $exists: false },
+      }).select("_id").lean();
+      if (primaryRecord) payload.correctionOf = primaryRecord._id;
+
       try {
         const data = await DailyNursingRecord.create({ ...payload, patient: admission.patientId, admissionId: admission._id, nursingDay, recordDate: now, author: auth.context.userId });
         return NextResponse.json({ success: true, data }, { status: 201 });
       } catch (error: unknown) {
-        if ((error as { code?: number }).code === 11000) return NextResponse.json({ success: false, message: `A daily record already exists for Day ${nursingDay}` }, { status: 409 });
+        if ((error as { code?: number }).code === 11000 && !payload.correctionOf) {
+          const concurrentPrimary = await DailyNursingRecord.findOne({
+            admissionId: admission._id,
+            nursingDay,
+            correctionOf: { $exists: false },
+          }).select("_id").lean();
+          if (concurrentPrimary) {
+            const data = await DailyNursingRecord.create({
+              ...payload,
+              correctionOf: concurrentPrimary._id,
+              patient: admission.patientId,
+              admissionId: admission._id,
+              nursingDay,
+              recordDate: now,
+              author: auth.context.userId,
+            });
+            return NextResponse.json({ success: true, data }, { status: 201 });
+          }
+        }
         throw error;
       }
     } catch (error) {
       return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Failed to save daily record" }, { status: 500 });
+    }
+  }
+
+  async getMedicalSupplies(request: NextRequest): Promise<NextResponse> {
+    try {
+      await dbConnect();
+      const auth = await authorizeRequest(request, "nursing.patients:view", "Admission");
+      if (!auth.isAuthorized) return auth.response;
+
+      const { searchParams } = new URL(request.url);
+      const admissionId = searchParams.get("admissionId") || "";
+      const patientId = searchParams.get("patientId") || undefined;
+      let admission: Awaited<ReturnType<typeof assertAssignedNursingAdmission>>;
+      try {
+        admission = await assertAssignedNursingAdmission(admissionId, patientId, auth);
+      } catch (error: unknown) {
+        const err = error as { statusCode?: number; message?: string };
+        return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 });
+      }
+
+      const records = await NursingMedicalSupply.find({ admissionId: admission._id })
+        .populate("author", "name")
+        .sort({ nursingDay: 1, recordedAt: 1 })
+        .lean();
+      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), new Date()));
+      return NextResponse.json({ success: true, data: { records, currentDay } });
+    } catch (error: unknown) {
+      return NextResponse.json({
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to load medical supplies",
+      }, { status: 500 });
+    }
+  }
+
+  async createMedicalSupply(request: NextRequest): Promise<NextResponse> {
+    try {
+      await dbConnect();
+      const auth = await authorizeRequest(request, "nursing.patients:update", "Admission");
+      if (!auth.isAuthorized) return auth.response;
+
+      let body: Record<string, unknown>;
+      try {
+        body = await request.json() as Record<string, unknown>;
+      } catch {
+        return NextResponse.json({ success: false, message: "Invalid request body" }, { status: 400 });
+      }
+
+      const admissionId = typeof body.admissionId === "string" ? body.admissionId : "";
+      const patientId = typeof body.patientId === "string" ? body.patientId : undefined;
+      let admission: Awaited<ReturnType<typeof assertAssignedNursingAdmission>>;
+      try {
+        admission = await assertAssignedNursingAdmission(admissionId, patientId, auth);
+      } catch (error: unknown) {
+        const err = error as { statusCode?: number; message?: string };
+        return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 });
+      }
+
+      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), new Date()));
+      const nursingDay = body.nursingDay;
+      if (!Number.isInteger(nursingDay) || nursingDay !== currentDay) {
+        return NextResponse.json(
+          { success: false, message: `Medical supplies can only be added for the current hospital day (Day ${currentDay})` },
+          { status: 400 }
+        );
+      }
+
+      const category = body.category;
+      if (typeof category !== "string" || !(NURSING_SUPPLY_CATEGORIES as readonly string[]).includes(category)) {
+        return NextResponse.json({ success: false, message: "Choose a valid medical supply category" }, { status: 400 });
+      }
+
+      const itemName = typeof body.itemName === "string" ? body.itemName.trim() : "";
+      if (!itemName || itemName.length > 200) {
+        return NextResponse.json({ success: false, message: "Supply name is required and must be 200 characters or fewer" }, { status: 400 });
+      }
+
+      const quantity = body.quantity;
+      if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity < 0.01 || quantity > 100000) {
+        return NextResponse.json({ success: false, message: "Quantity must be between 0.01 and 100000" }, { status: 400 });
+      }
+
+      const notes = typeof body.notes === "string" ? body.notes.trim() : "";
+      if (notes.length > 2000) {
+        return NextResponse.json({ success: false, message: "Notes must be 2000 characters or fewer" }, { status: 400 });
+      }
+
+      const record = await NursingMedicalSupply.create({
+        patient: admission.patientId,
+        admissionId: admission._id,
+        nursingDay,
+        category,
+        itemName,
+        quantity,
+        ...(notes ? { notes } : {}),
+        author: auth.context.userId,
+        recordedAt: new Date(),
+      });
+      const data = await NursingMedicalSupply.findById(record._id).populate("author", "name").lean();
+      return NextResponse.json({ success: true, data }, { status: 201 });
+    } catch (error: unknown) {
+      return NextResponse.json({
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to save medical supply",
+      }, { status: 500 });
     }
   }
 

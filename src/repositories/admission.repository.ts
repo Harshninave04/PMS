@@ -38,6 +38,7 @@ const defaultPopulate = [
     { path: "transferHistory.toDoctorId", select: "name email" },
     { path: "assignedNurses", select: "name email" },
     { path: "assignedDoctors", select: "name email" },
+    { path: "billingMedicalSupplies.author", select: "name" },
     { path: "careTeamUpdatedBy", select: "name email" }
 ];
 
