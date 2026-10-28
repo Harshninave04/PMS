@@ -30,9 +30,14 @@ interface BedItem {
   } | string;
   bedType: string;
   status: string;
+  bedRatePerDay?: number | null;
+  nursingRatePerDay?: number | null;
   isActive: boolean;
   createdAt?: string;
 }
+
+/** Optional per-bed billing overrides; blank keeps the stored value / ward rate. */
+interface BedRateInput { bedRatePerDay: number | ""; nursingRatePerDay: number | "" }
 
 interface RoomOption {
   _id: string;
@@ -77,6 +82,7 @@ export default function ManageBedsPage() {
     status: "AVAILABLE",
     isActive: true
   });
+  const [rates, setRates] = useState<BedRateInput>({ bedRatePerDay: "", nursingRatePerDay: "" });
   const [saveLoading, setSaveLoading] = useState(false);
 
   // Delete Dialog State
@@ -143,8 +149,11 @@ export default function ManageBedsPage() {
     return b.bedNumber.toLowerCase().includes(q);
   });
 
+  const rateHasValue = (value: number | "") => value !== "" && Number.isFinite(Number(value)) && Number(value) >= 0;
+
   const openCreate = () => {
     setEditingBed(null);
+    setRates({ bedRatePerDay: "", nursingRatePerDay: "" });
     setForm({
       bedNumber: "",
       roomId: rooms.length > 0 ? rooms[0]._id : "",
@@ -157,6 +166,10 @@ export default function ManageBedsPage() {
 
   const openEdit = (bed: BedItem) => {
     setEditingBed(bed);
+    setRates({
+      bedRatePerDay: typeof bed.bedRatePerDay === "number" ? bed.bedRatePerDay : "",
+      nursingRatePerDay: typeof bed.nursingRatePerDay === "number" ? bed.nursingRatePerDay : "",
+    });
     setForm({
       bedNumber: bed.bedNumber,
       roomId: idOf(bed.roomId),
@@ -173,16 +186,27 @@ export default function ManageBedsPage() {
       toast("Please fill in all required fields", "warning");
       return;
     }
+    if (
+      (rates.bedRatePerDay !== "" && !rateHasValue(rates.bedRatePerDay)) ||
+      (rates.nursingRatePerDay !== "" && !rateHasValue(rates.nursingRatePerDay))
+    ) {
+      toast("Rates must be zero or positive numbers.", "warning");
+      return;
+    }
 
     setSaveLoading(true);
     try {
       const method = editingBed ? "PUT" : "POST";
       const url = editingBed ? `/api/bed/${editingBed._id}` : "/api/bed";
-      
+
+      const payload: Record<string, unknown> = { ...form };
+      if (rates.bedRatePerDay !== "") payload.bedRatePerDay = Number(rates.bedRatePerDay);
+      if (rates.nursingRatePerDay !== "") payload.nursingRatePerDay = Number(rates.nursingRatePerDay);
+
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form)
+        body: JSON.stringify(payload)
       });
       const json = await res.json();
 
@@ -444,6 +468,33 @@ export default function ManageBedsPage() {
                   </option>
                 ))}
               </Select>
+            </div>
+
+            <div className="grid gap-4 grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="bedRatePerDay" className="font-semibold text-slate-700 dark:text-slate-350">Bed Rate Override ₹/day</Label>
+                <Input
+                  id="bedRatePerDay"
+                  type="number"
+                  min={0}
+                  placeholder="e.g. 900"
+                  value={rates.bedRatePerDay}
+                  onChange={(e) => setRates((p) => ({ ...p, bedRatePerDay: e.target.value === "" ? "" : Number(e.target.value) }))}
+                />
+                <p className="text-[10px] text-slate-400">Optional — blank uses the ward rate</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="nursingRatePerDay" className="font-semibold text-slate-700 dark:text-slate-350">Nursing Override ₹/day</Label>
+                <Input
+                  id="nursingRatePerDay"
+                  type="number"
+                  min={0}
+                  placeholder="e.g. 300"
+                  value={rates.nursingRatePerDay}
+                  onChange={(e) => setRates((p) => ({ ...p, nursingRatePerDay: e.target.value === "" ? "" : Number(e.target.value) }))}
+                />
+                <p className="text-[10px] text-slate-400">Optional — blank uses the ward rate</p>
+              </div>
             </div>
 
             <div className="flex items-center gap-2 pt-2">

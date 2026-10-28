@@ -164,6 +164,9 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     post("/admission/billing-request", K("nursing", "patients", "update")),
     put("/admission/billing-request", K("nursing", "patients", "update")),
     post("/admission/discharge-note", K("nursing", "patients", "update")),
+    // Accountant intake: flagged stays handed over by nursing, and the
+    // pre-computed charge draft for one stay.
+    get("/admission/billing-queue", K("billing", "invoices", "view")),
     post("/admission/transfer", K("admissions", "transfer", "create")),
     get("/admission/stats", K("admissions", "current", "view")),
     { path: "/admission/[id]/care-team", method: "PUT", permission: K("admissions", "current", "update") },
@@ -248,8 +251,13 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     post("/payment", K("billing", "payments", "create")),
     { path: "/payment/[id]", method: "GET", permission: K("billing", "payments", "view") },
     { path: "/payment/[id]", method: "PUT", permission: K("billing", "payments", "update") },
+    get("/invoice/draft", K("billing", "invoices", "view")),
     get("/finance/stats", K("billing", "invoices", "view")),
     get("/finance/outstanding", K("billing", "outstanding", "view")),
+    get("/service", K("billing", "rates", "view")),
+    post("/service", K("billing", "rates", "create")),
+    { path: "/service/[id]", method: "PUT", permission: K("billing", "rates", "update") },
+    { path: "/service/[id]", method: "DELETE", permission: K("billing", "rates", "delete") },
 
     // Reports
     get("/reports/summary", K("reports", "summary", "view")),

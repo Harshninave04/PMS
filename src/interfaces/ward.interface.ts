@@ -5,6 +5,9 @@ export interface IWard extends Document {
     wardCode: string;
     wardType: string;
     floor: number;
+    /** Per-day rates used by the billing draft; unset means "not configured". */
+    bedRatePerDay?: number;
+    nursingRatePerDay?: number;
     organizationId: Types.ObjectId;
     isActive: boolean;
 }
