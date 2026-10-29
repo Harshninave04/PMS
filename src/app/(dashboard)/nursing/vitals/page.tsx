@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import React, { useEffect, useState, useMemo, Suspense, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,14 +17,64 @@ import {
   Plus,
   RefreshCw,
   Download,
-  Trash2,
-  Activity,
-  AlertTriangle,
   CheckCircle2,
   Loader2,
-  Calendar,
-  User
+  ChevronDown,
+  ChevronRight
 } from "lucide-react";
+
+type PatientReference = string | {
+  _id?: string;
+  name?: string;
+  uhid?: string;
+};
+
+type VitalRecord = {
+  _id: string;
+  patient: PatientReference;
+  admissionId?: string;
+  bloodPressure?: string;
+  heartRate?: number;
+  oxygenSaturation?: number;
+  respiratoryRate?: number;
+  temperature?: number;
+  dateRecorded?: string;
+  createdAt?: string;
+};
+
+type Inpatient = {
+  patientId: string;
+  admissionId?: string;
+  name?: string;
+  uhid?: string;
+  bedNumber?: string | number;
+};
+
+type PatientVitalGroup = {
+  key: string;
+  patientId: string;
+  name: string;
+  uhid: string;
+  bedNumber?: string | number;
+  records: VitalRecord[];
+};
+
+function patientIdOf(vital: VitalRecord): string {
+  return typeof vital.patient === "string" ? vital.patient : vital.patient?._id || "";
+}
+
+function patientNameOf(vital: VitalRecord): string {
+  return typeof vital.patient === "string" ? "Unknown patient" : vital.patient?.name?.trim() || "Unknown patient";
+}
+
+function patientUhidOf(vital: VitalRecord): string {
+  return typeof vital.patient === "string" ? "" : vital.patient?.uhid || "";
+}
+
+function observationTime(vital: VitalRecord): number {
+  const timestamp = new Date(vital.dateRecorded || vital.createdAt || "").getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
 
 export default function NursingVitalsPage() {
   return (
@@ -41,16 +91,16 @@ export default function NursingVitalsPage() {
 }
 
 function NursingVitalsContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const initialPatientId = searchParams.get("patientId") || "";
   const initialAdmissionId = searchParams.get("admissionId") || "";
   const { toast } = useToast();
 
-  const [vitals, setVitals] = useState<any[]>([]);
-  const [inpatients, setInpatients] = useState<any[]>([]);
+  const [vitals, setVitals] = useState<VitalRecord[]>([]);
+  const [inpatients, setInpatients] = useState<Inpatient[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedPatientKey, setExpandedPatientKey] = useState<string | null>(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -70,7 +120,7 @@ function NursingVitalsContent() {
     painScore: "0"
   });
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [vitsRes, ptsRes] = await Promise.all([
         fetch("/api/clinical/vitals"),
@@ -87,17 +137,18 @@ function NursingVitalsContent() {
         setInpatients(ptsData.data || []);
         if (initialPatientId) setCreateOpen(true);
       }
-    } catch (err) {
+    } catch {
       toast("Failed to load bedside vitals logs", "error");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [initialPatientId, toast]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    const timer = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadData]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -152,30 +203,14 @@ function NursingVitalsContent() {
       } else {
         toast(data.error || "Failed to log vitals", "error");
       }
-    } catch (err) {
+    } catch {
       toast("An error occurred while logging vitals", "error");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to remove this vital signs entry?")) return;
-    try {
-      const res = await fetch(`/api/clinical/vitals/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast("Vitals entry removed", "success");
-        loadData();
-      } else {
-        toast(data.error || "Failed to remove entry", "error");
-      }
-    } catch (err) {
-      toast("Error deleting entry", "error");
-    }
-  };
-
-  const getDeteriorationStatus = (v: any) => {
+  const getDeteriorationStatus = (v: VitalRecord) => {
     const spo2 = v.oxygenSaturation;
     const hr = v.heartRate;
     const temp = v.temperature;
@@ -192,21 +227,52 @@ function NursingVitalsContent() {
   const filteredVitals = useMemo(() => {
     return vitals.filter((v) => {
       const q = searchQuery.toLowerCase().trim();
-      const patName = (v.patient?.name || "").toLowerCase();
-      const uhid = (v.patient?.uhid || "").toLowerCase();
+      const patName = patientNameOf(v).toLowerCase();
+      const uhid = patientUhidOf(v).toLowerCase();
       const bp = (v.bloodPressure || "").toLowerCase();
 
       const matchesSearch = !q || patName.includes(q) || uhid.includes(q) || bp.includes(q);
 
       let matchesPatient = true;
       if (selectedPatientFilter !== "ALL") {
-        const pId = v.patient?._id || v.patient;
-        matchesPatient = pId === selectedPatientFilter;
+        matchesPatient = patientIdOf(v) === selectedPatientFilter;
       }
 
       return matchesSearch && matchesPatient;
     });
   }, [vitals, searchQuery, selectedPatientFilter]);
+
+  const groupedVitals = useMemo(() => {
+    const groups = new Map<string, PatientVitalGroup>();
+    for (const vital of filteredVitals) {
+      const patientId = patientIdOf(vital);
+      const name = patientNameOf(vital);
+      const normalizedName = name.toLocaleLowerCase().replace(/\s+/g, " ");
+      const key = patientId ? `${normalizedName}:${patientId}` : normalizedName;
+      const patient = typeof vital.patient === "string" ? undefined : vital.patient;
+      let group = groups.get(key);
+      if (!group) {
+        const inpatient = inpatients.find((item) => item.patientId === patientId);
+        group = {
+          key,
+          patientId,
+          name,
+          uhid: patient?.uhid || inpatient?.uhid || "",
+          bedNumber: inpatient?.bedNumber,
+          records: [],
+        };
+        groups.set(key, group);
+      }
+      group.records.push(vital);
+    }
+
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        records: [...group.records].sort((a, b) => observationTime(a) - observationTime(b)),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [filteredVitals, inpatients]);
 
   const exportCSV = () => {
     if (filteredVitals.length === 0) {
@@ -227,9 +293,9 @@ function NursingVitalsContent() {
     ];
 
     const rows = filteredVitals.map((v) => [
-      `"${new Date(v.dateRecorded || v.createdAt).toLocaleString()}"`,
-      `"${v.patient?.name || ""}"`,
-      `"${v.patient?.uhid || ""}"`,
+      `"${observationTime(v) ? new Date(observationTime(v)).toLocaleString() : ""}"`,
+      `"${patientNameOf(v)}"`,
+      `"${patientUhidOf(v)}"`,
       `"${v.bloodPressure || "N/A"}"`,
       v.heartRate || "",
       v.oxygenSaturation || "",
@@ -342,7 +408,11 @@ function NursingVitalsContent() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold">Vital Signs Observation Ledger</CardTitle>
           <CardDescription>
-            Showing {filteredVitals.length} of {vitals.length} recorded bedside physiological observations
+            Showing {groupedVitals.length} of {new Set(vitals.map((vital) => {
+              const patientId = patientIdOf(vital);
+              const name = patientNameOf(vital).toLocaleLowerCase().replace(/\s+/g, " ");
+              return patientId ? `${name}:${patientId}` : name;
+            })).size} patients · {filteredVitals.length} observations
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -350,82 +420,97 @@ function NursingVitalsContent() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Observation Time</TableHead>
-                  <TableHead>Patient Particulars</TableHead>
-                  <TableHead className="text-center">BP (mmHg)</TableHead>
-                  <TableHead className="text-center">Pulse (bpm)</TableHead>
-                  <TableHead className="text-center">SpO2 (%)</TableHead>
-                  <TableHead className="text-center">Resp (/min)</TableHead>
-                  <TableHead className="text-center">Temp (°C)</TableHead>
-                  <TableHead>Deterioration Alert</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead>Patient particulars</TableHead>
+                  <TableHead>Bed</TableHead>
+                  <TableHead className="text-center">Observations</TableHead>
+                  <TableHead>Latest observation</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredVitals.length === 0 ? (
+                {groupedVitals.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center text-slate-500 py-12 text-xs">
+                    <TableCell colSpan={4} className="text-center text-slate-500 py-12 text-xs">
                       No vital signs records found matching filter criteria.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredVitals.map((v) => {
-                    const status = getDeteriorationStatus(v);
+                  groupedVitals.map((group) => {
+                    const latest = group.records.at(-1)!;
+                    const expanded = expandedPatientKey === group.key;
                     return (
-                      <TableRow key={v._id} className="text-xs hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                        <TableCell className="font-mono text-slate-500 whitespace-nowrap">
-                          {new Date(v.dateRecorded || v.createdAt).toLocaleString([], {
-                            dateStyle: "short",
-                            timeStyle: "short"
-                          })}
-                        </TableCell>
-
-                        <TableCell>
-                          <div className="font-semibold text-slate-900 dark:text-white">
-                            {v.patient?.name || "Unknown"}
-                          </div>
-                          <div className="text-[10px] text-slate-400 font-mono">
-                            {v.patient?.uhid}
-                          </div>
-                        </TableCell>
-
-                        <TableCell className="text-center font-mono font-bold">
-                          {v.bloodPressure || "—"}
-                        </TableCell>
-
-                        <TableCell className="text-center font-mono">
-                          {v.heartRate ? `${v.heartRate}` : "—"}
-                        </TableCell>
-
-                        <TableCell className="text-center font-mono font-bold text-emerald-600">
-                          {v.oxygenSaturation ? `${v.oxygenSaturation}%` : "—"}
-                        </TableCell>
-
-                        <TableCell className="text-center font-mono">
-                          {v.respiratoryRate || "—"}
-                        </TableCell>
-
-                        <TableCell className="text-center font-mono">
-                          {v.temperature ? `${v.temperature}°` : "—"}
-                        </TableCell>
-
-                        <TableCell>
-                          <Badge className={`text-[10px] ${status.color}`}>
-                            {status.label}
-                          </Badge>
-                        </TableCell>
-
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs text-rose-600 hover:text-rose-700 ml-auto"
-                            onClick={() => handleDelete(v._id)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
+                      <React.Fragment key={group.key}>
+                        <TableRow
+                          className="cursor-pointer text-xs hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                          aria-expanded={expanded}
+                          onClick={() => setExpandedPatientKey(expanded ? null : group.key)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setExpandedPatientKey(expanded ? null : group.key);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <TableCell>
+                            <div className="flex items-center gap-2 font-semibold text-slate-900 dark:text-white">
+                              {expanded ? <ChevronDown className="h-4 w-4 text-rose-600" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+                              {group.name}
+                            </div>
+                            <div className="ml-6 text-[10px] font-mono text-slate-400">{group.uhid || "UHID unavailable"}</div>
+                          </TableCell>
+                          <TableCell>{group.bedNumber ?? "—"}</TableCell>
+                          <TableCell className="text-center">
+                            <Badge className="border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                              {group.records.length}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="font-mono text-slate-500 whitespace-nowrap">
+                            {observationTime(latest) ? new Date(observationTime(latest)).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "Date unavailable"}
+                          </TableCell>
+                        </TableRow>
+                        {expanded && (
+                          <TableRow>
+                            <TableCell colSpan={4} className="bg-slate-50/70 p-3 dark:bg-slate-900/40">
+                              <div className="overflow-x-auto rounded-md border bg-white dark:bg-slate-950">
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead>Observation time</TableHead>
+                                      <TableHead className="text-center">BP (mmHg)</TableHead>
+                                      <TableHead className="text-center">Pulse (bpm)</TableHead>
+                                      <TableHead className="text-center">SpO2 (%)</TableHead>
+                                      <TableHead className="text-center">Resp (/min)</TableHead>
+                                      <TableHead className="text-center">Temp (°C)</TableHead>
+                                      <TableHead>Deterioration alert</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {group.records.map((vital, index) => {
+                                      const status = getDeteriorationStatus(vital);
+                                      const isLatest = index === group.records.length - 1;
+                                      return (
+                                        <TableRow key={vital._id} className={`text-xs ${isLatest ? "bg-rose-50/70 dark:bg-rose-950/20" : ""}`}>
+                                          <TableCell className="whitespace-nowrap font-mono text-slate-500">
+                                            {observationTime(vital) ? new Date(observationTime(vital)).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "Date unavailable"}
+                                            {isLatest && <Badge className="ml-2 border-rose-300 bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">Latest</Badge>}
+                                          </TableCell>
+                                          <TableCell className="text-center font-mono font-bold">{vital.bloodPressure || "—"}</TableCell>
+                                          <TableCell className="text-center font-mono">{vital.heartRate ?? "—"}</TableCell>
+                                          <TableCell className="text-center font-mono font-bold text-emerald-600">{vital.oxygenSaturation != null ? `${vital.oxygenSaturation}%` : "—"}</TableCell>
+                                          <TableCell className="text-center font-mono">{vital.respiratoryRate ?? "—"}</TableCell>
+                                          <TableCell className="text-center font-mono">{vital.temperature != null ? `${vital.temperature}°` : "—"}</TableCell>
+                                          <TableCell><Badge className={`text-[10px] ${status.color}`}>{status.label}</Badge></TableCell>
+                                        </TableRow>
+                                      );
+                                    })}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
                     );
                   })
                 )}

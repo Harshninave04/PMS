@@ -68,7 +68,7 @@ const dischargeNoteSchema = new Schema(
 
 const billingMedicalSupplySchema = new Schema(
     {
-        nursingDay: { type: Number, required: true, min: 1, max: 7 },
+        nursingDay: { type: Number, required: true, min: 1 },
         category: { type: String, required: true },
         itemName: { type: String, required: true },
         quantity: { type: Number, required: true, min: 0.01 },
