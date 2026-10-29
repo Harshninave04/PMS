@@ -6,7 +6,7 @@ const organizationSchema = new Schema<IOrganization>(
     {
         organizationName: {
             type: String,
-            required: true
+            trim: true,
         },
         organizationId: {
             type: String,
@@ -45,10 +45,7 @@ const organizationSchema = new Schema<IOrganization>(
         pincode: {
             type: String,
         },
-        country: {
-            type: String,
-            default: "India",
-        },
+        country: { type: String, trim: true },
         capacity: {
             type: Number,
             default: 0,

@@ -355,7 +355,7 @@ export default function SoftwareMetadataPage() {
               <div>
                 <span className="text-muted-foreground">Logo source</span>
                 <p className="font-mono font-medium text-foreground mt-0.5 break-all">
-                  {branding.logoUrl || "/icon.svg (built-in)"}
+                  {branding.logoUrl || "No software logo configured"}
                 </p>
               </div>
               <div>

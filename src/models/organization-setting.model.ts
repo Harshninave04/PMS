@@ -1,36 +1,39 @@
 import mongoose, { Schema, Document } from "mongoose";
+import { DEFAULT_HOSPITAL_TIME_ZONE } from "@/types/hospital-profile";
 
 export interface IOrganizationSetting extends Document {
-  cinNumber: string; // Corporate Identity Number
-  panNumber: string; // Indian PAN
-  gstin: string; // Indian GST Number
+  cinNumber?: string;
+  panNumber?: string;
+  gstin?: string;
   currency: string;
   currencySymbol: string;
   fiscalYearStart: string;
   fiscalYearEnd: string;
-  tagline: string;
-  website: string;
-  emergencyHotline: string;
-  letterheadHeader: string;
-  letterheadFooter: string;
+  timeZone: string;
+  tagline?: string;
+  website?: string;
+  emergencyHotline?: string;
+  letterheadHeader?: string;
+  letterheadFooter?: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
 const OrganizationSettingSchema: Schema = new Schema(
   {
-    cinNumber: { type: String, default: "U85110WB2018PTC224890" },
-    panNumber: { type: String, default: "AAACM8912P" },
-    gstin: { type: String, default: "19AAACM8912P1ZV" },
+    cinNumber: { type: String, trim: true },
+    panNumber: { type: String, trim: true },
+    gstin: { type: String, trim: true },
     currency: { type: String, default: "INR" },
+    timeZone: { type: String, trim: true, default: DEFAULT_HOSPITAL_TIME_ZONE },
     currencySymbol: { type: String, default: "₹" },
     fiscalYearStart: { type: String, default: "April" },
     fiscalYearEnd: { type: String, default: "March" },
-    tagline: { type: String, default: "Centre of Excellence in Tertiary & Quaternary Healthcare" },
-    website: { type: String, default: "https://medistra.hospital" },
-    emergencyHotline: { type: String, default: "+91 33 2345 6780" },
-    letterheadHeader: { type: String, default: "MEDISTRA HEALTHCARE SYSTEM - TRUSTED CLINICAL EXCELLENCE" },
-    letterheadFooter: { type: String, default: "12 Medical Enclave, Central Avenue, Kolkata | 24x7 Helpline: 1800-200-8899" },
+    tagline: { type: String, trim: true },
+    website: { type: String, trim: true },
+    emergencyHotline: { type: String, trim: true },
+    letterheadHeader: { type: String, trim: true },
+    letterheadFooter: { type: String, trim: true },
   },
   { timestamps: true }
 );

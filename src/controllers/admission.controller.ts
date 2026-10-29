@@ -11,6 +11,8 @@ import DailyNursingRecord from "@/models/daily-nursing-record.model";
 import NursingMedicalSupply from "@/models/nursing-medical-supply.model";
 import type { IBillingMedicalSupply } from "@/interfaces/admission.interface";
 import { stayDayNumber } from "@/lib/hospital-time";
+import { getHospitalProfile } from "@/services/hospital-profile.service";
+import { buildAutoTreatmentSummary, buildDischargeFullFile } from "@/services/discharge-packet.service";
 import { isNurseRole } from "@/lib/rbac/roles";
 import Organization from "@/models/organization.model";
 
@@ -297,6 +299,88 @@ export class AdmissionController {
         }
     }
 
+    async getDischargeDraft(id: string, request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+            const auth = await authorizeRequest(request, "admissions.discharge:view", "Admission");
+            if (!auth.isAuthorized) return auth.response;
+            if (!Types.ObjectId.isValid(id)) return NextResponse.json({ success: false, message: "Invalid admission ID." }, { status: 400 });
+
+            const admission = await this.admissionService.getAdmissionById(new Types.ObjectId(id));
+            if (!admission) return NextResponse.json({ success: false, message: "Admission not found." }, { status: 404 });
+            if (!(["ADMITTED", "TRANSFERRED"] as string[]).includes(admission.status)) {
+                return NextResponse.json({ success: false, message: "Only an active admission can be prepared for discharge." }, { status: 409 });
+            }
+            if (isNurseRole(auth.context.roleName)) {
+                const assigned = (admission.assignedNurses ?? []).some((nurse) => idOfValue(nurse) === auth.context.userId.toString());
+                if (!assigned) return NextResponse.json({ success: false, message: "Admission not found." }, { status: 404 });
+            }
+            if (!isNurseRole(auth.context.roleName) && auth.grant.relScope === "OWN") {
+                const doctorId = idOfValue(admission.doctorId);
+                if (doctorId !== auth.context.userId.toString()) return NextResponse.json({ success: false, message: "You can only prepare your own admissions for discharge." }, { status: 403 });
+            }
+            if (auth.grant.orgScope === "BRANCH") {
+                const admissionBranch = idOfValue(admission.branchId);
+                if (!auth.context.branchId || admissionBranch !== auth.context.branchId.toString()) {
+                    return NextResponse.json({ success: false, message: "Admission belongs to another branch." }, { status: 403 });
+                }
+            }
+
+            const hospital = await getHospitalProfile();
+            const [summary, details] = await Promise.all([
+                admission.dischargeSummary?.trim()
+                    ? Promise.resolve(admission.dischargeSummary)
+                    : buildAutoTreatmentSummary(new Types.ObjectId(id), hospital.timeZone),
+                buildDischargeFullFile(admission, hospital.timeZone),
+            ]);
+            return NextResponse.json({ success: true, data: { summary, details } });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Unable to prepare the discharge summary.";
+            return NextResponse.json({ success: false, message }, { status: 500 });
+        }
+    }
+
+    async getDischargeTreatmentSummary(id: string, request: NextRequest): Promise<NextResponse> {
+        try {
+            await dbConnect();
+            const auth = await authorizeRequest(request, "admissions.summary:print", "Admission");
+            if (!auth.isAuthorized) return auth.response;
+            if (!Types.ObjectId.isValid(id)) return NextResponse.json({ success: false, message: "Invalid admission ID." }, { status: 400 });
+
+            const admission = await this.admissionService.getAdmissionById(new Types.ObjectId(id));
+            if (!admission) return NextResponse.json({ success: false, message: "Admission not found." }, { status: 404 });
+            if (isNurseRole(auth.context.roleName)) {
+                const assigned = (admission.assignedNurses ?? []).some((nurse) => idOfValue(nurse) === auth.context.userId.toString());
+                if (!assigned) return NextResponse.json({ success: false, message: "Admission not found." }, { status: 404 });
+            }
+            if (!isNurseRole(auth.context.roleName) && auth.grant.relScope === "OWN" && idOfValue(admission.doctorId) !== auth.context.userId.toString()) {
+                return NextResponse.json({ success: false, message: "You can only view your own admissions." }, { status: 403 });
+            }
+
+            const branchId = idOfValue(admission.branchId);
+            if (auth.grant.orgScope === "BRANCH" && (!auth.context.branchId || branchId !== auth.context.branchId.toString())) {
+                return NextResponse.json({ success: false, message: "Admission belongs to another branch." }, { status: 403 });
+            }
+            if (auth.grant.orgScope === "ORGANIZATION") {
+                if (!auth.context.organizationId || !branchId) return NextResponse.json({ success: false, message: "Admission is outside your organization." }, { status: 403 });
+                const branchRecord = (admission.branchId as PopulatedEntity)?.headQuarter !== undefined
+                    ? admission.branchId
+                    : await Organization.findById(branchId).select("headQuarter").lean();
+                const organizationId = auth.context.organizationId.toString();
+                if (branchId !== organizationId && idOfValue((branchRecord as PopulatedEntity | null)?.headQuarter) !== organizationId) {
+                    return NextResponse.json({ success: false, message: "Admission is outside your organization." }, { status: 403 });
+                }
+            }
+
+            const hospital = await getHospitalProfile();
+            const summary = await buildAutoTreatmentSummary(new Types.ObjectId(id), hospital.timeZone);
+            return NextResponse.json({ success: true, data: { summary } });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Unable to prepare the treatment summary.";
+            return NextResponse.json({ success: false, message }, { status: 500 });
+        }
+    }
+
     async transferPatient(request: NextRequest): Promise<NextResponse> {
         try {
             await dbConnect();
@@ -376,6 +460,30 @@ export class AdmissionController {
                 return NextResponse.json({ success: false, message: "Admission not found" }, { status: 404 });
             }
 
+            if (existing.status === "DISCHARGED") {
+                return NextResponse.json({ success: false, message: "This admission has already been discharged." }, { status: 409 });
+            }
+            if (data.dischargeSummary !== undefined && typeof data.dischargeSummary !== "string") {
+                return NextResponse.json({ success: false, message: "Discharge summary must be text." }, { status: 400 });
+            }
+            if ((data.dischargeSummary?.length ?? 0) > 12000) {
+                return NextResponse.json({ success: false, message: "Discharge summary must be 12,000 characters or fewer." }, { status: 400 });
+            }
+            if (!data.dischargeSummary?.trim()) {
+                const hospital = await getHospitalProfile();
+                data.dischargeSummary = await buildAutoTreatmentSummary(new Types.ObjectId(data.admissionId), hospital.timeZone);
+            }
+
+            const dischargeInstant = data.dischargeDate ? new Date(data.dischargeDate) : new Date();
+            if (Number.isNaN(dischargeInstant.getTime())) {
+                return NextResponse.json({ success: false, message: "Invalid discharge date and time." }, { status: 400 });
+            }
+            const admissionInstant = new Date(existing.admissionDate);
+            if (dischargeInstant.getTime() < admissionInstant.getTime()) {
+                return NextResponse.json({ success: false, message: "Discharge date and time cannot be earlier than admission." }, { status: 400 });
+            }
+            data.dischargeDate = dischargeInstant.toISOString();
+
             if (!isNurseRole(auth.context.roleName) && auth.grant.relScope === "OWN") {
                 const docId = (existing.doctorId as PopulatedEntity)?._id?.toString() || existing.doctorId?.toString();
                 if (docId !== auth.context.userId.toString()) {
@@ -407,7 +515,8 @@ export class AdmissionController {
                 if (!assigned || !["ADMITTED", "TRANSFERRED"].includes(existing.status)) {
                     return NextResponse.json({ success: false, message: "Forbidden: You can only discharge a patient assigned to you" }, { status: 403 });
                 }
-                const expectedDays = stayDayNumber(new Date(existing.admissionDate), new Date());
+                const hospital = await getHospitalProfile();
+                const expectedDays = stayDayNumber(new Date(existing.admissionDate), dischargeInstant, hospital.timeZone);
                 const finalized = await DailyNursingRecord.find({ admissionId: existing._id, status: "Final" }).select("nursingDay").lean();
                 const completedDays = new Set(finalized.map((record) => record.nursingDay));
                 const missing = Array.from({ length: expectedDays }, (_, index) => index + 1).filter((day) => !completedDays.has(day));
@@ -880,6 +989,21 @@ export class AdmissionController {
             }
 
             const data: UpdateAdmissionDto = await request.json();
+
+            if (data.dischargeDate !== undefined || data.admissionDate !== undefined) {
+                const admissionDate = data.admissionDate !== undefined ? new Date(data.admissionDate) : new Date(existing.admissionDate);
+                const dischargeDate = data.dischargeDate !== undefined
+                    ? new Date(data.dischargeDate)
+                    : existing.dischargeDate ? new Date(existing.dischargeDate) : null;
+                if (Number.isNaN(admissionDate.getTime()) || (data.dischargeDate !== undefined && (!dischargeDate || Number.isNaN(dischargeDate.getTime())))) {
+                    return NextResponse.json({ success: false, message: "Admission or discharge date is invalid." }, { status: 400 });
+                }
+                if (dischargeDate && dischargeDate.getTime() < admissionDate.getTime()) {
+                    return NextResponse.json({ success: false, message: "Discharge date and time cannot be earlier than admission." }, { status: 400 });
+                }
+                if (data.dischargeDate !== undefined && dischargeDate) data.dischargeDate = dischargeDate.toISOString();
+                if (data.admissionDate !== undefined) data.admissionDate = admissionDate.toISOString();
+            }
 
             if ((data.patientId && !Types.ObjectId.isValid(data.patientId.toString())) ||
                 (data.doctorId && !Types.ObjectId.isValid(data.doctorId.toString())) ||

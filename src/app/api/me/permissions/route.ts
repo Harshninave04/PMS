@@ -46,13 +46,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
                     ]),
                 },
             },
-            { status: 200 }
+            { status: 200, headers: { "Cache-Control": "no-store, max-age=0" } }
         );
     } catch (e: unknown) {
         const err = e as { message?: string };
         return NextResponse.json(
             { success: false, message: err?.message || "Failed to load permissions" },
-            { status: 500 }
+            { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } }
         );
     }
 }

@@ -13,11 +13,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
+import { formatHospitalDateTime, formatLengthOfStay, hospitalDateTimeInputToUtc, toHospitalDateTimeInput } from "@/lib/hospital-date";
 import {
   LogOut,
   Bed,
   Search,
-  FileText,
   Plus,
   Trash2,
   CheckCircle2,
@@ -56,6 +57,7 @@ function DischargeContent() {
   const searchParams = useSearchParams();
   const initialAdmissionId = searchParams.get("admissionId") || "";
   const { toast } = useToast();
+  const hospital = useHospitalProfile();
 
   const [admissions, setAdmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,21 +67,22 @@ function DischargeContent() {
   const [dischargeOpen, setDischargeOpen] = useState(false);
   const [selectedAdmission, setSelectedAdmission] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const activeSummaryAdmissionId = React.useRef("");
 
   // Form Fields
-  const [dischargeDate, setDischargeDate] = useState(new Date().toISOString().slice(0, 16));
-  const [dischargeCondition, setDischargeCondition] = useState("RECOVERED");
+  const [dischargeDate, setDischargeDate] = useState("");
+  const [dischargeCondition, setDischargeCondition] = useState("");
   const [finalDiagnosis, setFinalDiagnosis] = useState("");
   const [dischargeSummary, setDischargeSummary] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [followUpInstructions, setFollowUpInstructions] = useState("");
   const [dischargeAdvice, setDischargeAdvice] = useState("");
-  const [medications, setMedications] = useState<MedicationItem[]>([
-    { medicineName: "", dosage: "", frequency: "Once daily", duration: "5 days", instructions: "After meals" }
-  ]);
+  const [medications, setMedications] = useState<MedicationItem[]>([]);
 
-  // Post-discharge Success Modal
-  const [completedAdmissionId, setCompletedAdmissionId] = useState<string | null>(null);
+  useEffect(() => {
+    setDischargeDate(toHospitalDateTimeInput(new Date(), hospital.timeZone));
+  }, [hospital.timeZone]);
 
   const fetchAdmissions = async () => {
     try {
@@ -109,25 +112,44 @@ function DischargeContent() {
   }, []);
 
   const handleDischargeClick = (admission: any) => {
+    activeSummaryAdmissionId.current = admission._id;
     setSelectedAdmission(admission);
-    setDischargeDate(new Date().toISOString().slice(0, 16));
-    setDischargeCondition("RECOVERED");
-    setFinalDiagnosis(admission.initialDiagnosis || admission.reasonForAdmission || "");
+    setDischargeDate(toHospitalDateTimeInput(new Date(), hospital.timeZone));
+    setDischargeCondition("");
+    setFinalDiagnosis("");
     setDischargeSummary("");
+    setSummaryLoading(true);
     setFollowUpDate("");
-    setFollowUpInstructions("Review in OPD after 1 week. Contact emergency immediately in case of severe pain, fever, or breathlessness.");
-    setDischargeAdvice("Take normal light diet. Avoid heavy lifting and strenuous physical activities for 2 weeks.");
-    setMedications([
-      { medicineName: "Paracetamol 650mg", dosage: "1 tab", frequency: "SOS (when needed)", duration: "3 days", instructions: "After food for pain/fever" }
-    ]);
+    setFollowUpInstructions("");
+    setDischargeAdvice("");
+    setMedications([]);
     setDischargeOpen(true);
+    fetch(`/api/admission/${encodeURIComponent(admission._id)}/discharge-draft`)
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.message || "Unable to prepare treatment summary.");
+        return result.data?.summary as string | undefined;
+      })
+      .then((summary) => {
+        if (activeSummaryAdmissionId.current === admission._id && summary?.trim()) {
+          setDischargeSummary((current) => current.trim() ? current : summary);
+        }
+      })
+      .catch((error: unknown) => {
+        if (activeSummaryAdmissionId.current === admission._id) {
+          toast(error instanceof Error ? error.message : "Unable to prepare treatment summary.", "error");
+        }
+      })
+      .finally(() => {
+        if (activeSummaryAdmissionId.current === admission._id) setSummaryLoading(false);
+      });
   };
 
   // Medication row management
   const addMedicationRow = () => {
     setMedications((prev) => [
       ...prev,
-      { medicineName: "", dosage: "", frequency: "Twice daily", duration: "5 days", instructions: "After meals" }
+      { medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" }
     ]);
   };
 
@@ -152,13 +174,39 @@ function DischargeContent() {
       return;
     }
 
+    const dischargeInstant = hospitalDateTimeInputToUtc(dischargeDate, hospital.timeZone);
+    if (!dischargeInstant) {
+      toast("Enter a valid discharge date and time in the hospital time zone", "error");
+      return;
+    }
+    const admissionInstant = new Date(selectedAdmission.admissionDate);
+    if (Number.isNaN(admissionInstant.getTime()) || dischargeInstant.getTime() < admissionInstant.getTime()) {
+      toast("Discharge date and time cannot be earlier than admission", "error");
+      return;
+    }
+
+    const incompleteMedication = medications.find((medication) => {
+      const hasAnyValue = [
+        medication.medicineName,
+        medication.dosage,
+        medication.frequency,
+        medication.duration,
+        medication.instructions,
+      ].some((value) => value.trim());
+      return hasAnyValue && (!medication.medicineName.trim() || !medication.dosage.trim() || !medication.frequency.trim() || !medication.duration.trim());
+    });
+    if (incompleteMedication) {
+      toast("Complete the medicine name, dosage, frequency, and duration for each medicine, or remove the empty row", "error");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const validMedications = medications.filter((m) => m.medicineName.trim() !== "");
 
       const payload: any = {
         admissionId: selectedAdmission._id,
-        dischargeDate: new Date(dischargeDate).toISOString(),
+        dischargeDate: dischargeInstant.toISOString(),
         dischargeCondition,
         finalDiagnosis,
         dischargeSummary,
@@ -168,7 +216,13 @@ function DischargeContent() {
       };
 
       if (followUpDate) {
-        payload.followUpDate = new Date(followUpDate).toISOString();
+        const followUpInstant = hospitalDateTimeInputToUtc(`${followUpDate}T00:00`, hospital.timeZone);
+        if (!followUpInstant) {
+          toast("Enter a valid follow-up date", "error");
+          setSubmitting(false);
+          return;
+        }
+        payload.followUpDate = followUpInstant.toISOString();
       }
 
       const res = await fetch("/api/admission/discharge", {
@@ -180,9 +234,7 @@ function DischargeContent() {
       const result = await res.json();
       if (res.ok && result.success) {
         toast("Patient discharged successfully. Bed is now available.", "success");
-        setCompletedAdmissionId(selectedAdmission._id);
-        setDischargeOpen(false);
-        fetchAdmissions(); // Refresh active list
+        router.push(`/admissions/${selectedAdmission._id}/discharge-packet`);
       } else {
         toast(result.message || "Failed to discharge patient", "error");
       }
@@ -205,15 +257,7 @@ function DischargeContent() {
     );
   }, [admissions, searchQuery]);
 
-  const getDurationText = (admissionDate: string) => {
-    const start = new Date(admissionDate).getTime();
-    const now = Date.now();
-    const diffHours = Math.max(0, Math.floor((now - start) / (1000 * 60 * 60)));
-    const days = Math.floor(diffHours / 24);
-    const hours = diffHours % 24;
-    if (days === 0) return `${hours} hrs`;
-    return `${days}d ${hours}h`;
-  };
+  const getDurationText = (admissionDate: string) => formatLengthOfStay(admissionDate);
 
   if (loading) {
     return (
@@ -260,7 +304,7 @@ function DischargeContent() {
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <Input
-              placeholder="Search name, UHID, bed..."
+              placeholder="Search by patient name, UHID, or bed"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 h-9 text-xs"
@@ -292,7 +336,7 @@ function DischargeContent() {
                     <TableRow key={adm._id} className="text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50">
                       <TableCell>
                         <div className="font-semibold text-slate-900 dark:text-white">
-                          {adm.patientId?.name || "Unknown"}
+                          {adm.patientId?.name || "Not recorded"}
                         </div>
                         <div className="text-[10px] text-slate-500">
                           {adm.patientId?.uhid || adm.patientId?.contact} • {adm.patientId?.gender},{" "}
@@ -302,10 +346,10 @@ function DischargeContent() {
 
                       <TableCell>
                         <div className="font-semibold text-emerald-600">
-                          Bed {adm.bedId?.bedNumber || "N/A"}
+                          Bed {adm.bedId?.bedNumber || "Not recorded"}
                         </div>
                         <div className="text-[10px] text-slate-500">
-                          {adm.bedId?.roomId?.wardId?.wardName || "General Ward"}
+                          {adm.bedId?.roomId?.wardId?.wardName || "Not recorded"}
                         </div>
                       </TableCell>
 
@@ -316,7 +360,7 @@ function DischargeContent() {
                       </TableCell>
 
                       <TableCell className="text-slate-500">
-                        {new Date(adm.admissionDate).toLocaleDateString()}
+                        {formatHospitalDateTime(adm.admissionDate, hospital.timeZone)}
                       </TableCell>
 
                       <TableCell>
@@ -402,6 +446,7 @@ function DischargeContent() {
                       type="datetime-local"
                       id="dischargeDate"
                       value={dischargeDate}
+                      min={selectedAdmission?.admissionDate ? toHospitalDateTimeInput(selectedAdmission.admissionDate, hospital.timeZone) : undefined}
                       onChange={(e) => setDischargeDate(e.target.value)}
                       required
                       className="h-8 text-xs"
@@ -419,6 +464,7 @@ function DischargeContent() {
                       required
                       className="h-8 text-xs"
                     >
+                      <option value="">Select discharge condition</option>
                       <option value="RECOVERED">Recovered (Full recovery)</option>
                       <option value="IMPROVED">Improved (Significant clinical progress)</option>
                       <option value="STABLE">Stable (Discharge on oral medications)</option>
@@ -437,7 +483,7 @@ function DischargeContent() {
                   </Label>
                   <Input
                     id="finalDiagnosis"
-                    placeholder="e.g. Acute appendicitis post laparoscopic appendectomy, resolved..."
+                    placeholder="Enter the final confirmed diagnosis"
                     value={finalDiagnosis}
                     onChange={(e) => setFinalDiagnosis(e.target.value)}
                     required
@@ -450,10 +496,13 @@ function DischargeContent() {
                   <Label htmlFor="dischargeSummary" className="text-xs font-semibold">
                     Clinical Hospital Course & Treatment Summary
                   </Label>
+                  <p className="text-[10px] text-slate-500">
+                    {summaryLoading ? "Compiling recorded rounds, procedures, orders and medicines…" : "Auto-filled from available clinical records; review and edit as needed."}
+                  </p>
                   <Textarea
                     id="dischargeSummary"
                     rows={3}
-                    placeholder="Brief description of presenting symptoms, procedures performed, IV antibiotics administered, and clinical progress..."
+                    placeholder="No rounds, procedures, orders or medicines are recorded for this admission. Enter the treatment summary."
                     value={dischargeSummary}
                     onChange={(e) => setDischargeSummary(e.target.value)}
                     className="text-xs"
@@ -480,51 +529,58 @@ function DischargeContent() {
 
                   <div className="space-y-2">
                     {medications.map((med, idx) => (
-                      <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 dark:bg-slate-800/40 p-2 rounded border">
-                        <div className="col-span-4">
+                      <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-slate-50 dark:bg-slate-800/40 p-2 rounded border">
+                        <div className="sm:col-span-3">
                           <Input
-                            placeholder="Medicine Name & Strength"
+                            placeholder="Medicine name and strength"
                             value={med.medicineName}
                             onChange={(e) => updateMedication(idx, "medicineName", e.target.value)}
                             className="h-7 text-xs"
                           />
                         </div>
-                        <div className="col-span-2">
+                        <div className="sm:col-span-2">
                           <Input
-                            placeholder="Dosage (e.g. 1 tab)"
+                            placeholder="Dosage"
                             value={med.dosage}
                             onChange={(e) => updateMedication(idx, "dosage", e.target.value)}
                             className="h-7 text-xs"
                           />
                         </div>
-                        <div className="col-span-2">
+                        <div className="sm:col-span-2">
                           <Input
-                            placeholder="Freq (e.g. BD)"
+                            placeholder="Frequency"
                             value={med.frequency}
                             onChange={(e) => updateMedication(idx, "frequency", e.target.value)}
                             className="h-7 text-xs"
                           />
                         </div>
-                        <div className="col-span-3">
+                        <div className="sm:col-span-2">
                           <Input
-                            placeholder="Duration & Instructions"
+                            placeholder="Duration"
+                            value={med.duration}
+                            onChange={(e) => updateMedication(idx, "duration", e.target.value)}
+                            className="h-7 text-xs"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <Input
+                            placeholder="Instructions (optional)"
                             value={med.instructions}
                             onChange={(e) => updateMedication(idx, "instructions", e.target.value)}
                             className="h-7 text-xs"
                           />
                         </div>
-                        <div className="col-span-1 text-center">
-                          {medications.length > 1 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0 text-rose-500 hover:text-rose-700"
-                              onClick={() => removeMedicationRow(idx)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
+                        <div className="sm:col-span-1 text-center">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-rose-500 hover:text-rose-700"
+                            onClick={() => removeMedicationRow(idx)}
+                            aria-label={`Remove medicine ${idx + 1}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -552,7 +608,7 @@ function DischargeContent() {
                     </Label>
                     <Input
                       id="followUpInstructions"
-                      placeholder="e.g. Review in OPD on Monday. Return if fever > 101F..."
+                      placeholder="Enter clinician-provided follow-up and warning-sign instructions"
                       value={followUpInstructions}
                       onChange={(e) => setFollowUpInstructions(e.target.value)}
                       className="h-8 text-xs"
@@ -567,7 +623,7 @@ function DischargeContent() {
                   <Textarea
                     id="dischargeAdvice"
                     rows={2}
-                    placeholder="Dietary restrictions, wound dressing schedule, mobilization advice..."
+                    placeholder="Enter clinician-provided dietary and activity advice"
                     value={dischargeAdvice}
                     onChange={(e) => setDischargeAdvice(e.target.value)}
                     className="text-xs"
@@ -598,41 +654,6 @@ function DischargeContent() {
         </DialogContent>
       </Dialog>
 
-      {/* Post-Discharge Success Dialog */}
-      <Dialog open={!!completedAdmissionId} onOpenChange={() => setCompletedAdmissionId(null)}>
-        <DialogContent className="max-w-md text-center">
-          <div className="flex flex-col items-center justify-center py-4">
-            <div className="h-12 w-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-3">
-              <CheckCircle2 className="h-7 w-7" />
-            </div>
-            <DialogTitle className="text-lg font-bold">Patient Discharged Successfully</DialogTitle>
-            <DialogDescription className="mt-1">
-              The admission has been finalized, the bed has been released to AVAILABLE, and the clinical discharge summary has been generated.
-            </DialogDescription>
-
-            <div className="flex flex-col sm:flex-row gap-2 mt-6 w-full">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setCompletedAdmissionId(null)}
-              >
-                Done
-              </Button>
-              <Button
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-1.5"
-                onClick={() => {
-                  const id = completedAdmissionId;
-                  setCompletedAdmissionId(null);
-                  router.push(`/admissions/summary?id=${id}`);
-                }}
-              >
-                <FileText className="h-4 w-4" />
-                View & Print Summary
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

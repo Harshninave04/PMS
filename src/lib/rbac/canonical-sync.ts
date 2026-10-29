@@ -22,6 +22,13 @@ import { ALL_ROLES, buildRoleAccess, type ModuleAccess } from "@/lib/rbac/role-a
 import { defaultPermissionsFor, hasLegacyDoctorDefaults, normalizePermissions, permissionSignature } from "@/lib/rbac/default-permissions";
 import { migrateLegacyAccess } from "@/lib/rbac/migrate-access";
 import { recordRoleChange } from "@/lib/rbac/audit";
+import { permissionForRouteAction } from "@/lib/rbac/permissions.config";
+
+export const RECEPTIONIST_DISCHARGE_PERMISSION_MIGRATION = "receptionist-discharge-navigation-v1";
+const RECEPTIONIST_ADDITIVE_PERMISSIONS = [
+    permissionForRouteAction("/admissions/discharge", "discharge"),
+    permissionForRouteAction("/admissions/summary", "print"),
+].filter((permission): permission is string => Boolean(permission));
 
 /** Old role name -> the role that replaces it. Anything absent is kept as is. */
 export const LEGACY_ROLE_MAP: Record<string, string> = {
@@ -219,12 +226,14 @@ export function roleIsCanonical(
     roleName: string,
     access: readonly Partial<ModuleAccess>[] | null | undefined,
     permissions: readonly string[] | null | undefined = undefined,
-    permissionsCustomized = false
+    permissionsCustomized = false,
+    permissionMigrations: readonly string[] = []
 ): boolean {
     const desiredPermissions = expectedPermissionsFor(roleName, {
         permissions: permissions ?? undefined,
         permissionsCustomized,
         access: access ?? undefined,
+        permissionMigrations,
     });
 
     if (roleAccessSignature(access, desiredPermissions) !== roleAccessSignature(buildRoleAccess(roleName), desiredPermissions)) {
@@ -252,7 +261,7 @@ export function roleIsCanonical(
  */
 export function expectedPermissionsFor(
     roleName: string,
-    existing?: { permissions?: readonly string[]; permissionsCustomized?: boolean; access?: readonly Partial<ModuleAccess>[] } | null
+    existing?: { permissions?: readonly string[]; permissionsCustomized?: boolean; access?: readonly Partial<ModuleAccess>[]; permissionMigrations?: readonly string[] } | null
 ): string[] {
     const defaults = defaultPermissionsFor(roleName);
     if (!existing) return defaults;
@@ -263,12 +272,21 @@ export function expectedPermissionsFor(
     // default role away from its former patient, admission and appointment-list grants.
     if (roleName === "DOCTOR" && (!existing.permissionsCustomized || hasLegacyDoctorDefaults(existing.permissions))) return defaults;
 
+    let desired: string[];
     if (existing.permissionsCustomized || existing.permissions?.length) {
-        return normalizePermissions(existing.permissions);
+        desired = normalizePermissions(existing.permissions);
+    } else {
+        const carried = migrateLegacyAccess((existing.access ?? []).flatMap((item) => item?.permissions ?? []));
+        desired = normalizePermissions([...defaults, ...carried]);
     }
 
-    const carried = migrateLegacyAccess((existing.access ?? []).flatMap((item) => item?.permissions ?? []));
-    return normalizePermissions([...defaults, ...carried]);
+    // This one-time additive migration upgrades saved Receptionist roles while
+    // preserving every permission administrators already chose. The marker
+    // prevents a later deliberate removal from being undone by another startup.
+    if (roleName === "RECEPTIONIST" && !existing.permissionMigrations?.includes(RECEPTIONIST_DISCHARGE_PERMISSION_MIGRATION)) {
+        desired = normalizePermissions([...desired, ...RECEPTIONIST_ADDITIVE_PERMISSIONS]);
+    }
+    return desired;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -342,7 +360,14 @@ async function syncRoles(apply: boolean): Promise<{ created: string[]; refreshed
 
         if (!existing) {
             if (apply) {
-                await Role.create({ role: roleName, access, permissions, permissionsCustomized: true, isSystem: true });
+                await Role.create({
+                    role: roleName,
+                    access,
+                    permissions,
+                    permissionsCustomized: true,
+                    isSystem: true,
+                    permissionMigrations: roleName === "RECEPTIONIST" ? [RECEPTIONIST_DISCHARGE_PERMISSION_MIGRATION] : [],
+                });
                 await recordRoleChange({
                     action: "SEED",
                     role: roleName,
@@ -361,20 +386,26 @@ async function syncRoles(apply: boolean): Promise<{ created: string[]; refreshed
             permissions: (existing as { permissions?: string[] }).permissions,
             permissionsCustomized: (existing as { permissionsCustomized?: boolean }).permissionsCustomized,
             access: existing.access as Partial<ModuleAccess>[],
+            permissionMigrations: (existing as { permissionMigrations?: string[] }).permissionMigrations,
         });
+        const existingMigrations = (existing as { permissionMigrations?: string[] }).permissionMigrations ?? [];
+        const desiredMigrations = roleName === "RECEPTIONIST"
+            ? [...new Set([...existingMigrations, RECEPTIONIST_DISCHARGE_PERMISSION_MIGRATION])]
+            : existingMigrations;
 
         const accessMatches = roleAccessSignature(existing.access, desired) === roleAccessSignature(access, desired);
         const permissionsMatch =
             permissionSignature((existing as { permissions?: string[] }).permissions) === permissionSignature(desired);
         const flagsMatch = Boolean((existing as { isSystem?: boolean }).isSystem) &&
-            Boolean((existing as { permissionsCustomized?: boolean }).permissionsCustomized);
+            Boolean((existing as { permissionsCustomized?: boolean }).permissionsCustomized) &&
+            JSON.stringify([...existingMigrations].sort()) === JSON.stringify([...desiredMigrations].sort());
 
         if (accessMatches && permissionsMatch && flagsMatch) continue;
 
         if (apply) {
             await Role.updateOne(
                 { _id: existing._id },
-                { $set: { access, permissions: desired, permissionsCustomized: true, isSystem: true } }
+                { $set: { access, permissions: desired, permissionsCustomized: true, isSystem: true, permissionMigrations: desiredMigrations } }
             );
             if (!permissionsMatch) {
                 await recordRoleChange({

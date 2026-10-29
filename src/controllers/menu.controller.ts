@@ -75,8 +75,8 @@ export class MenuController {
             // without another round trip.
             const visible = filterMenusByPermissions(canonical, identity.identity.permissions.subItem);
 
-            // A role with a fixed sidebar (the Receptionist's three shortcuts)
-            // answers with that flat list; every other role keeps the tree.
+            // A role with a fixed sidebar (such as Receptionist) answers with
+            // that flat list; every other role keeps the grouped tree.
             const menus = applyRoleNav(identity.identity.roleName, visible);
 
             return NextResponse.json(

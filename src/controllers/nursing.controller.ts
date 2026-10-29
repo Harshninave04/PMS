@@ -13,6 +13,7 @@ import DailyNursingRecord from "@/models/daily-nursing-record.model";
 import NursingMedicalSupply, { NURSING_SUPPLY_CATEGORIES } from "@/models/nursing-medical-supply.model";
 import NursingMedication from "@/models/nursing-medication.model";
 import { stayDayNumber } from "@/lib/hospital-time";
+import { getHospitalProfile } from "@/services/hospital-profile.service";
 import { isNurseRole } from "@/lib/rbac/roles";
 import { CLOSED_ADMISSION_NURSING_MESSAGE } from "@/lib/discharge-workflow";
 
@@ -542,7 +543,8 @@ export class NursingController {
       try { admission = await assertAssignedNursingAdmission(admissionId, patientId, auth); }
       catch (e: unknown) { const err = e as { statusCode?: number; message?: string }; return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 }); }
       const now = new Date();
-      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), now));
+      const hospital = await getHospitalProfile();
+      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), now, hospital.timeZone));
       const requestedDay = body.nursingDay;
       if (typeof requestedDay !== "number" || !Number.isInteger(requestedDay) || requestedDay !== currentDay) {
         return NextResponse.json(
@@ -614,7 +616,8 @@ export class NursingController {
         .populate("author", "name")
         .sort({ nursingDay: 1, recordedAt: 1 })
         .lean();
-      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), new Date()));
+      const hospital = await getHospitalProfile();
+      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), new Date(), hospital.timeZone));
       return NextResponse.json({ success: true, data: { records, currentDay } });
     } catch (error: unknown) {
       return NextResponse.json({
@@ -647,7 +650,8 @@ export class NursingController {
         return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 });
       }
 
-      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), new Date()));
+      const hospital = await getHospitalProfile();
+      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), new Date(), hospital.timeZone));
       const nursingDay = body.nursingDay;
       if (!Number.isInteger(nursingDay) || nursingDay !== currentDay) {
         return NextResponse.json(

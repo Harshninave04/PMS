@@ -250,7 +250,7 @@ export default function AdminHubPage() {
                         </Badge>
                       </td>
                       <td className="py-3 text-xs text-muted-foreground">
-                        {u.organization?.organizationName || "Medistra Super Speciality"}
+                        {u.organization?.organizationName || "Hospital name not configured"}
                       </td>
                       <td className="py-3">
                         <Badge variant={u.isActive ? "default" : "secondary"} className="text-[11px]">

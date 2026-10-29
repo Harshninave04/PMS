@@ -19,7 +19,7 @@ export default function NotFound() {
           <h1 className="text-7xl font-black tracking-tight text-emerald-500">404</h1>
           <h2 className="text-xl font-bold tracking-tight text-slate-200">Page or Record Not Found</h2>
           <p className="text-sm text-slate-400">
-            The ward, patient file, or system route you are trying to access does not exist or has been relocated in the Medistra HMS directory.
+            The ward, patient file, or system route you are trying to access does not exist or has been relocated.
           </p>
         </div>
 

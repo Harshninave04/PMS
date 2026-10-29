@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { isBillingCompleted, isReadyForDischarge } from "@/lib/discharge-workflow";
+import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
+import { formatHospitalDateTime, formatLengthOfStay } from "@/lib/hospital-date";
 import {
   Bed,
   Search,
@@ -33,6 +35,7 @@ import {
 export default function CurrentAdmissionsPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const hospital = useHospitalProfile();
 
   const [admissions, setAdmissions] = useState<any[]>([]);
   const [billingQueueRows, setBillingQueueRows] = useState<any[]>([]);
@@ -151,15 +154,7 @@ export default function CurrentAdmissionsPage() {
     fetchAdmissions();
   };
 
-  const getDurationText = (admissionDate: string) => {
-    const start = new Date(admissionDate).getTime();
-    const now = Date.now();
-    const diffHours = Math.max(0, Math.floor((now - start) / (1000 * 60 * 60)));
-    const days = Math.floor(diffHours / 24);
-    const hours = diffHours % 24;
-    if (days === 0) return `${hours} hrs`;
-    return `${days}d ${hours}h`;
-  };
+  const getDurationText = (admissionDate: string) => formatLengthOfStay(admissionDate);
 
   // Filtered Admissions
   const filteredAdmissions = useMemo(() => {
@@ -243,7 +238,7 @@ export default function CurrentAdmissionsPage() {
       `"${adm.bedId?.roomId?.roomNumber || ""}"`,
       `"${adm.bedId?.bedNumber || ""}"`,
       `"Dr. ${adm.doctorId?.name || ""}"`,
-      `"${new Date(adm.admissionDate).toLocaleString()}"`,
+      `"${formatHospitalDateTime(adm.admissionDate, hospital.timeZone)}"`,
       `"${getDurationText(adm.admissionDate)}"`,
       adm.admissionType || "",
       adm.status || ""
@@ -577,13 +572,7 @@ export default function CurrentAdmissionsPage() {
 
                       {/* Admission Date */}
                       <TableCell className="text-xs text-slate-600 dark:text-slate-400">
-                        {new Date(adm.admissionDate).toLocaleDateString()}
-                        <div className="text-[11px] text-slate-400">
-                          {new Date(adm.admissionDate).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit"
-                          })}
-                        </div>
+                        {formatHospitalDateTime(adm.admissionDate, hospital.timeZone)}
                       </TableCell>
 
                       {/* Stay Duration */}
@@ -749,7 +738,7 @@ export default function CurrentAdmissionsPage() {
                   <div>
                     <span className="text-xs text-slate-500 block">Admitted At</span>
                     <span className="font-medium">
-                      {new Date(selectedAdmission.admissionDate).toLocaleString()}
+                      {formatHospitalDateTime(selectedAdmission.admissionDate, hospital.timeZone)}
                     </span>
                   </div>
 
@@ -842,7 +831,7 @@ export default function CurrentAdmissionsPage() {
                               </div>
                             </div>
                             <span className="text-[10px] text-slate-400">
-                              {new Date(t.transferDate).toLocaleDateString()}
+                              {formatHospitalDateTime(t.transferDate, hospital.timeZone)}
                             </span>
                           </div>
                         ))}

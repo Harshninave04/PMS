@@ -1,4 +1,6 @@
-export const HOSPITAL_TIME_ZONE = process.env.HOSPITAL_TIME_ZONE || "Asia/Kolkata";
+import { DEFAULT_HOSPITAL_TIME_ZONE } from "@/types/hospital-profile";
+
+export const HOSPITAL_TIME_ZONE = DEFAULT_HOSPITAL_TIME_ZONE;
 
 function partsInZone(date: Date, timeZone: string): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
   const parts = new Intl.DateTimeFormat("en-CA", {

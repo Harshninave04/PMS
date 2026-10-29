@@ -8,18 +8,10 @@
  */
 
 export const HOSPITAL = {
-    organizationName: "Medistra Hospital",
-    organizationId: "MEDISTRA-MAIN",
+    organizationName: "",
+    organizationId: "MAIN",
     organizationType: "HOSPITAL",
     branchType: "MAIN",
-    email: "info@medistra.hospital",
-    phone: "+91 33 2345 6789",
-    address: "12 Medical Enclave, Central Avenue, Kolkata",
-    city: "Kolkata",
-    state: "West Bengal",
-    pincode: "700001",
-    country: "India",
-    capacity: 60,
     isActive: true,
 } as const;
 

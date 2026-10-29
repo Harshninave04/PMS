@@ -12,6 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
+import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
+import { formatHospitalDateTime } from "@/lib/hospital-date";
 import {
   ArrowRightLeft,
   Bed,
@@ -40,6 +42,7 @@ export default function PatientTransferPage() {
 }
 
 function PatientTransferContent() {
+  const hospital = useHospitalProfile();
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialAdmissionId = searchParams.get("admissionId") || "";
@@ -279,7 +282,7 @@ function PatientTransferContent() {
                     Dr. {currentAdmission.doctorId?.name || "Attending"}
                   </span>
                   <div className="text-slate-500">
-                    Admitted: {new Date(currentAdmission.admissionDate).toLocaleDateString()}
+                    Admitted: {formatHospitalDateTime(currentAdmission.admissionDate, hospital.timeZone)}
                   </div>
                 </div>
               </div>

@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { usePermissions } from "@/components/permissions/permission-context";
+import { HospitalHeader } from "@/components/print/hospital-header";
 
 const fmtMoney = (value: number) => `₹${(Number(value) || 0).toLocaleString("en-IN")}`;
 
@@ -394,7 +395,7 @@ export default function PaymentsLedgerPage() {
           {receipt && (
             <div className="space-y-2 text-xs font-mono">
               <div className="text-center border-b pb-2">
-                <p className="font-bold text-sm">MEDISTRA HEALTHCARE SYSTEM</p>
+                <HospitalHeader className="justify-center border-0 pb-0 text-left" />
                 <p className="text-[10px]">OFFICIAL PAYMENT RECEIPT</p>
                 <p className="text-[10px] mt-0.5">Receipt No: {receipt.receiptNumber || receipt._id}</p>
               </div>
