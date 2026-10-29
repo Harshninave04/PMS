@@ -12,7 +12,7 @@ import Role from "@/models/role.model";
 import DailyNursingRecord from "@/models/daily-nursing-record.model";
 import NursingMedicalSupply, { NURSING_SUPPLY_CATEGORIES } from "@/models/nursing-medical-supply.model";
 import NursingMedication from "@/models/nursing-medication.model";
-import { stayDayNumber } from "@/lib/hospital-time";
+import { calculateHospitalDay } from "@/lib/hospital-time";
 import { isNurseRole } from "@/lib/rbac/roles";
 import { CLOSED_ADMISSION_NURSING_MESSAGE } from "@/lib/discharge-workflow";
 
@@ -24,6 +24,52 @@ function actorOf(auth: { context: { userId: Types.ObjectId; roleName: string; br
     branchId: auth.context.branchId,
     orgScope: auth.grant.orgScope,
   };
+}
+
+class NursingAdmissionDateError extends Error {}
+
+function getAdmissionHospitalDay(admission: {
+  admissionDate?: Date | string;
+  dischargeDate?: Date | string;
+  status?: string;
+}, now = new Date()) {
+  const admissionDate = admission.admissionDate instanceof Date
+    ? admission.admissionDate
+    : new Date(admission.admissionDate ?? "");
+  if (!Number.isFinite(admissionDate.getTime())) {
+    throw new NursingAdmissionDateError("A valid admission date is required to calculate the hospital day");
+  }
+
+  let referenceDate = now;
+  if (admission.status === "DISCHARGED" && admission.dischargeDate) {
+    referenceDate = admission.dischargeDate instanceof Date
+      ? admission.dischargeDate
+      : new Date(admission.dischargeDate);
+    if (!Number.isFinite(referenceDate.getTime())) {
+      throw new NursingAdmissionDateError("The discharge date is invalid");
+    }
+  }
+
+  try {
+    const calculated = calculateHospitalDay(admissionDate, referenceDate);
+    return {
+      currentDay: calculated.day,
+      admissionDate: calculated.admissionDate,
+      hospitalDate: calculated.hospitalDate,
+      active: admission.status === "ADMITTED" || admission.status === "TRANSFERRED",
+    };
+  } catch (error) {
+    if (error instanceof RangeError) throw new NursingAdmissionDateError(error.message);
+    throw error;
+  }
+}
+
+function hospitalDayError(error: unknown, fallback: string): NextResponse {
+  const message = error instanceof Error ? error.message : fallback;
+  return NextResponse.json(
+    { success: false, message },
+    { status: error instanceof NursingAdmissionDateError ? 409 : 500 },
+  );
 }
 
 async function assertMedicationVisible(
@@ -519,14 +565,16 @@ export class NursingController {
       const { searchParams } = new URL(request.url);
       const admissionId = searchParams.get("admissionId") || "";
       const patientId = searchParams.get("patientId") || undefined;
-      try { await assertAssignedNursingAdmission(admissionId, patientId, auth, true); }
+      let admission: Awaited<ReturnType<typeof assertAssignedNursingAdmission>>;
+      try { admission = await assertAssignedNursingAdmission(admissionId, patientId, auth, true); }
       catch (e: unknown) { const err = e as { statusCode?: number; message?: string }; return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 }); }
-      const data = await DailyNursingRecord.find({ admissionId: new Types.ObjectId(admissionId) })
+      const hospitalDay = getAdmissionHospitalDay(admission);
+      const records = await DailyNursingRecord.find({ admissionId: new Types.ObjectId(admissionId) })
         .populate("author", "name")
         .sort({ nursingDay: 1, recordDate: 1, createdAt: 1 }).lean();
-      return NextResponse.json({ success: true, data });
+      return NextResponse.json({ success: true, data: { records, ...hospitalDay } });
     } catch (error) {
-      return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Failed to load daily records" }, { status: 500 });
+      return hospitalDayError(error, "Failed to load daily records");
     }
   }
 
@@ -542,7 +590,13 @@ export class NursingController {
       try { admission = await assertAssignedNursingAdmission(admissionId, patientId, auth); }
       catch (e: unknown) { const err = e as { statusCode?: number; message?: string }; return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 }); }
       const now = new Date();
-      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), now));
+      let hospitalDay: ReturnType<typeof getAdmissionHospitalDay>;
+      try {
+        hospitalDay = getAdmissionHospitalDay(admission, now);
+      } catch (error) {
+        return hospitalDayError(error, "Unable to calculate the current hospital day");
+      }
+      const currentDay = hospitalDay.currentDay;
       const requestedDay = body.nursingDay;
       if (typeof requestedDay !== "number" || !Number.isInteger(requestedDay) || requestedDay !== currentDay) {
         return NextResponse.json(
@@ -564,7 +618,15 @@ export class NursingController {
       if (primaryRecord) payload.correctionOf = primaryRecord._id;
 
       try {
-        const data = await DailyNursingRecord.create({ ...payload, patient: admission.patientId, admissionId: admission._id, nursingDay, recordDate: now, author: auth.context.userId });
+        const data = await DailyNursingRecord.create({
+          ...payload,
+          patient: admission.patientId,
+          admissionId: admission._id,
+          nursingDay,
+          recordDate: now,
+          hospitalDate: hospitalDay.hospitalDate,
+          author: auth.context.userId,
+        });
         return NextResponse.json({ success: true, data }, { status: 201 });
       } catch (error: unknown) {
         if ((error as { code?: number }).code === 11000 && !payload.correctionOf) {
@@ -581,6 +643,7 @@ export class NursingController {
               admissionId: admission._id,
               nursingDay,
               recordDate: now,
+              hospitalDate: hospitalDay.hospitalDate,
               author: auth.context.userId,
             });
             return NextResponse.json({ success: true, data }, { status: 201 });
@@ -614,13 +677,10 @@ export class NursingController {
         .populate("author", "name")
         .sort({ nursingDay: 1, recordedAt: 1 })
         .lean();
-      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), new Date()));
-      return NextResponse.json({ success: true, data: { records, currentDay } });
+      const hospitalDay = getAdmissionHospitalDay(admission);
+      return NextResponse.json({ success: true, data: { records, ...hospitalDay } });
     } catch (error: unknown) {
-      return NextResponse.json({
-        success: false,
-        message: error instanceof Error ? error.message : "Failed to load medical supplies",
-      }, { status: 500 });
+      return hospitalDayError(error, "Failed to load medical supplies");
     }
   }
 
@@ -647,7 +707,13 @@ export class NursingController {
         return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 });
       }
 
-      const currentDay = Math.min(7, stayDayNumber(new Date(admission.admissionDate), new Date()));
+      let hospitalDay: ReturnType<typeof getAdmissionHospitalDay>;
+      try {
+        hospitalDay = getAdmissionHospitalDay(admission);
+      } catch (error) {
+        return hospitalDayError(error, "Unable to calculate the current hospital day");
+      }
+      const currentDay = hospitalDay.currentDay;
       const nursingDay = body.nursingDay;
       if (!Number.isInteger(nursingDay) || nursingDay !== currentDay) {
         return NextResponse.json(
@@ -680,6 +746,7 @@ export class NursingController {
         patient: admission.patientId,
         admissionId: admission._id,
         nursingDay,
+        hospitalDate: hospitalDay.hospitalDate,
         category,
         itemName,
         quantity,

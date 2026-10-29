@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,10 +18,7 @@ import {
   RefreshCw,
   Download,
   CheckCircle2,
-  Trash2,
   Loader2,
-  AlertOctagon,
-  XCircle,
   Clock
 } from "lucide-react";
 
@@ -110,6 +107,7 @@ function GiveNextCard({ doses, onGiven, toast }: { doses: any[]; onGiven: () => 
 }
 
 function MedicationAdministrationContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialPatientId = searchParams.get("patientId") || "";
   const initialAdmissionId = searchParams.get("admissionId") || "";
@@ -121,7 +119,6 @@ function MedicationAdministrationContent() {
   const [refreshing, setRefreshing] = useState(false);
   const [prnOrders, setPrnOrders] = useState<any[]>([]);
   const [prnGiving, setPrnGiving] = useState<string | null>(null);
-  const [administeringId, setAdministeringId] = useState<string | null>(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -140,10 +137,6 @@ function MedicationAdministrationContent() {
     status: "PENDING",
     notes: ""
   });
-
-  // Withhold Modal
-  const [withholdTarget, setWithholdTarget] = useState<any>(null);
-  const [withholdReason, setWithholdReason] = useState("");
 
   const loadData = async () => {
     try {
@@ -258,31 +251,6 @@ function MedicationAdministrationContent() {
     }
   };
 
-  const handleAdminister = async (med: any) => {
-    setAdministeringId(med._id);
-    try {
-      const res = await fetch(`/api/nursing/medications/${med._id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: "GIVEN",
-          administeredTime: new Date().toISOString()
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast(`Administered ${med.medicationName} successfully!`, "success");
-        loadData();
-      } else {
-        toast(data.message || "Failed to record administration", "error");
-      }
-    } catch (err) {
-      toast("Error recording administration", "error");
-    } finally {
-      setAdministeringId(null);
-    }
-  };
-
   const handleGivePrn = async (order: any) => {
     const stay = inpatients.find((p) => String(p.admissionId) === String(order.admissionId));
     const resolvedPatientId =
@@ -324,49 +292,6 @@ function MedicationAdministrationContent() {
     }
   };
 
-  const handleWithholdSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!withholdTarget) return;
-
-    try {
-      const res = await fetch(`/api/nursing/medications/${withholdTarget._id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: "WITHHELD",
-          withheldReason: withholdReason
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast("Dose marked as withheld", "success");
-        setWithholdTarget(null);
-        setWithholdReason("");
-        loadData();
-      } else {
-        toast(data.message || "Failed to withhold medication", "error");
-      }
-    } catch (err) {
-      toast("Error withholding medication", "error");
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this medication schedule?")) return;
-    try {
-      const res = await fetch(`/api/nursing/medications/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast("Medication schedule removed", "success");
-        loadData();
-      } else {
-        toast(data.message || "Failed to remove medication", "error");
-      }
-    } catch (err) {
-      toast("Error deleting medication", "error");
-    }
-  };
-
   const filteredMedications = useMemo(() => {
     return medications.filter((m) => {
       const q = searchQuery.toLowerCase().trim();
@@ -385,6 +310,53 @@ function MedicationAdministrationContent() {
       return matchesSearch && matchesPatient;
     });
   }, [medications, searchQuery, selectedPatientFilter]);
+
+  const patientMedicationGroups = useMemo(() => {
+    const groups = new Map<string, {
+      key: string;
+      patientId: string;
+      name: string;
+      uhid: string;
+      bedNumber?: string | number;
+      medicationCount: number;
+      pendingCount: number;
+      givenCount: number;
+      withheldCount: number;
+    }>();
+
+    for (const medication of filteredMedications) {
+      const patientId = typeof medication.patient === "string"
+        ? medication.patient
+        : String(medication.patient?._id ?? "");
+      const name = medication.patient?.name?.trim() || "Unknown patient";
+      const normalizedName = name.toLocaleLowerCase().replace(/\s+/g, " ");
+      const key = patientId ? `patient:${patientId}` : `name:${normalizedName}`;
+      const inpatient = inpatients.find((item) => String(item.patientId) === patientId);
+      let group = groups.get(key);
+
+      if (!group) {
+        group = {
+          key,
+          patientId,
+          name,
+          uhid: medication.patient?.uhid || inpatient?.uhid || "",
+          bedNumber: inpatient?.bedNumber,
+          medicationCount: 0,
+          pendingCount: 0,
+          givenCount: 0,
+          withheldCount: 0,
+        };
+        groups.set(key, group);
+      }
+
+      group.medicationCount++;
+      if (medication.status === "PENDING") group.pendingCount++;
+      else if (medication.status === "GIVEN") group.givenCount++;
+      else if (medication.status === "WITHHELD" || medication.status === "REFUSED") group.withheldCount++;
+    }
+
+    return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [filteredMedications, inpatients]);
 
   const statsCount = useMemo(() => {
     let given = 0;
@@ -636,12 +608,12 @@ function MedicationAdministrationContent() {
         </Card>
       )}
 
-      {/* Medications Table */}
+      {/* Patient medication rounds */}
       <Card className="border shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">Medication round</CardTitle>
+          <CardTitle className="text-base font-semibold">Medication rounds by patient</CardTitle>
           <CardDescription>
-            Showing {filteredMedications.length} of {medications.length} doses. Check the patient, medicine, and due time before recording an action.
+            Showing {patientMedicationGroups.length} patients with {filteredMedications.length} medication doses. Select a patient to review and record each dose.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -649,138 +621,49 @@ function MedicationAdministrationContent() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Due time</TableHead>
                   <TableHead>Patient</TableHead>
-                  <TableHead>Medicine and dose</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead>UHID</TableHead>
+                  <TableHead>Bed</TableHead>
+                  <TableHead className="text-right">Doses</TableHead>
+                  <TableHead>Status summary</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredMedications.length === 0 ? (
+                {patientMedicationGroups.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-slate-500 py-12 text-xs">
                       No doses found. Choose a patient or schedule a medication dose.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredMedications.map((m) => {
-                    const isPending = m.status === "PENDING";
-                    const isGiven = m.status === "GIVEN";
-                    return (
-                      <TableRow key={m._id} className="text-xs hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                        <TableCell className="font-mono text-slate-500 whitespace-nowrap">
-                          {new Date(m.scheduledTime).toLocaleString([], {
-                            dateStyle: "short",
-                            timeStyle: "short"
-                          })}
-                        </TableCell>
-
-                        <TableCell>
-                          <div className="font-semibold text-slate-900 dark:text-white">
-                            {m.patient?.name || "Unknown"}
-                          </div>
-                          <div className="text-[10px] text-slate-400 font-mono">
-                            {m.patient?.uhid}
-                          </div>
-                        </TableCell>
-
-                        <TableCell className="font-bold text-slate-900 dark:text-white">
-                          <div className="font-bold text-slate-900 dark:text-white">
-                            {m.medicationName}
-                          </div>
-                          <div className="mt-1 text-xs font-normal text-slate-600 dark:text-slate-300">
-                            {m.dosage} · {m.route}
-                          </div>
-                          {m.orderId && typeof m.orderId === "object" && (
-                            <span className="text-[10px] text-purple-600 font-normal block mt-0.5">
-                              Dr order: {m.orderId.frequency}
-                              {m.orderId.timesOfDay?.length > 0 ? ` at ${m.orderId.timesOfDay.join(", ")}` : ""}
-                              {m.orderId.instructions ? ` — ${m.orderId.instructions}` : ""}
-                            </span>
-                          )}
-                          {m.administeredBy?.name && (
-                            <span className="text-[10px] text-emerald-600 font-normal block mt-0.5">
-                              Given by {m.administeredBy.name}
-                              {m.administeredTime ? ` at ${new Date(m.administeredTime).toLocaleString()}` : ""}
-                            </span>
-                          )}
-                          {m.withheldReason && (
-                            <span className="text-[10px] text-rose-500 font-normal block mt-0.5">
-                              Withheld: {m.withheldReason}
-                            </span>
-                          )}
-                        </TableCell>
-
-                        <TableCell className="font-medium text-slate-700 dark:text-slate-300">
-                          {m.dosage?.trim() || "Dose not specified, confirm with doctor"}
-                        </TableCell>
-
-                        <TableCell>
-                          <Badge variant="outline" className="font-mono text-[10px]">
-                            {m.route}
-                          </Badge>
-                        </TableCell>
-
-                        <TableCell>
-                          <Badge
-                            className={
-                              isGiven
-                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300"
-                                : isPending
-                                ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300"
-                                : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border-rose-300"
-                            }
-                          >
-                            {m.status === "PENDING" ? "Needs action" : m.status === "GIVEN" ? "Given" : m.status === "WITHHELD" ? "Withheld" : "Refused"}
-                          </Badge>
-                        </TableCell>
-
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {isPending && (
-                              <>
-                                {new Date(m.scheduledTime).getTime() > Date.now() ? (
-                                  <span className="text-[11px] text-slate-500 font-medium" title={`Scheduled for ${new Date(m.scheduledTime).toLocaleString()}`}>
-                                    Scheduled for {new Date(m.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                  </span>
-                                ) : (
-                                  <Button
-                                    size="sm"
-                                    className="h-9 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1"
-                                    onClick={() => handleAdminister(m)}
-                                    disabled={administeringId === m._id}
-                                  >
-                                    <CheckCircle2 className="h-3 w-3" />
-                                    {administeringId === m._id ? "Saving…" : "Record given"}
-                                  </Button>
-                                )}
-
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-9 px-3 text-xs text-rose-600 border-rose-200 hover:bg-rose-50 flex items-center gap-1"
-                                  onClick={() => setWithholdTarget(m)}
-                                >
-                                  <XCircle className="h-3 w-3" />
-                                  Not given
-                                </Button>
-                              </>
-                            )}
-
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2 text-xs text-rose-600 hover:text-rose-700"
-                              onClick={() => handleDelete(m._id)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
+                  patientMedicationGroups.map((patient) => (
+                    <TableRow
+                      key={patient.key}
+                      tabIndex={0}
+                      role="link"
+                      aria-label={`View medication records for ${patient.name}`}
+                      className="cursor-pointer text-xs hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 dark:hover:bg-slate-800/40"
+                      onClick={() => patient.patientId && router.push(`/nursing/medications/${encodeURIComponent(patient.patientId)}`)}
+                      onKeyDown={(event) => {
+                        if ((event.key === "Enter" || event.key === " ") && patient.patientId) {
+                          event.preventDefault();
+                          router.push(`/nursing/medications/${encodeURIComponent(patient.patientId)}`);
+                        }
+                      }}
+                    >
+                      <TableCell className="font-semibold text-slate-900 dark:text-white">{patient.name}</TableCell>
+                      <TableCell className="font-mono text-[10px] text-slate-500">{patient.uhid || "—"}</TableCell>
+                      <TableCell>{patient.bedNumber ?? "—"}</TableCell>
+                      <TableCell className="text-right font-medium">{patient.medicationCount}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {patient.pendingCount > 0 && <Badge className="bg-amber-100 text-amber-800">{patient.pendingCount} pending</Badge>}
+                          {patient.givenCount > 0 && <Badge className="bg-emerald-100 text-emerald-800">{patient.givenCount} given</Badge>}
+                          {patient.withheldCount > 0 && <Badge className="bg-rose-100 text-rose-800">{patient.withheldCount} withheld/refused</Badge>}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
                 )}
               </TableBody>
             </Table>
@@ -923,54 +806,6 @@ function MedicationAdministrationContent() {
         </DialogContent>
       </Dialog>
 
-      {/* Withhold Modal */}
-      <Dialog open={!!withholdTarget} onOpenChange={() => setWithholdTarget(null)}>
-        <DialogContent className="max-w-sm">
-          <form onSubmit={handleWithholdSubmit}>
-            <DialogHeader>
-              <DialogTitle className="text-base font-bold flex items-center gap-2 text-rose-600">
-                <AlertOctagon className="h-5 w-5" />
-                Withhold Medication Dose
-              </DialogTitle>
-              <DialogDescription>
-                State the clinical reason for withholding {withholdTarget?.medicationName}.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-3 py-3 text-xs">
-              <div className="space-y-1.5">
-                <Label htmlFor="reason" className="text-xs font-semibold">
-                  Clinical Reason / Contraindication *
-                </Label>
-                <Select
-                  id="reason"
-                  value={withholdReason}
-                  onChange={(e) => setWithholdReason(e.target.value)}
-                  required
-                  className="h-9 text-xs"
-                >
-                  <option value="">-- Choose Reason --</option>
-                  <option value="Patient NPO for procedure">Patient NPO for procedure</option>
-                  <option value="Low Blood Pressure (Hypotension)">Low Blood Pressure (Hypotension)</option>
-                  <option value="Low Heart Rate (Bradycardia)">Low Heart Rate (Bradycardia)</option>
-                  <option value="Patient Refused">Patient Refused</option>
-                  <option value="Doctor verbally held dose">Doctor verbally held dose</option>
-                  <option value="Adverse reaction suspected">Adverse reaction suspected</option>
-                </Select>
-              </div>
-            </div>
-
-            <DialogFooter className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => setWithholdTarget(null)}>
-                Cancel
-              </Button>
-              <Button type="submit" className="bg-rose-600 hover:bg-rose-700 text-white">
-                Confirm Withhold
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

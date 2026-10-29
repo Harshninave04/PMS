@@ -2,11 +2,12 @@
 
 import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FileText, Loader2, Plus, Printer, Save, Search, PackagePlus } from "lucide-react";
+import { FileText, Loader2, Plus, Printer, Search, PackagePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 
@@ -51,6 +52,30 @@ type AssignedPatient = {
   uhid: string;
   bedNumber: string | number;
 };
+
+type HospitalDayInfo = {
+  admissionId: string;
+  currentDay: number;
+  admissionDate: string;
+  hospitalDate: string;
+  active: boolean;
+};
+
+function hospitalDateForDay(admissionDate: string, day: number): string {
+  const [year, month, date] = admissionDate.split("-").map(Number);
+  if (!year || !month || !date || day < 1) return "";
+  const value = new Date(Date.UTC(year, month - 1, date + day - 1));
+  return [
+    value.getUTCFullYear().toString().padStart(4, "0"),
+    (value.getUTCMonth() + 1).toString().padStart(2, "0"),
+    value.getUTCDate().toString().padStart(2, "0"),
+  ].join("-");
+}
+
+function formatHospitalDate(date: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : "Date unavailable";
+}
 
 const supplyCategories = [
   "Medicines",
@@ -102,13 +127,12 @@ function DailyNursingRecords() {
   const [patientsLoading, setPatientsLoading] = useState(true);
   const [patientSearch, setPatientSearch] = useState("");
   const [records, setRecords] = useState<DailyRecord[]>([]);
-  const [visibleRecordDays, setVisibleRecordDays] = useState<{ admissionId: string; days: number[] } | null>(null);
-  const [recordDaySelection, setRecordDaySelection] = useState<{ admissionId: string; day: number } | null>(null);
+  const [recordDaySelection, setRecordDaySelection] = useState<{ admissionId: string; day: number; dayKey: string } | null>(null);
   const [supplies, setSupplies] = useState<MedicalSupply[]>([]);
-  const [currentSupplyDayInfo, setCurrentSupplyDayInfo] = useState<{ admissionId: string; day: number } | null>(null);
-  const [visibleSupplyDays, setVisibleSupplyDays] = useState<{ admissionId: string; days: number[] } | null>(null);
+  const [hospitalDayInfo, setHospitalDayInfo] = useState<HospitalDayInfo | null>(null);
+  const [hospitalDayError, setHospitalDayError] = useState<{ admissionId: string; message: string } | null>(null);
   const [daySelection, setDaySelection] = useState<{ admissionId: string; tab: "supplies" } | null>(null);
-  const [supplyDaySelection, setSupplyDaySelection] = useState<{ admissionId: string; day: number } | null>(null);
+  const [supplyDaySelection, setSupplyDaySelection] = useState<{ admissionId: string; day: number; dayKey: string } | null>(null);
   const [supplyCategory, setSupplyCategory] = useState<(typeof supplyCategories)[number]>("Medicines");
   const [supplyName, setSupplyName] = useState("");
   const [supplyQuantity, setSupplyQuantity] = useState("1");
@@ -118,11 +142,13 @@ function DailyNursingRecords() {
   const [form, setForm] = useState<RecordForm>(blank);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const currentSupplyDay = currentSupplyDayInfo?.admissionId === admissionId ? currentSupplyDayInfo.day : 0;
+  const currentSupplyDay = hospitalDayInfo?.admissionId === admissionId ? hospitalDayInfo.currentDay : 0;
 
   const loadRecords = useCallback(async () => {
     if (!admissionId || !patientId) {
       setRecords([]);
+      setHospitalDayInfo(null);
+      setHospitalDayError(null);
       setLoading(false);
       return;
     }
@@ -137,25 +163,32 @@ function DailyNursingRecords() {
       if (!response.ok || !result.success) {
         throw new Error(result.message || "Unable to load daily records");
       }
-      const loadedRecords = result.data as DailyRecord[];
-      setRecords(loadedRecords);
-      const lastRecordedDay = Math.max(0, ...loadedRecords.map((record) => record.nursingDay));
-      setVisibleRecordDays((current) => {
-        const existingDayCount = current?.admissionId === admissionId ? current.days.length : 0;
-        const dayCount = Math.max(1, existingDayCount, currentSupplyDay - 1, lastRecordedDay);
-        return { admissionId, days: Array.from({ length: dayCount }, (_, index) => index + 1) };
+      const data = result.data as Omit<HospitalDayInfo, "admissionId"> & { records: DailyRecord[] };
+      setRecords(data.records || []);
+      setHospitalDayError((current) => current?.admissionId === admissionId ? null : current);
+      setHospitalDayInfo((current) => {
+        if (current?.admissionId === admissionId && current.hospitalDate > data.hospitalDate) return current;
+        if (
+          current?.admissionId === admissionId &&
+          current.currentDay === data.currentDay &&
+          current.hospitalDate === data.hospitalDate &&
+          current.admissionDate === data.admissionDate &&
+          current.active === data.active
+        ) return current;
+        return { admissionId, currentDay: data.currentDay, admissionDate: data.admissionDate, hospitalDate: data.hospitalDate, active: data.active };
       });
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Unable to load daily records", "error");
+      const message = error instanceof Error ? error.message : "Unable to load daily records";
+      setHospitalDayError({ admissionId, message });
+      toast(message, "error");
     } finally {
       setLoading(false);
     }
-  }, [admissionId, currentSupplyDay, patientId, toast]);
+  }, [admissionId, patientId, toast]);
 
   const loadSupplies = useCallback(async () => {
     if (!admissionId || !patientId) {
       setSupplies([]);
-      setCurrentSupplyDayInfo(null);
       setSuppliesLoading(false);
       return;
     }
@@ -170,24 +203,24 @@ function DailyNursingRecords() {
       if (!response.ok || !result.success) {
         throw new Error(result.message || "Unable to load medical supplies");
       }
-      const data = result.data as { records: MedicalSupply[]; currentDay: number };
+      const data = result.data as Omit<HospitalDayInfo, "admissionId"> & { records: MedicalSupply[] };
       setSupplies(data.records || []);
-      setCurrentSupplyDayInfo({ admissionId, day: data.currentDay || 0 });
-      const lastRecordedDay = Math.max(0, ...(data.records || []).map((record) => record.nursingDay));
-      setVisibleSupplyDays((current) => {
-        const existingDayCount = current?.admissionId === admissionId ? current.days.length : 0;
-        const dayCount = Math.min(7, Math.max(1, existingDayCount, data.currentDay - 1, lastRecordedDay));
-        return { admissionId, days: Array.from({ length: dayCount }, (_, index) => index + 1) };
+      setHospitalDayError((current) => current?.admissionId === admissionId ? null : current);
+      setHospitalDayInfo((current) => {
+        if (current?.admissionId === admissionId && current.hospitalDate > data.hospitalDate) return current;
+        if (
+          current?.admissionId === admissionId &&
+          current.currentDay === data.currentDay &&
+          current.hospitalDate === data.hospitalDate &&
+          current.admissionDate === data.admissionDate &&
+          current.active === data.active
+        ) return current;
+        return { admissionId, currentDay: data.currentDay, admissionDate: data.admissionDate, hospitalDate: data.hospitalDate, active: data.active };
       });
-      setSupplyDaySelection((current) =>
-        current?.admissionId === admissionId
-          ? current
-          : data.currentDay > 0
-            ? { admissionId, day: Math.max(1, lastRecordedDay || data.currentDay - 1) }
-            : null
-      );
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Unable to load medical supplies", "error");
+      const message = error instanceof Error ? error.message : "Unable to load medical supplies";
+      setHospitalDayError({ admissionId, message });
+      toast(message, "error");
     } finally {
       setSuppliesLoading(false);
     }
@@ -206,9 +239,13 @@ function DailyNursingRecords() {
   useEffect(() => {
     if (!admissionId || !patientId) return;
 
-    const timer = window.setInterval(() => void loadSupplies(), 5 * 60 * 1000);
+    const refresh = () => {
+      void loadRecords();
+      void loadSupplies();
+    };
+    const timer = window.setInterval(refresh, 5 * 60 * 1000);
     const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void loadSupplies();
+      if (document.visibilityState === "visible") refresh();
     };
     document.addEventListener("visibilitychange", refreshWhenVisible);
 
@@ -216,7 +253,7 @@ function DailyNursingRecords() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [admissionId, patientId, loadSupplies]);
+  }, [admissionId, patientId, loadRecords, loadSupplies]);
 
   useEffect(() => {
     let active = true;
@@ -256,10 +293,14 @@ function DailyNursingRecords() {
     router.push(`/nursing/notes?patientId=${encodeURIComponent(patient.patientId)}&admissionId=${encodeURIComponent(patient.admissionId)}`);
   };
 
-  const submit = async (event: FormEvent | undefined, status: "Draft" | "Final") => {
-    event?.preventDefault();
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     if (!admissionId || !patientId || !activeRecordDay) {
       toast("Select an assigned patient and hospital day before saving a daily record", "error");
+      return;
+    }
+    if (!hospitalDayInfo?.active) {
+      toast("Daily records cannot be added to a discharged admission", "error");
       return;
     }
     if (activeRecordDay !== currentSupplyDay) {
@@ -276,7 +317,7 @@ function DailyNursingRecords() {
         body: JSON.stringify({
           admissionId,
           patientId,
-          status,
+          status: "Final",
           nursingDay: activeRecordDay,
           vitals: {
             bloodPressure: form.bloodPressure || undefined,
@@ -292,7 +333,7 @@ function DailyNursingRecords() {
       if (!response.ok || !result.success) {
         throw new Error(result.message || "Unable to save daily record");
       }
-      toast(status === "Final" ? "Daily record finalized" : "Daily record saved as draft", "success");
+      toast("Daily record finalized", "success");
       setForm(blank);
       await loadRecords();
     } catch (error) {
@@ -306,6 +347,10 @@ function DailyNursingRecords() {
     event.preventDefault();
     if (!admissionId || !patientId || !activeSupplyDay) {
       toast("Choose an assigned patient and hospital day before adding supplies", "error");
+      return;
+    }
+    if (!hospitalDayInfo?.active) {
+      toast("Medical supplies cannot be added to a discharged admission", "error");
       return;
     }
     if (activeSupplyDay !== currentSupplyDay) {
@@ -346,22 +391,29 @@ function DailyNursingRecords() {
 
   const selectedPatient = assignedPatients.find((patient) => patient.admissionId === admissionId);
   const activeTab = daySelection?.admissionId === admissionId ? daySelection.tab : "new";
-  const recordDays = visibleRecordDays?.admissionId === admissionId ? visibleRecordDays.days : [];
-  const activeRecordDay = recordDaySelection?.admissionId === admissionId
+  const recordDays = Array.from({ length: currentSupplyDay }, (_, index) => index + 1);
+  const hospitalDaySelectionKey = hospitalDayInfo?.admissionId === admissionId
+    ? `${hospitalDayInfo.admissionDate}:${hospitalDayInfo.hospitalDate}:${hospitalDayInfo.currentDay}:${hospitalDayInfo.active}`
+    : "";
+  const activeRecordDay = recordDaySelection?.admissionId === admissionId && recordDaySelection.dayKey === hospitalDaySelectionKey
     ? recordDaySelection.day
-    : recordDays.at(-1) ?? null;
+    : currentSupplyDay || null;
   const activeDayRecords = activeRecordDay === null
     ? []
     : records.filter((record) => record.nursingDay === activeRecordDay);
   const canRecordActiveDay =
-    currentSupplyDay > 0 &&
+    hospitalDayInfo?.active === true &&
     activeRecordDay === currentSupplyDay;
-  const nextRecordDay = (recordDays.at(-1) ?? 0) + 1;
-  const availableSupplyDays = visibleSupplyDays?.admissionId === admissionId ? visibleSupplyDays.days : [];
-  const activeSupplyDay = supplyDaySelection?.admissionId === admissionId
+  const availableSupplyDays = recordDays;
+  const activeSupplyDay = supplyDaySelection?.admissionId === admissionId && supplyDaySelection.dayKey === hospitalDaySelectionKey
     ? supplyDaySelection.day
-    : availableSupplyDays.at(-1) ?? null;
-  const nextSupplyDay = (availableSupplyDays.at(-1) ?? 0) + 1;
+    : currentSupplyDay || null;
+  const activeRecordDate = hospitalDayInfo?.admissionId === admissionId && activeRecordDay
+    ? formatHospitalDate(hospitalDateForDay(hospitalDayInfo.admissionDate, activeRecordDay))
+    : "Date unavailable";
+  const activeSupplyDate = hospitalDayInfo?.admissionId === admissionId && activeSupplyDay
+    ? formatHospitalDate(hospitalDateForDay(hospitalDayInfo.admissionDate, activeSupplyDay))
+    : "Date unavailable";
   const filteredAssignedPatients = assignedPatients.filter((patient) =>
     `${patient.name} ${patient.uhid} ${patient.bedNumber}`
       .toLowerCase()
@@ -536,39 +588,22 @@ function DailyNursingRecords() {
                     aria-controls="nursing-record-day-panel"
                     onClick={() => {
                       setForm(blank);
-                      setRecordDaySelection({ admissionId, day });
+                      setRecordDaySelection({ admissionId, day, dayKey: hospitalDaySelectionKey });
                     }}
                     className={`rounded-md border px-3 py-1.5 text-sm transition ${
                       activeRecordDay === day
-                        ? "border-cyan-600 bg-cyan-600 text-white"
-                        : "border-slate-200 text-slate-700 hover:border-cyan-400 dark:border-slate-700 dark:text-slate-200"
+                        ? "border-rose-600 bg-rose-600 text-white"
+                        : "border-slate-200 text-slate-700 hover:border-rose-400 dark:border-slate-700 dark:text-slate-200"
                     }`}
                   >
-                    Day {day}
+                    Day {day} · {formatHospitalDate(
+                      hospitalDayInfo?.admissionId === admissionId
+                        ? hospitalDateForDay(hospitalDayInfo.admissionDate, day)
+                        : ""
+                    )}
                   </button>
                 ))}
-                {nextRecordDay <= currentSupplyDay && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={saving || loading || suppliesLoading}
-                    onClick={() => {
-                      setVisibleRecordDays((current) => {
-                        const days = current?.admissionId === admissionId ? current.days : [1];
-                        return days.includes(nextRecordDay)
-                          ? current
-                          : { admissionId, days: [...days, nextRecordDay] };
-                      });
-                      setRecordDaySelection({ admissionId, day: nextRecordDay });
-                      setForm(blank);
-                    }}
-                  >
-                    <Plus className="mr-1 h-4 w-4" />
-                    Add Day
-                  </Button>
-                )}
-              </div>
+                </div>
 
               {loading ? (
                 <Card className="print:hidden">
@@ -577,64 +612,65 @@ function DailyNursingRecords() {
                     Checking this day&apos;s records...
                   </CardContent>
                 </Card>
-              ) : !currentSupplyDayInfo || currentSupplyDayInfo.admissionId !== admissionId ? (
+              ) : !hospitalDayInfo || hospitalDayInfo.admissionId !== admissionId ? (
                 <Card className="print:hidden">
                   <CardContent className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Checking the current hospital day...
+                    {hospitalDayError?.admissionId === admissionId ? (
+                      <span role="alert">Hospital day unavailable: {hospitalDayError.message}</span>
+                    ) : (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Checking the current hospital day...
+                      </>
+                    )}
                   </CardContent>
                 </Card>
               ) : !canRecordActiveDay ? (
                 <Card className="print:hidden border-emerald-200 dark:border-emerald-900">
                   <CardContent className="py-5 text-sm text-emerald-800 dark:text-emerald-200">
-                    Earlier hospital days are read-only. The saved notes for this day are shown below.
+                    {hospitalDayInfo?.active
+                      ? "Earlier hospital days are read-only. The saved notes for this day are shown below."
+                      : "This admission is discharged. The saved notes are available for viewing only."}
                   </CardContent>
                 </Card>
               ) : (
-                <Card className="print:hidden overflow-hidden">
-                  <CardHeader className="border-b bg-slate-50/70 pb-4 dark:bg-slate-900/40">
-                    <CardTitle className="text-base">New daily record — Day {activeRecordDay}</CardTitle>
-                    <CardDescription>
-                      Add a nursing note for this day. You can save multiple entries; the author and time are recorded automatically.
+                <Card className="print:hidden w-full border shadow-sm">
+                  <CardHeader className="space-y-1.5 p-4 pb-0">
+                    <CardTitle className="flex items-center gap-2 text-base font-bold">
+                      <FileText className="h-5 w-5 text-rose-600" />
+                      New daily record
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Day {activeRecordDay} · {activeRecordDate}. Save one or more entries for this hospital day.
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="pt-5">
-                  <form className="space-y-5" onSubmit={(event) => void submit(event, "Draft")}>
-                    <section className="space-y-3">
-                      <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Vitals</h3>
-                      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+                  <CardContent className="p-4 pt-3">
+                  <form className="grid gap-3 text-xs md:grid-cols-12 md:items-end" onSubmit={(event) => void submit(event)}>
+                    <section className="grid grid-cols-2 gap-3 rounded-xl border bg-slate-50 p-3 dark:bg-slate-800/40 md:col-span-8 md:grid-cols-5">
                         {vitalFields.map(([key, label]) => (
-                          <div key={key}>
-                            <Label htmlFor={`daily-${key}`}>{label}</Label>
+                          <div key={key} className="space-y-1">
+                            <Label htmlFor={`daily-${key}`} className="text-[11px] font-semibold">{label}</Label>
                             <Input
                               id={`daily-${key}`}
-                              className="mt-1"
+                              className="h-8 text-xs font-mono"
                               value={form[key]}
                               onChange={(event) => setField(key, event.target.value)}
                             />
                           </div>
                         ))}
-                      </div>
                     </section>
-                    <section className="space-y-3 border-t pt-4">
-                      <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Care notes</h3>
-                      <div>
-                        <Label htmlFor="daily-observations">Observations &amp; condition</Label>
+                    <section className="space-y-1.5 md:col-span-4">
+                        <Label htmlFor="daily-observations" className="text-xs font-semibold">Observations &amp; condition</Label>
                         <Textarea
                           id="daily-observations"
-                          className="mt-1.5 min-h-20"
+                          className="min-h-16 text-xs"
                           value={form.observations}
                           onChange={(event) => setField("observations", event.target.value)}
                           rows={2}
                         />
-                      </div>
                     </section>
-                    <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
-                      <Button type="submit" variant="outline" disabled={saving}>
-                        <Save className="mr-2 h-4 w-4" />
-                        Save draft
-                      </Button>
-                      <Button type="button" disabled={saving} onClick={() => void submit(undefined, "Final")}>
+                    <div className="flex flex-wrap justify-end gap-2 md:col-span-12">
+                      <Button type="submit" size="sm" className="bg-rose-600 text-white hover:bg-rose-700" disabled={saving}>
                         <Plus className="mr-2 h-4 w-4" />
                         Finalize
                       </Button>
@@ -646,7 +682,7 @@ function DailyNursingRecords() {
 
               <section id="nursing-record-day-panel" role="tabpanel" className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-base font-semibold">Day {activeRecordDay} notes</h2>
+                  <h2 className="text-base font-semibold">Day {activeRecordDay} notes · {activeRecordDate}</h2>
                   <span className="text-xs text-slate-500">
                     {loading ? "Loading..." : `${activeDayRecords.length} ${activeDayRecords.length === 1 ? "entry" : "entries"}`}
                   </span>
@@ -663,9 +699,9 @@ function DailyNursingRecords() {
                   </Card>
                 ) : (
                   activeDayRecords.map((record) => (
-                    <Card key={record._id} className="break-inside-avoid">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-base">
+                    <Card key={record._id} className="break-inside-avoid border shadow-sm">
+                      <CardHeader className="space-y-1 p-4 pb-2">
+                        <CardTitle className="text-sm font-semibold">
                           Day {record.nursingDay}
                           <span className="ml-2 text-xs font-normal text-slate-500">
                             {record.status} · {new Date(record.recordDate).toLocaleString()}
@@ -673,7 +709,7 @@ function DailyNursingRecords() {
                         </CardTitle>
                         <CardDescription>Recorded by {record.author?.name || "Nurse"}</CardDescription>
                       </CardHeader>
-                      <CardContent className="space-y-3 text-sm">
+                      <CardContent className="space-y-3 p-4 pt-0 text-xs">
                         <p>
                           <b>Vitals:</b> BP {record.vitals?.bloodPressure || "—"}; Pulse {record.vitals?.pulse ?? "—"}; Temp {record.vitals?.temperature ?? "—"}; RR {record.vitals?.respiratoryRate ?? "—"}; SpO₂ {record.vitals?.oxygenSaturation ?? "—"}
                         </p>
@@ -699,24 +735,28 @@ function DailyNursingRecords() {
               tabIndex={0}
               className="space-y-4"
             >
-              <Card className="print:hidden">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <PackagePlus className="h-4 w-4 text-cyan-600" />
+              <Card className="print:hidden w-full border shadow-sm">
+                <CardHeader className="space-y-1.5 p-4 pb-0">
+                  <CardTitle className="flex items-center gap-2 text-base font-bold">
+                    <PackagePlus className="h-5 w-5 text-rose-600" />
                     Medical Supplies
                   </CardTitle>
-                  <CardDescription>
+                  <CardDescription className="text-xs">
                     Log medicines, consumables, equipment use or rental, and other supplies for this patient.
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-4 pt-3">
                   {suppliesLoading ? (
                     <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Loading supply records...
                     </div>
                   ) : currentSupplyDay === 0 ? (
-                    <p className="text-sm text-slate-500">Hospital day information is not available.</p>
+                    <p className="text-sm text-slate-500" role={hospitalDayError?.admissionId === admissionId ? "alert" : undefined}>
+                      {hospitalDayError?.admissionId === admissionId
+                        ? `Hospital day unavailable: ${hospitalDayError.message}`
+                        : "Hospital day information is not available."}
+                    </p>
                   ) : (
                     <>
                       <div className="mb-5 flex flex-wrap items-center gap-2" role="tablist" aria-label="Medical supply hospital days">
@@ -727,69 +767,54 @@ function DailyNursingRecords() {
                             role="tab"
                             aria-selected={activeSupplyDay === day}
                             aria-controls="medical-supplies-day-panel"
-                            onClick={() => setSupplyDaySelection({ admissionId, day })}
+                            onClick={() => setSupplyDaySelection({ admissionId, day, dayKey: hospitalDaySelectionKey })}
                             className={`rounded-md border px-3 py-1.5 text-sm transition ${
                               activeSupplyDay === day
-                                ? "border-cyan-600 bg-cyan-600 text-white"
-                                : "border-slate-200 text-slate-700 hover:border-cyan-400 dark:border-slate-700 dark:text-slate-200"
+                                ? "border-rose-600 bg-rose-600 text-white"
+                                : "border-slate-200 text-slate-700 hover:border-rose-400 dark:border-slate-700 dark:text-slate-200"
                             }`}
                           >
-                            Day {day}
+                            Day {day} · {formatHospitalDate(
+                              hospitalDayInfo?.admissionId === admissionId
+                                ? hospitalDateForDay(hospitalDayInfo.admissionDate, day)
+                                : ""
+                            )}
                           </button>
                         ))}
-                        {nextSupplyDay <= currentSupplyDay && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={suppliesLoading}
-                            onClick={() => {
-                              setVisibleSupplyDays((current) => {
-                                const days = current?.admissionId === admissionId ? current.days : [1];
-                                return days.includes(nextSupplyDay)
-                                  ? current
-                                  : { admissionId, days: [...days, nextSupplyDay] };
-                              });
-                              setSupplyDaySelection({ admissionId, day: nextSupplyDay });
-                            }}
-                          >
-                            <Plus className="mr-1 h-4 w-4" />
-                            Add Day
-                          </Button>
-                        )}
                       </div>
 
                       {activeSupplyDay && (
                         <div id="medical-supplies-day-panel" role="tabpanel" className="space-y-5">
-                          {activeSupplyDay === currentSupplyDay ? (
-                          <form onSubmit={(event) => void submitSupply(event)} className="grid gap-4 md:grid-cols-2">
-                            <div>
-                              <Label htmlFor="supply-category">Supply category</Label>
-                              <select
+                          {hospitalDayInfo?.active && activeSupplyDay === currentSupplyDay ? (
+                          <form onSubmit={(event) => void submitSupply(event)} className="space-y-3 text-xs">
+                            <div className="grid grid-cols-1 gap-3 rounded-xl border bg-slate-50 p-3 dark:bg-slate-800/40 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
+                              <div className="space-y-1.5 lg:col-span-3">
+                              <Label htmlFor="supply-category" className="text-[11px] font-semibold">Supply category</Label>
+                              <Select
                                 id="supply-category"
                                 value={supplyCategory}
                                 onChange={(event) => setSupplyCategory(event.target.value as (typeof supplyCategories)[number])}
-                                className="mt-1.5 flex h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+                                className="h-8 text-xs"
                               >
                                 {supplyCategories.map((category) => (
                                   <option key={category} value={category}>{category}</option>
                                 ))}
-                              </select>
-                            </div>
-                            <div>
-                              <Label htmlFor="supply-name">Item name</Label>
+                              </Select>
+                              </div>
+                            <div className="space-y-1.5 lg:col-span-4">
+                              <Label htmlFor="supply-name" className="text-[11px] font-semibold">Item name</Label>
                               <Input
                                 id="supply-name"
                                 value={supplyName}
                                 onChange={(event) => setSupplyName(event.target.value)}
                                 maxLength={200}
                                 required
-                                className="mt-1.5"
+                                className="h-8 text-xs"
                                 placeholder="Enter medicine or supply name"
                               />
                             </div>
-                            <div>
-                              <Label htmlFor="supply-quantity">Quantity</Label>
+                            <div className="space-y-1.5 lg:col-span-2">
+                              <Label htmlFor="supply-quantity" className="text-[11px] font-semibold">Quantity</Label>
                               <Input
                                 id="supply-quantity"
                                 type="number"
@@ -799,23 +824,24 @@ function DailyNursingRecords() {
                                 value={supplyQuantity}
                                 onChange={(event) => setSupplyQuantity(event.target.value)}
                                 required
-                                className="mt-1.5"
+                                className="h-8 text-xs font-mono"
                               />
                             </div>
-                            <div>
-                              <Label htmlFor="supply-notes">Notes / usage details</Label>
+                            <div className="space-y-1.5 lg:col-span-3">
+                              <Label htmlFor="supply-notes" className="text-[11px] font-semibold">Notes / usage details</Label>
                               <Textarea
                                 id="supply-notes"
                                 value={supplyNotes}
                                 onChange={(event) => setSupplyNotes(event.target.value)}
                                 maxLength={2000}
                                 rows={2}
-                                className="mt-1.5"
+                                className="min-h-16 text-xs"
                                 placeholder="Optional details"
                               />
                             </div>
-                            <div className="md:col-span-2 flex justify-end">
-                              <Button type="submit" disabled={supplySaving}>
+                            </div>
+                            <div className="flex justify-end">
+                              <Button type="submit" size="sm" className="bg-rose-600 text-white hover:bg-rose-700" disabled={supplySaving}>
                                 {supplySaving ? (
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 ) : (
@@ -828,14 +854,16 @@ function DailyNursingRecords() {
                           ) : (
                             <Card className="border-emerald-200 dark:border-emerald-900">
                               <CardContent className="py-4 text-sm text-emerald-800 dark:text-emerald-200">
-                                Earlier hospital days are read-only. The saved supplies for this day are shown below.
+                                {hospitalDayInfo?.active
+                                  ? "Earlier hospital days are read-only. The saved supplies for this day are shown below."
+                                  : "This admission is discharged. The saved supplies are available for viewing only."}
                               </CardContent>
                             </Card>
                           )}
 
                           <div className="space-y-3 border-t pt-4">
                             <div className="flex items-center justify-between">
-                              <h3 className="text-sm font-semibold">Day {activeSupplyDay} supplies</h3>
+                              <h3 className="text-sm font-semibold">Day {activeSupplyDay} supplies · {activeSupplyDate}</h3>
                               <span className="text-xs text-slate-500">
                                 {supplies.filter((item) => item.nursingDay === activeSupplyDay).length} items
                               </span>
@@ -847,13 +875,13 @@ function DailyNursingRecords() {
                             ) : (
                               <div className="space-y-2">
                                 {supplies.filter((item) => item.nursingDay === activeSupplyDay).map((item) => (
-                                  <div key={item._id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3">
+                                  <div key={item._id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3 text-xs">
                                     <div>
-                                      <p className="text-sm font-medium">{item.itemName}</p>
+                                      <p className="font-semibold">{item.itemName}</p>
                                       <p className="text-xs text-slate-500">
                                         {item.category} · Quantity: {item.quantity}
                                       </p>
-                                      {item.notes && <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{item.notes}</p>}
+                                      {item.notes && <p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{item.notes}</p>}
                                     </div>
                                     <p className="text-xs text-slate-500">
                                       {item.author?.name || "Nurse"} · {new Date(item.recordedAt).toLocaleString()}

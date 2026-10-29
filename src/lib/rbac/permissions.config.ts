@@ -281,6 +281,10 @@ const ALWAYS_OPEN_PAGES: ReadonlySet<string> = new Set(["/forbidden", "/login", 
 
 /** `/admin/roles/<id>/permissions` — the id is the only variable segment. */
 const ROLE_PERMISSIONS_PATH = /^\/admin\/roles\/[^/]+\/permissions\/?$/;
+/** `/nursing/patients/<admissionId>/handover` — inherits admitted-patient view access. */
+const NURSING_HANDOVER_PATH = /^\/nursing\/patients\/[^/]+\/handover$/;
+/** `/nursing/medications/<patientId>` — medication details require medication view access. */
+const NURSING_MEDICATION_DETAIL_PATH = /^\/nursing\/medications\/[^/]+$/;
 
 /**
  * The permission keys guarding a page route, or an empty list when the route is
@@ -297,6 +301,14 @@ export function permissionsForPage(path: string): readonly string[] {
 
     if (ROLE_PERMISSIONS_PATH.test(normalised)) {
         return [permissionKey("admin", "roles", "view")];
+    }
+
+    if (NURSING_HANDOVER_PATH.test(normalised)) {
+        return [permissionKey("nursing", "patients", "view")];
+    }
+
+    if (NURSING_MEDICATION_DETAIL_PATH.test(normalised)) {
+        return [permissionKey("nursing", "medications", "view")];
     }
 
     const extra = EXTRA_PAGE_PERMISSIONS[normalised];

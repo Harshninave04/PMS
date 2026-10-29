@@ -671,6 +671,46 @@ async function runPermissionTests() {
     }
   });
 
+  test("Assigned-patient handover detail inherits Nursing Patients view permission", () => {
+    const nursePermissions = new Set(defaultPermissionsFor("NURSE"));
+    const handoverPath = "/nursing/patients/65f1c2a3b4c5d6e7f8091234/handover";
+    const required = permissionsForPage(handoverPath);
+
+    assert.deepEqual(required, ["nursing.patients:view"]);
+    assert.equal(canOpenPage(required, { all: nursePermissions }), true);
+    assert.equal(canOpenPage(required, { all: new Set() }), false);
+    assert.deepEqual(
+      permissionsForPage("/nursing/patients/[admissionId]/handover"),
+      ["nursing.patients:view"],
+      "The dynamic page route must be catalogued",
+    );
+    assert.deepEqual(
+      permissionsForPage("/nursing/patients/65f1c2a3b4c5d6e7f8091234"),
+      [],
+      "The detail-page rule must not grant access to unrelated unknown paths",
+    );
+  });
+
+  test("Medication patient detail inherits Nursing Medication Rounds view permission", () => {
+    const nursePermissions = new Set(defaultPermissionsFor("NURSE"));
+    const detailPath = "/nursing/medications/65f1c2a3b4c5d6e7f8091234";
+    const required = permissionsForPage(detailPath);
+
+    assert.deepEqual(required, ["nursing.medications:view"]);
+    assert.equal(canOpenPage(required, { all: nursePermissions }), true);
+    assert.equal(canOpenPage(required, { all: new Set() }), false);
+    assert.deepEqual(
+      permissionsForPage("/nursing/medications/[patientId]"),
+      ["nursing.medications:view"],
+      "The dynamic detail route must be catalogued",
+    );
+    assert.deepEqual(
+      permissionsForPage("/nursing/medications/65f1c2a3b4c5d6e7f8091234/extra"),
+      [],
+      "The detail rule must not grant access to deeper unknown paths",
+    );
+  });
+
   test("No handler grants itself an open guard the manifest does not sanction", () => {
     // The reverse drift is the dangerous one: a route that answers any signed-in
     // user while the manifest promises a permission check. Only endpoints listed in
