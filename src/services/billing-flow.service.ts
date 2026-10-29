@@ -8,6 +8,9 @@ import "@/models/doctor.model";
 import Doctor from "@/models/doctor.model";
 import { ClinicalRecord } from "@/models/clinical-record.model";
 import NursingMedication from "@/models/nursing-medication.model";
+import Medicine from "@/models/medicine.model";
+import { MedicationOrder } from "@/models/medication-order.model";
+import PaymentModel from "@/models/payment.model";
 import NursingMedicalSupply from "@/models/nursing-medical-supply.model";
 import Service from "@/models/service.model";
 import Organization from "@/models/organization.model";
@@ -26,6 +29,11 @@ export interface BillingActor {
 
 const ACTIVE_INPATIENT_STATUSES = ["ADMITTED", "TRANSFERRED"];
 
+export function resolveBillingBranchId(actor?: BillingActor): string | undefined {
+    const branchId = actor?.branchId || actor?.organizationId;
+    return branchId?.toString();
+}
+
 export interface SuggestedInvoiceItem {
     name: string;
     price: number;
@@ -33,13 +41,36 @@ export interface SuggestedInvoiceItem {
     discount: number;
     tax: number;
     total: number;
-    source: "BED" | "ROUNDS" | "MEDICATION";
+    source: "BED" | "ROUNDS" | "MEDICATION" | "ORDER" | "ICU_MONITORING";
     detail?: string;
 }
 
-function applyBranchConvention(query: Record<string, unknown>, actor?: BillingActor) {
-    if (actor && !actor.isSuperAdmin && actor.orgScope === "BRANCH" && actor.branchId) {
-        query.branchId = new Types.ObjectId(actor.branchId.toString());
+// Wards whose patients are monitored around the clock: the draft adds an
+// hourly monitoring row priced from the "ICU Monitoring" service (Billing >
+// Rates) when the ward type matches.
+const MONITORED_WARD_TYPES = new Set(["ICU", "CCU", "NICU", "PICU"]);
+
+async function applyBranchConvention(query: Record<string, unknown>, actor?: BillingActor) {
+    if (!actor || actor.isSuperAdmin || actor.orgScope === "GLOBAL") return;
+    if (actor.orgScope === "BRANCH") {
+        const branchId = resolveBillingBranchId(actor);
+        if (branchId && Types.ObjectId.isValid(branchId)) query.branchId = new Types.ObjectId(branchId);
+        else query.branchId = { $in: [] };
+        return;
+    }
+    if (actor.orgScope === "ORGANIZATION") {
+        const organizationId = actor.organizationId?.toString();
+        if (!organizationId || !Types.ObjectId.isValid(organizationId)) {
+            query.branchId = { $in: [] };
+            return;
+        }
+        const branchIds = await Organization.find({
+            $or: [
+                { _id: new Types.ObjectId(organizationId) },
+                { headQuarter: new Types.ObjectId(organizationId) },
+            ],
+        }).distinct("_id");
+        query.branchId = { $in: branchIds };
     }
 }
 
@@ -122,13 +153,15 @@ export async function getBillingQueue(actor?: BillingActor) {
         billingRequested: true,
         status: { $in: ACTIVE_INPATIENT_STATUSES },
     };
-    applyBranchConvention(query, actor);
+    await applyBranchConvention(query, actor);
 
     const admissions = await Admission.find(query)
         .populate("patientId", "name uhid age gender contact bloodGroup allergies insurance")
         .populate("doctorId", "name")
         .populate("dischargeRequestedBy", "name")
         .populate("billingRequestedBy", "name")
+        .populate("assignedNurses", "name")
+        .populate("assignedDoctors", "name")
         .populate("nursingHandoverHistory.fromNurseId", "name")
         .populate({
             path: "bedId",
@@ -148,7 +181,7 @@ export async function getBillingQueue(actor?: BillingActor) {
               admissionId: { $in: admissionIds },
               status: { $ne: "CANCELLED" },
           })
-              .select("_id admissionId invoiceNumber finalAmount status createdAt")
+              .select("_id admissionId invoiceNumber finalAmount paidAmount balanceAmount status billingStatus createdAt")
               .lean()
         : [];
     const invoiceByAdmission = new Map<string, (typeof invoices)[number]>();
@@ -170,6 +203,14 @@ export async function getBillingQueue(actor?: BillingActor) {
         const admissionId = String(adm._id ?? "");
         const invoice = invoiceByAdmission.get(admissionId);
         const names = composeQueueNames(adm, legacyDoctorNames);
+        const assignedNurses = Array.isArray(adm.assignedNurses)
+            ? (adm.assignedNurses as Array<Record<string, unknown>>).map((nurse) => String(nurse.name || "")).filter(Boolean)
+            : [];
+        const assignedDoctors = Array.isArray(adm.assignedDoctors)
+            ? (adm.assignedDoctors as Array<Record<string, unknown>>).map((doctor) => String(doctor.name || "")).filter(Boolean)
+            : [];
+        const invoiceFinalAmount = invoice ? num(invoice.finalAmount) : 0;
+        const invoicePaidAmount = invoice ? num(invoice.paidAmount) : 0;
 
         return {
             admissionId: adm._id,
@@ -186,13 +227,19 @@ export async function getBillingQueue(actor?: BillingActor) {
             wardName: ward?.wardName || "General Ward",
             wardType: ward?.wardType || "General",
             doctorName: names.doctorName,
+            assignedDoctorNames: assignedDoctors.length ? assignedDoctors : [names.doctorName].filter(Boolean),
+            assignedNurseNames: assignedNurses,
             flaggedByName: names.flaggedByName,
             dischargeRequestNotes: (adm.dischargeRequestNotes as string | undefined) || undefined,
             sentByName: names.sentByName,
             billingRequestedAt: adm.billingRequestedAt as Date | undefined,
             expectedDischargeAt: adm.expectedDischargeAt as Date | undefined,
             admissionDate: adm.admissionDate,
+            admissionType: adm.admissionType,
             diagnosis: adm.initialDiagnosis || adm.reasonForAdmission || "Clinical Care",
+            status: adm.status,
+            dischargeRequested: Boolean(adm.dischargeRequested),
+            billingRequested: Boolean(adm.billingRequested),
             nurseNoteCount: notes.length,
             latestNurseNote: latestNote?.text as string | undefined,
             invoice: invoice
@@ -200,7 +247,12 @@ export async function getBillingQueue(actor?: BillingActor) {
                       invoiceId: invoice._id,
                       invoiceNumber: invoice.invoiceNumber,
                       finalAmount: invoice.finalAmount,
+                      paidAmount: invoicePaidAmount,
+                      balanceAmount: invoice.balanceAmount !== undefined
+                          ? round2(Math.max(0, num(invoice.balanceAmount)))
+                          : round2(Math.max(0, invoiceFinalAmount - invoicePaidAmount)),
                       status: invoice.status,
+                      billingStatus: invoice.billingStatus || "BILLING_COMPLETED",
                       createdAt: invoice.createdAt,
                   }
                 : undefined,
@@ -215,6 +267,61 @@ export async function getLinkedInvoice(admissionId: Types.ObjectId | string) {
         .lean();
 }
 
+// One interval of the stay on a single bed. `from`/`to` are only for display
+// (details), the priced quantity is the ceiling of days.
+interface BedSegment {
+    bed?: Record<string, unknown> | null;
+    days: number;
+    from?: Date;
+    to?: Date;
+}
+
+// Split the stay into bed segments using the transfer history: every transfer
+// date closes the previous segment (on its from-bed / previous to-bed) and the
+// current bed covers the last segment up to the billing cut-off. Days follow
+// the same ceiling convention as the single-segment billing.
+function buildBedSegments(
+    admissionDate: Date,
+    cutoffDate: Date,
+    bed: Record<string, unknown> | undefined,
+    transferHistory: Array<Record<string, unknown>>
+): BedSegment[] {
+    const cutoff = cutoffDate.getTime();
+    const segments: BedSegment[] = [];
+    let cursor = admissionDate.getTime();
+
+    const push = (segmentBed: Record<string, unknown> | null | undefined, end: number) => {
+        segments.push({
+            bed: segmentBed ?? undefined,
+            days: Math.max(1, Math.ceil((end - cursor) / 86400000)),
+            from: new Date(cursor),
+            to: new Date(end),
+        });
+        cursor = end;
+    };
+
+    const transfers = transferHistory
+        .filter((transfer) => transfer.transferDate)
+        .map((transfer) => ({ to: transfer.toBedId, from: transfer.fromBedId, at: new Date(transfer.transferDate as Date) }))
+        .sort((a, b) => a.at.getTime() - b.at.getTime())
+        .filter((transfer) => transfer.at.getTime() < cutoff);
+
+    if (transfers.length === 0) {
+        push(bed, cutoff);
+        return segments;
+    }
+
+    // Segment 1 lives on the first transfer's from-bed; intermediate segments
+    // on the to-bed of the previous transfer; the final segment on the current
+    // (populated) bed up to the cut-off.
+    push(transfers[0].from as Record<string, unknown>, transfers[0].at.getTime());
+    for (let i = 1; i < transfers.length; i++) {
+        push(transfers[i - 1].to as Record<string, unknown>, transfers[i].at.getTime());
+    }
+    push(bed, cutoff);
+    return segments;
+}
+
 // Billing rates come from the Wards & Beds configuration (Bed overrides first,
 // then the ward rate). An unset rate yields 0 — its draft row renders red and
 // the bill cannot be saved until the rate is configured. Even though the rate
@@ -226,42 +333,48 @@ function firstDefined(...values: unknown[]): number | undefined {
     return undefined;
 }
 
-function buildBedAndNursingRows(
-    bed: Record<string, unknown> | undefined,
-    ward: Record<string, unknown> | undefined,
-    days: number
-): SuggestedInvoiceItem[] {
-    const bedRate = firstDefined(bed?.bedRatePerDay, ward?.bedRatePerDay);
-    const nursingRate = firstDefined(bed?.nursingRatePerDay, ward?.nursingRatePerDay);
-    const wardLabel = (ward?.wardName as string) || (ward?.wardType as string) || "General";
-    const rows: SuggestedInvoiceItem[] = [
-        {
-            name: `Bed charges — ${wardLabel}`,
+function buildSegmentRows(segments: BedSegment[]): SuggestedInvoiceItem[] {
+    const rows: SuggestedInvoiceItem[] = [];
+    const multi = segments.length > 1;
+    segments.forEach((segment, index) => {
+        const bed = segment.bed ?? undefined;
+        const ward = (bed?.roomId as Record<string, unknown> | undefined)?.wardId as Record<string, unknown> | undefined;
+        const bedRate = firstDefined(bed?.bedRatePerDay, ward?.bedRatePerDay);
+        const nursingRate = firstDefined(bed?.nursingRatePerDay, ward?.nursingRatePerDay);
+        const wardLabel = (ward?.wardName as string) || (ward?.wardType as string) || "General";
+        const suffix = multi ? ` (segment ${index + 1})` : "";
+        const rangeLabel = segment.from && segment.to
+            ? ` · ${segment.from.toLocaleDateString("en-IN")} → ${segment.to.toLocaleDateString("en-IN")}`
+            : "";
+        rows.push({
+            name: `Bed charges — ${wardLabel}${suffix}`,
             price: bedRate ?? 0,
-            quantity: days,
+            quantity: segment.days,
             discount: 0,
             tax: 0,
-            total: round2((bedRate ?? 0) * days),
+            total: round2((bedRate ?? 0) * segment.days),
             source: "BED",
             detail:
                 bedRate === undefined
                     ? "No bed rate configured — set it in Wards & Beds (red rows block save)"
-                    : `${fmtRate(bedRate)}/day · stays stay editable in this bill only`,
-        },
-        {
-            name: "Nursing charges",
+                    : `${fmtRate(bedRate)}/day${rangeLabel} · stays editable in this bill only`,
+        });
+        rows.push({
+            name: `Nursing charges${suffix}`,
             price: nursingRate ?? 0,
-            quantity: days,
+            quantity: segment.days,
             discount: 0,
             tax: 0,
-            total: round2((nursingRate ?? 0) * days),
+            total: round2((nursingRate ?? 0) * segment.days),
             source: "BED",
             detail:
                 nursingRate === undefined
                     ? "No nursing rate configured — set it in Wards & Beds (red rows block save)"
-                    : undefined,
-        },
-    ];
+                    : multi && rangeLabel
+                        ? `${fmtRate(nursingRate)}/day${rangeLabel}`
+                        : undefined,
+        });
+    });
     return rows;
 }
 
@@ -343,9 +456,78 @@ async function buildDoctorRoundRows(rounds: Array<Record<string, unknown>>): Pro
     return rows;
 }
 
-// Pre-computed charge rows for one flagged stay: bed + nursing x days,
-// doctor rounds from the care timeline, and every dose the eMAR recorded
-// as GIVEN (drugs have no unit master price yet, so price is left editable).
+// One row per clinical order title (Lab / Radiology / Procedure / Diet orders
+// the doctor placed on the stay), priced from the Services rate list when the
+// title matches an active service; otherwise a red editable row.
+function buildClinicalOrderRows(orders: Array<Record<string, unknown>>, serviceByExactName: Map<string, number>): SuggestedInvoiceItem[] {
+    const grouped = new Map<string, { orderType: string; title: string; count: number }>();
+    for (const order of orders) {
+        const orderType = String(order.orderType || "Other").trim();
+        const title =
+            String(order.title || "").trim() ||
+            String(order.details || "").trim().slice(0, 80) ||
+            orderType;
+        const key = `${orderType}|${title.toLowerCase()}`;
+        const entry = grouped.get(key) ?? { orderType, title, count: 0 };
+        entry.count += 1;
+        grouped.set(key, entry);
+    }
+    const rows: SuggestedInvoiceItem[] = [];
+    for (const [, entry] of Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+        const rate = serviceByExactName.get(entry.title.trim().toLowerCase());
+        const price = rate && rate > 0 ? rate : 0;
+        rows.push({
+            name: `${entry.orderType} — ${entry.title}`,
+            price,
+            quantity: entry.count,
+            discount: 0,
+            tax: 0,
+            total: round2(price * entry.count),
+            source: "ORDER",
+            detail:
+                price > 0
+                    ? `Priced from the Services rate list · ${entry.count} order(s) recorded`
+                    : `No rate match in Services (Billing > Rates) — set the rate or delete the line (red rows block save)`,
+        });
+    }
+    return rows;
+}
+
+// Hourly monitoring rows for ICU/CCU/NICU/PICU segments: the monitored hours
+// come only from segments whose ward type is monitored (days × 24), priced
+// from the "ICU Monitoring" service when configured, red otherwise.
+function buildIcuMonitoringRows(segments: BedSegment[], serviceByExactName: Map<string, number>): SuggestedInvoiceItem[] {
+    const monitoredHours = segments.reduce((sum, segment) => {
+        const ward = (segment.bed?.roomId as Record<string, unknown> | undefined)?.wardId as Record<string, unknown> | undefined;
+        const wardType = String(ward?.wardType || "").toUpperCase();
+        return MONITORED_WARD_TYPES.has(wardType) ? sum + segment.days * 24 : sum;
+    }, 0);
+    if (!monitoredHours) return [];
+    const rate = serviceByExactName.get("icu monitoring");
+    const price = rate && rate > 0 ? rate : 0;
+    return [
+        {
+            name: "ICU monitoring — hourly",
+            price,
+            quantity: monitoredHours,
+            discount: 0,
+            tax: 0,
+            total: round2(price * monitoredHours),
+            source: "ICU_MONITORING",
+            detail:
+                price > 0
+                    ? `Billed from the Services rate list ("ICU Monitoring") · ${monitoredHours} monitored hour(s)`
+                    : `No "ICU Monitoring" rate in Services (Billing > Rates) — add it to price ${monitoredHours} monitored hours (red rows block save)`,
+        },
+    ];
+}
+
+// Pre-computed charge rows for one flagged stay: bed + nursing per transfer
+// segment (days per bed interval), hourly monitoring for ICU-type segments,
+// doctor rounds from the care timeline, clinical
+// orders (Lab/Radiology/Procedure/Diet), and every dose the eMAR recorded as
+// GIVEN — prices come from the Services rate list and pharmacy stock where a
+// match exists; anything unmatched stays editable and red until priced.
 export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, actor?: BillingActor) {
     const id = new Types.ObjectId(admissionId.toString());
     const admissionFilter: Record<string, unknown> = { _id: id };
@@ -380,6 +562,20 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
                 populate: { path: "wardId" }
             }
         })
+        .populate({
+            path: "transferHistory.fromBedId",
+            populate: {
+                path: "roomId",
+                populate: { path: "wardId" }
+            }
+        })
+        .populate({
+            path: "transferHistory.toBedId",
+            populate: {
+                path: "roomId",
+                populate: { path: "wardId" }
+            }
+        })
         .lean();
 
     if (!admission) {
@@ -399,7 +595,7 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
           }))
         : [];
 
-    const [rounds, givenDoses, supplyRecords] = await Promise.all([
+    const [rounds, givenDoses, supplyRecords, clinicalOrders, activeMedicationOrders, pendingDoses, advanceReceipts] = await Promise.all([
         ClinicalRecord.find({
             admissionId: id,
             recordType: "Progress Note",
@@ -417,6 +613,32 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
         NursingMedicalSupply.find({ admissionId: id, patient: admission.patientId })
             .populate("author", "name")
             .sort({ nursingDay: 1, recordedAt: 1 })
+            .lean(),
+        ClinicalRecord.find({
+            admissionId: id,
+            recordType: "Clinical Order",
+            orderType: { $in: ["Lab", "Radiology", "Procedure", "Diet"] },
+        })
+            .select("title details orderType dateRecorded createdAt")
+            .sort({ createdAt: 1 })
+            .limit(300)
+            .lean(),
+        MedicationOrder.find({ admissionId: id, status: "ACTIVE" })
+            .select("medicationName dosage frequency")
+            .sort({ createdAt: 1 })
+            .limit(100)
+            .lean(),
+        NursingMedication.find({ admissionId: id, status: "PENDING" })
+            .select("scheduledTime")
+            .sort({ scheduledTime: 1 })
+            .limit(2000)
+            .lean(),
+        // Phase 3.6: advances received for this stay that no bill has consumed
+        // yet (invoiceId unset) — the bill creation applies them automatically.
+        PaymentModel.find({ admissionId: id, type: "ADVANCE", invoiceId: null })
+            .select("amount receiptNumber date")
+            .sort({ date: 1 })
+            .limit(50)
             .lean(),
     ]);
 
@@ -456,11 +678,68 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
         Math.ceil((cutoffDate.getTime() - admissionDate.getTime()) / 86400000)
     );
 
-    const items: SuggestedInvoiceItem[] = [
-        ...buildBedAndNursingRows(bed, ward, stayDays),
-        ...(await buildDoctorRoundRows(rounds)),
-    ];
+    // One bed segment per ward/bed interval of the stay (Phase 3.5).
+    const segments = buildBedSegments(
+        admissionDate,
+        cutoffDate,
+        bed,
+        Array.isArray(admission.transferHistory)
+            ? (admission.transferHistory as Array<Record<string, unknown>>)
+            : []
+    );
 
+    // Price lookups run as one batch each: active services by exact name (the
+    // same matching the supplies section uses) and pharmacy stock prices by
+    // medicine name for the eMAR doses.
+    const orderTitles = Array.from(
+        new Set(
+            clinicalOrders
+                .map((order) => String(order.title || "").trim())
+                .filter(Boolean)
+        )
+    );
+    const needsIcuMonitoring = segments.some((segment) => {
+        const segmentWard = (segment.bed?.roomId as Record<string, unknown> | undefined)?.wardId as Record<string, unknown> | undefined;
+        return MONITORED_WARD_TYPES.has(String(segmentWard?.wardType || "").toUpperCase());
+    });
+    const serviceCandidateNames = [...orderTitles, ...(needsIcuMonitoring ? ["ICU Monitoring"] : [])];
+    const [orderServiceMatches, pharmacyMedicines] = await Promise.all([
+        serviceCandidateNames.length
+            ? Service.find({
+                  active: true,
+                  $or: serviceCandidateNames.map((name) => ({
+                      name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+                  })),
+              }).select("name defaultRate").lean()
+            : Promise.resolve([]),
+        (() => {
+            const medicationNames = Array.from(
+                new Set(givenDoses.map((dose) => String(dose.medicationName || "").trim()).filter(Boolean))
+            );
+            return medicationNames.length
+                ? Medicine.find({
+                      name: {
+                          $in: medicationNames.map((name) => new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i")),
+                      },
+                  }).select("name unitPrice").lean()
+                : Promise.resolve([]);
+        })(),
+    ]);
+
+    const serviceByExactName = new Map<string, number>();
+    for (const service of orderServiceMatches as Array<{ name?: unknown; defaultRate?: unknown }>) {
+        const name = String(service.name || "").trim().toLowerCase();
+        const rate = round2(num(service.defaultRate));
+        if (name && !serviceByExactName.has(name)) serviceByExactName.set(name, rate);
+    }
+    const pharmacyPriceByName = new Map<string, number>();
+    for (const medicine of pharmacyMedicines as Array<{ name?: unknown; unitPrice?: unknown }>) {
+        const name = String(medicine.name || "").trim().toLowerCase();
+        const price = round2(num(medicine.unitPrice));
+        if (name && !pharmacyPriceByName.has(name)) pharmacyPriceByName.set(name, price);
+    }
+
+    const medicationRows: SuggestedInvoiceItem[] = [];
     const medicationMap = new Map<string, number>();
     for (const dose of givenDoses) {
         const key = `${dose.medicationName} | ${dose.dosage || ""}`;
@@ -468,17 +747,30 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
     }
     for (const [key, units] of Array.from(medicationMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
         const [medicationName, dosage] = key.split(" | ");
-        items.push({
+        const pharmacyPrice = pharmacyPriceByName.get(medicationName.trim().toLowerCase());
+        const price = pharmacyPrice && pharmacyPrice > 0 ? pharmacyPrice : 0;
+        medicationRows.push({
             name: dosage ? `Medication — ${medicationName} (${dosage})` : `Medication — ${medicationName}`,
-            price: 0,
+            price,
             quantity: units,
             discount: 0,
             tax: 0,
-            total: 0,
+            total: round2(price * units),
             source: "MEDICATION",
-            detail: `${units} dose(s) recorded as given on the eMAR — set the price`,
+            detail:
+                price > 0
+                    ? `${units} dose(s) given on the eMAR · unit price from the pharmacy stock list`
+                    : `${units} dose(s) recorded as given on the eMAR — no pharmacy price match, set it`,
         });
     }
+
+    const items: SuggestedInvoiceItem[] = [
+        ...buildSegmentRows(segments),
+        ...buildIcuMonitoringRows(segments, serviceByExactName),
+        ...(await buildDoctorRoundRows(rounds)),
+        ...buildClinicalOrderRows(clinicalOrders, serviceByExactName),
+        ...medicationRows,
+    ];
 
     const context = {
         admissionId: admission._id,
@@ -508,6 +800,28 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
         doseUnits: givenDoses.length,
         nurseNotes: notes,
         medicalSupplies,
+        // Pending-charge disclosure (Phase 3.4): the bill rows only cover doses
+        // GIVEN so far, so the accountant must see — and confirm — what is
+        // still pending before saving.
+        pendingMedicationOrders: (activeMedicationOrders as Array<Record<string, unknown>>).map((order) => ({
+            name: String(order.medicationName || ""),
+            dosage: String(order.dosage || ""),
+            frequency: String(order.frequency || ""),
+        })),
+        pendingDoseCount: (pendingDoses as Array<unknown>).length,
+        // Advances to use (Phase 3.6): applied automatically at bill creation,
+        // oldest receipt first, capped at the final amount.
+        advancesAvailable: (advanceReceipts as Array<Record<string, unknown>>).map((receipt) => ({
+            amount: round2(num(receipt.amount)),
+            receiptNumber: String(receipt.receiptNumber || ""),
+            date: receipt.date as Date,
+        })),
+        advanceTotal: round2(
+            (advanceReceipts as Array<Record<string, unknown>>).reduce(
+                (sum, receipt) => sum + round2(num(receipt.amount)),
+                0
+            )
+        ),
     };
 
     return { context, items };

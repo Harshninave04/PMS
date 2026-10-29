@@ -3,7 +3,7 @@ import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import defaultPaymentService, { PaymentService } from "@/services/payment.service";
 import { CreatePaymentDto } from "@/dto/payment.dto";
-import { authorizeRequest } from "@/lib/rbac/guard";
+import { authorizeRequest, hasRequestPermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class PaymentController {
@@ -16,19 +16,58 @@ export class PaymentController {
             if (!auth.isAuthorized) return auth.response;
 
             const data: CreatePaymentDto = await request.json();
+            const type = data.type || "PAYMENT";
 
-            if (!data.invoiceId || !data.patientId || data.amount === undefined || !data.method) {
+            if (!data.patientId || data.amount === undefined || !data.method) {
                 return NextResponse.json(
-                    { success: false, message: "Required fields are missing: invoiceId, patientId, amount, method" },
+                    { success: false, message: "Required fields are missing: patientId, amount, method" },
                     { status: 400 }
                 );
             }
 
-            if (!Types.ObjectId.isValid(data.invoiceId.toString()) || !Types.ObjectId.isValid(data.patientId.toString())) {
+            if (type === "ADVANCE") {
+                if (!data.admissionId) {
+                    return NextResponse.json(
+                        { success: false, message: "An advance needs the admission (stay) it covers" },
+                        { status: 400 }
+                    );
+                }
+            } else if (!data.invoiceId) {
                 return NextResponse.json(
-                    { success: false, message: "Invalid invoice or patient reference" },
+                    { success: false, message: "Required fields are missing: invoiceId (or type=ADVANCE with admissionId)" },
                     { status: 400 }
                 );
+            }
+
+            if (!Types.ObjectId.isValid(data.patientId.toString())) {
+                return NextResponse.json(
+                    { success: false, message: "Invalid patient reference" },
+                    { status: 400 }
+                );
+            }
+            if (data.invoiceId && !Types.ObjectId.isValid(data.invoiceId.toString())) {
+                return NextResponse.json(
+                    { success: false, message: "Invalid invoice reference" },
+                    { status: 400 }
+                );
+            }
+            if (type === "ADVANCE" && !Types.ObjectId.isValid(String(data.admissionId))) {
+                return NextResponse.json(
+                    { success: false, message: "Invalid admission reference" },
+                    { status: 400 }
+                );
+            }
+
+            // A refund is a management-controlled action on the Payments
+            // ledger ("Refund" special action) — reject without it.
+            if (type === "REFUND") {
+                const allowed = await hasRequestPermission("billing.payments:refund");
+                if (!allowed) {
+                    return NextResponse.json(
+                        { success: false, message: "Refunds need the \"Refund\" permission on the Payments screen" },
+                        { status: 403 }
+                    );
+                }
             }
 
             // Enforce branch boundary

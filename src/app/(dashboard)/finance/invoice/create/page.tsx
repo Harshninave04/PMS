@@ -19,7 +19,8 @@ import {
   Receipt,
   UserRound,
   Eye,
-  Printer
+  Printer,
+  X
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -105,6 +106,14 @@ export default function CreateInvoicePage() {
   const [medicalSupplies, setMedicalSupplies] = useState<NursingSupplyRow[]>([]);
   const [selectedSupplyIds, setSelectedSupplyIds] = useState<string[]>([]);
   const [nurseNotesExpanded, setNurseNotesExpanded] = useState(false);
+  // Pending-charge disclosure: active medication orders + scheduled-but-not-given
+  // doses reported by the draft; saving requires an explicit confirmation.
+  const [pendingMedicationOrders, setPendingMedicationOrders] = useState<Array<{ name: string; dosage: string; frequency: string }>>([]);
+  const [pendingDoseCount, setPendingDoseCount] = useState(0);
+  const [pendingConfirm, setPendingConfirm] = useState(false);
+  // Phase 3.6: unconsumed advances for this stay — applied automatically when
+  // the bill is saved.
+  const [advances, setAdvances] = useState<Array<{ amount: number; receiptNumber: string }>>([]);
 
   const [manualMode, setManualMode] = useState(false);
   const [manualPatients, setManualPatients] = useState<any[]>([]);
@@ -122,10 +131,10 @@ export default function CreateInvoicePage() {
   const [collectOpen, setCollectOpen] = useState(false);
   const [collectInvoiceId, setCollectInvoiceId] = useState("");
   const [collectPatientId, setCollectPatientId] = useState("");
-  const [collectAmount, setCollectAmount] = useState("");
+  // Phase 3.7: a bill may be collected in several lines (cash part + card
+  // part…) — each line becomes its own receipt under one group.
+  const [collectLines, setCollectLines] = useState<Array<{ amount: string; method: string; notes: string }>>([{ amount: "", method: "CASH", notes: "" }]);
   const [collectBalance, setCollectBalance] = useState(0);
-  const [collectMethod, setCollectMethod] = useState("CASH");
-  const [collectNotes, setCollectNotes] = useState("");
   const [collecting, setCollecting] = useState(false);
 
   // Only the freshest draft response may fill the workspace — stale responses
@@ -200,6 +209,10 @@ export default function CreateInvoicePage() {
     setMedicalSupplies([]);
     setSelectedSupplyIds([]);
     setNurseNotesExpanded(false);
+    setPendingMedicationOrders([]);
+    setPendingDoseCount(0);
+    setPendingConfirm(false);
+    setAdvances([]);
     if (row.invoice) {
       markClean({ mode: String(row.admissionId), patient: "", items: [], discount: 0, discountReason: "", notes: "" });
       return;
@@ -225,10 +238,14 @@ export default function CreateInvoicePage() {
       if (res.ok && data.success) {
         setNurseNotes(data.data.context.nurseNotes || []);
         setMedicalSupplies(data.data.context.medicalSupplies || []);
+        setPendingMedicationOrders(data.data.context.pendingMedicationOrders || []);
+        setPendingDoseCount(data.data.context.pendingDoseCount ?? 0);
+        setAdvances(data.data.context.advancesAvailable || []);
       }
       if (!res.ok || !data.success) {
         toast(data.message || "Failed to load the charge draft", "error");
       }
+      setPendingConfirm(false);
       setItems(draftRows);
       setNotes(noteText);
       markClean({ mode: String(row.admissionId), patient: "", items: draftRows, discount: 0, discountReason: "", notes: noteText });
@@ -256,6 +273,10 @@ export default function CreateInvoicePage() {
     setDiscountReason("");
     setNotes("");
     setManualMode(true);
+    setPendingMedicationOrders([]);
+    setPendingDoseCount(0);
+    setPendingConfirm(false);
+    setAdvances([]);
     markClean({ mode: "manual", patient: "", items: [{ ...emptyRow }], discount: 0, discountReason: "", notes: "" });
   };
 
@@ -283,6 +304,7 @@ export default function CreateInvoicePage() {
   };
 
   const { computed, gross } = useMemo(() => lineMath(items), [items]);
+  const advanceTotal = round2(advances.reduce((sum, advance) => sum + num(advance.amount), 0));
   const billDiscount = num(globalDiscount);
   const reasonValue = discountReason.trim();
   const discountCap = round2(gross * BILL_DISCOUNT_CAP);
@@ -428,6 +450,10 @@ export default function CreateInvoicePage() {
       toast("The bill total must be above zero before saving", "error");
       return;
     }
+    if (!manualMode && pendingMedicationOrders.length > 0 && !pendingConfirm) {
+      toast(`This stay still has ${pendingMedicationOrders.length} active medication order(s) and ${pendingDoseCount} pending dose(s) — confirm they were handled before billing`, "error");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -449,7 +475,7 @@ export default function CreateInvoicePage() {
         throw new Error(result.message || "Failed to save the invoice");
       }
       const invoice = result.data;
-      toast(`Invoice ${invoice.invoiceNumber ?? ""} saved as UNPAID — collect the payment to close it`.trim(), "success");
+      toast(`Invoice ${invoice.invoiceNumber ?? ""} finalized. Billing Completed${Number(invoice.balanceAmount) > 0 ? " — balance remains due under the billing policy" : ""}.`.trim(), "success");
 
       // The right pane switches to "bill already raised" so the saved bill can
       // never be submitted twice by accident; the editor is gone from this point.
@@ -460,10 +486,8 @@ export default function CreateInvoicePage() {
       if (balance > 0) {
         setCollectInvoiceId(invoice._id);
         setCollectPatientId(typeof invoice.patientId === "object" ? invoice.patientId._id : invoice.patientId);
-        setCollectAmount(String(balance));
+        setCollectLines([{ amount: String(balance), method: "CASH", notes: "" }]);
         setCollectBalance(balance);
-        setCollectMethod("CASH");
-        setCollectNotes("");
         setCollectOpen(true);
       } else {
         await closeCollectAndFinish();
@@ -501,28 +525,44 @@ export default function CreateInvoicePage() {
     cleanSignatureRef.current = signatureOf({ mode: "none", patient: "", items: [], discount: 0, discountReason: "", notes: "" });
   };
 
+  const updateCollectLine = (index: number, patch: Partial<{ amount: string; method: string; notes: string }>) => {
+    setCollectLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  };
+
   const submitCollection = async () => {
-    const amount = round2(num(collectAmount));
-    if (!collectAmount || amount <= 0) {
+    const lines = collectLines
+      .map((line) => ({
+        amount: round2(num(line.amount)),
+        method: line.method,
+        notes: line.notes.trim() || undefined,
+      }))
+      .filter((line) => line.amount > 0);
+    if (lines.length === 0) {
       toast("Enter the collected amount", "error");
       return;
     }
-    if (amount > collectBalance) {
-      toast(`Payment cannot exceed the pending balance of ${fmtMoney(collectBalance)}`, "error");
+    const total = round2(lines.reduce((sum, line) => sum + line.amount, 0));
+    if (total > collectBalance) {
+      toast(`Collected total ${fmtMoney(total)} cannot exceed the pending balance of ${fmtMoney(collectBalance)}`, "error");
       return;
     }
     setCollecting(true);
     try {
+      const body: Record<string, unknown> = {
+        invoiceId: collectInvoiceId,
+        patientId: collectPatientId,
+        amount: total,
+      };
+      if (lines.length > 1) {
+        body.lines = lines;
+      } else {
+        body.method = lines[0].method;
+        body.notes = lines[0].notes;
+      }
       const res = await fetch("/api/payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          invoiceId: collectInvoiceId,
-          patientId: collectPatientId,
-          amount,
-          method: collectMethod,
-          notes: collectNotes.trim() || undefined,
-        }),
+        body: JSON.stringify(body),
       });
       const result = await res.json();
       if (!res.ok || !result.success) {
@@ -608,7 +648,7 @@ export default function CreateInvoicePage() {
                       {row.invoice ? (
                         <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 shrink-0">
                           <CheckCircle2 className="h-3 w-3 mr-1" />
-                          Billed
+                          Billing Completed
                         </Badge>
                       ) : (
                         <Button
@@ -911,6 +951,58 @@ export default function CreateInvoicePage() {
                   )}
                 </section>
 
+                {advanceTotal > 0 && (
+                  <section className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-900 space-y-1 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">
+                    <div className="flex items-start gap-2">
+                      <Wallet className="h-4 w-4 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold block">
+                          Advances to use: {fmtMoney(advanceTotal)} ({advances.length} receipt{advances.length !== 1 ? "s" : ""})
+                        </span>
+                        <span>
+                          Applied automatically to this bill when it is saved — the balance due afterwards drops
+                          accordingly{advances[0]?.receiptNumber ? ` (oldest receipt ${advances[0].receiptNumber})` : ""}.
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+                )}
+
+                {pendingMedicationOrders.length > 0 && (
+                  <section className="rounded-lg border border-amber-300 bg-amber-50/80 p-3 text-xs text-amber-900 space-y-2 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                    <div className="flex items-start gap-2">
+                      <AlarmClock className="h-4 w-4 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold block">
+                          {pendingMedicationOrders.length} active medication order{pendingMedicationOrders.length !== 1 ? "s" : ""} · {pendingDoseCount} dose{pendingDoseCount !== 1 ? "s" : ""} still pending on the eMAR
+                        </span>
+                        <span>
+                          Bill rows only cover doses recorded as GIVEN. Confirm that the pending items were discontinued,
+                          not required, or are intentionally omitted from this bill.
+                        </span>
+                      </div>
+                    </div>
+                    <ul className="list-inside list-disc space-y-0.5 text-[11px]">
+                      {pendingMedicationOrders.slice(0, 6).map((order, index) => (
+                        <li key={`${order.name}-${index}`}>
+                          {order.name} · {order.dosage || "—"} · {order.frequency}
+                        </li>
+                      ))}
+                      {pendingMedicationOrders.length > 6 && (
+                        <li>…and {pendingMedicationOrders.length - 6} more</li>
+                      )}
+                    </ul>
+                    <label className="flex items-center gap-2 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={pendingConfirm}
+                        onChange={(e) => setPendingConfirm(e.target.checked)}
+                      />
+                      Confirmed — pending items were handled outside this bill
+                    </label>
+                  </section>
+                )}
+
                 <ItemsEditor
                   items={items}
                   updateRow={updateRow}
@@ -945,7 +1037,7 @@ export default function CreateInvoicePage() {
           void closeCollectAndFinish();
         }}
       >
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Wallet className="h-5 w-5 text-teal-600" />
@@ -960,32 +1052,65 @@ export default function CreateInvoicePage() {
               Pending balance: <span className="font-semibold text-amber-600">{fmtMoney(collectBalance)}</span>
             </p>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Amount ₹ *</label>
-              <Input
-                type="number"
-                min={1}
-                max={collectBalance}
-                value={collectAmount}
-                onChange={(e) => setCollectAmount(e.target.value)}
-                disabled={collecting}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Method *</label>
-              <Select value={collectMethod} onChange={(e) => setCollectMethod(e.target.value)} disabled={collecting}>
-                {PAYMENT_METHODS.map((method) => (
-                  <option key={method} value={method}>
-                    {method}
-                  </option>
-                ))}
-              </Select>
+              <label className="text-sm font-medium">Payment lines *</label>
+              {collectLines.map((line, index) => (
+                <div key={index} className="flex gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={collectBalance}
+                    value={line.amount}
+                    onChange={(e) => updateCollectLine(index, { amount: e.target.value })}
+                    placeholder="₹"
+                    className="w-28"
+                    disabled={collecting}
+                  />
+                  <Select
+                    value={line.method}
+                    onChange={(e) => updateCollectLine(index, { method: e.target.value })}
+                    disabled={collecting}
+                  >
+                    {PAYMENT_METHODS.map((method) => (
+                      <option key={method} value={method}>
+                        {method}
+                      </option>
+                    ))}
+                  </Select>
+                  {collectLines.length > 1 && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setCollectLines((prev) => prev.filter((_, i) => i !== index))}
+                      disabled={collecting}
+                      title="Remove this line"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+              <div className="flex items-center justify-between">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  onClick={() => setCollectLines((prev) => [...prev, { amount: "", method: "CASH", notes: "" }])}
+                  disabled={collecting}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add another method
+                </Button>
+                <span className="text-xs text-slate-500">
+                  Total: <span className="font-semibold text-slate-700 dark:text-slate-200">{fmtMoney(collectLines.reduce((sum, line) => sum + num(line.amount), 0))}</span>
+                </span>
+              </div>
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Receipt notes</label>
               <Textarea
                 rows={2}
-                value={collectNotes}
-                onChange={(e) => setCollectNotes(e.target.value)}
+                value={collectLines[0]?.notes || ""}
+                onChange={(e) => updateCollectLine(0, { notes: e.target.value })}
                 placeholder="Optional — printed on the payment receipt"
                 disabled={collecting}
               />
@@ -1202,7 +1327,7 @@ function ItemsEditor(props: ItemsEditorProps) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-slate-500">
         <span className="flex items-center gap-1"><BedDouble className="h-3 w-3" /> Bed & nursing rates come from Wards & Beds — unset rates show red</span>
         <span className="flex items-center gap-1"><Stethoscope className="h-3 w-3" /> Doctor rows bill each doctor&apos;s consultation fee per in-ward round</span>
-        <span className="flex items-center gap-1"><Pill className="h-3 w-3" /> Medication rows list every dose recorded as GIVEN — set each rate</span>
+        <span className="flex items-center gap-1"><Pill className="h-3 w-3" /> Medication rows use the pharmacy stock price when the medicine matches — otherwise set it</span>
         <span className="flex items-center gap-1"><StickyNote className="h-3 w-3" /> Type a name to search the Services rate list (Billing &gt; Rates); custom rows need &quot;Custom item&quot;</span>
       </div>
     </>

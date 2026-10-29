@@ -11,8 +11,10 @@ import User from "@/models/user.model";
 import Role from "@/models/role.model";
 import DailyNursingRecord from "@/models/daily-nursing-record.model";
 import NursingMedicalSupply, { NURSING_SUPPLY_CATEGORIES } from "@/models/nursing-medical-supply.model";
+import NursingMedication from "@/models/nursing-medication.model";
 import { stayDayNumber } from "@/lib/hospital-time";
 import { isNurseRole } from "@/lib/rbac/roles";
+import { CLOSED_ADMISSION_NURSING_MESSAGE } from "@/lib/discharge-workflow";
 
 function actorOf(auth: { context: { userId: Types.ObjectId; roleName: string; branchId?: Types.ObjectId }; grant: { orgScope: string } }) {
   return {
@@ -27,8 +29,21 @@ function actorOf(auth: { context: { userId: Types.ObjectId; roleName: string; br
 async function assertMedicationVisible(
   patientId: Types.ObjectId | string,
   admissionId: Types.ObjectId | string | undefined,
-  actor: { userId: Types.ObjectId; roleName: string; isSuperAdmin?: boolean }
+    actor: { userId: Types.ObjectId; roleName: string; isSuperAdmin?: boolean; branchId?: Types.ObjectId; orgScope?: string }
 ): Promise<{ admissionId?: Types.ObjectId }> {
+  const branchFilter = actor.branchId && actor.orgScope === "BRANCH" && !actor.isSuperAdmin
+    ? { branchId: actor.branchId }
+    : {};
+  if (admissionId && Types.ObjectId.isValid(admissionId.toString())) {
+    const linkedAdmission = await Admission.findOne({ _id: admissionId, ...branchFilter }).select("patientId status").lean();
+    if (!linkedAdmission) throw { statusCode: 403, message: "Forbidden: This admission is outside your branch" };
+    if (linkedAdmission && linkedAdmission.patientId.toString() !== patientId.toString()) {
+      throw { statusCode: 409, message: "Medication record does not belong to this admission" };
+    }
+    if (linkedAdmission?.status === "DISCHARGED") {
+      throw { statusCode: 409, message: CLOSED_ADMISSION_NURSING_MESSAGE };
+    }
+  }
   if (actor.isSuperAdmin) return {};
   const role = (actor.roleName ?? "").toUpperCase();
   if (!isNurseRole(role) && role !== "DOCTOR") return {};
@@ -36,12 +51,29 @@ async function assertMedicationVisible(
   // Resolve the active admission for this patient to check team membership
   // and to auto-link the stay.
   const admissionQuery: Record<string, unknown> = {
+    ...branchFilter,
     patientId: new Types.ObjectId(patientId.toString()),
     status: { $in: ["ADMITTED", "TRANSFERRED"] },
   };
   if (admissionId) admissionQuery._id = new Types.ObjectId(admissionId.toString());
   const admission = await Admission.findOne(admissionQuery).select("_id patientId doctorId assignedNurses assignedDoctors status").lean();
   if (!admission) {
+    if (admissionId) {
+      const closed = await Admission.findOne({
+        _id: new Types.ObjectId(admissionId.toString()),
+        patientId: new Types.ObjectId(patientId.toString()),
+        status: "DISCHARGED",
+      }).select("_id doctorId assignedNurses assignedDoctors").lean();
+      if (closed) {
+        const onClosedStay =
+          (closed.assignedNurses ?? []).some((n: unknown) => String((n as { _id?: unknown })?._id ?? n) === uid.toString()) ||
+          (closed.assignedDoctors ?? []).some((d: unknown) => String((d as { _id?: unknown })?._id ?? d) === uid.toString()) ||
+          String((closed.doctorId as { _id?: unknown })?._id ?? closed.doctorId) === uid.toString();
+        if (onClosedStay) {
+          throw { statusCode: 409, message: CLOSED_ADMISSION_NURSING_MESSAGE };
+        }
+      }
+    }
     throw { statusCode: 403, message: "Forbidden: No active admission for this patient" };
   }
   const idOf = (v: unknown): string => {
@@ -60,7 +92,8 @@ async function assertMedicationVisible(
 async function assertAssignedNursingAdmission(
   admissionId: string,
   patientId: string | undefined,
-  auth: Awaited<ReturnType<typeof authorizeRequest>>
+    auth: Awaited<ReturnType<typeof authorizeRequest>>,
+    allowDischargedReadOnly = false,
 ) {
   if (!Types.ObjectId.isValid(admissionId) || (patientId && !Types.ObjectId.isValid(patientId))) {
     throw { statusCode: 400, message: "A valid admission and patient are required" };
@@ -69,7 +102,9 @@ async function assertAssignedNursingAdmission(
   const query: Record<string, unknown> = {
     ...auth.filter,
     _id: new Types.ObjectId(admissionId),
-    status: { $in: ["ADMITTED", "TRANSFERRED"] },
+    status: allowDischargedReadOnly
+      ? { $in: ["ADMITTED", "TRANSFERRED", "DISCHARGED"] }
+      : { $in: ["ADMITTED", "TRANSFERRED"] },
   };
   if (patientId) query.patientId = new Types.ObjectId(patientId);
   // A nurse is always constrained to the assigned care team, even if a broad
@@ -80,7 +115,13 @@ async function assertAssignedNursingAdmission(
     .populate("doctorId", "name")
     .populate({ path: "bedId", populate: { path: "roomId", populate: { path: "wardId" } } })
     .lean();
-  if (!admission) throw { statusCode: 403, message: "This patient is not assigned to you or is no longer admitted" };
+  if (!admission) {
+    const closed = await Admission.findOne({ ...query, status: "DISCHARGED" }).select("_id").lean();
+    if (closed) {
+      throw { statusCode: 409, message: CLOSED_ADMISSION_NURSING_MESSAGE };
+    }
+    throw { statusCode: 403, message: "This patient is not assigned to you or is no longer admitted" };
+  }
   return admission;
 }
 
@@ -268,7 +309,9 @@ export class NursingController {
       const auth = await authorizeRequest(request, PERMISSION_KEYS.NURSING_TASK_VIEW, "Admission");
       if (!auth.isAuthorized) return auth.response;
 
-      const data = await nursingService.getMyPatients(auth.filter, actorOf(auth));
+      const data = new URL(request.url).searchParams.get("history") === "discharged"
+        ? await nursingService.getMyDischargedPatients(actorOf(auth))
+        : await nursingService.getMyPatients(auth.filter, actorOf(auth));
       return NextResponse.json({ success: true, data });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Failed to fetch inpatients";
@@ -307,7 +350,21 @@ export class NursingController {
         !actor.isSuperAdmin && (isNurseRole(role) || role === "DOCTOR")
           ? await nursingService.getPatientIdsForActor(actor)
           : undefined;
-      const data = await nursingService.getMedications(patientId, admissionId, allowed);
+      let effectiveAllowed = allowed;
+      if (admissionId && !actor.isSuperAdmin && (isNurseRole(role) || role === "DOCTOR")) {
+        if (!Types.ObjectId.isValid(admissionId)) {
+          return NextResponse.json({ success: false, message: "Invalid admission ID" }, { status: 400 });
+        }
+        const stayQuery: Record<string, unknown> = { ...auth.filter, _id: new Types.ObjectId(admissionId) };
+        if (isNurseRole(role)) stayQuery.assignedNurses = auth.context.userId;
+        else stayQuery.$or = [{ doctorId: auth.context.userId }, { assignedDoctors: auth.context.userId }];
+        const stay = await Admission.findOne(stayQuery).select("patientId").lean();
+        if (!stay || (patientId && stay.patientId.toString() !== patientId)) {
+          return NextResponse.json({ success: false, message: "Forbidden: Admission is outside your care team or branch" }, { status: 403 });
+        }
+        effectiveAllowed = [stay.patientId];
+      }
+      const data = await nursingService.getMedications(patientId, admissionId, effectiveAllowed);
       return NextResponse.json({ success: true, data });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Failed to fetch medication records";
@@ -370,50 +427,47 @@ export class NursingController {
 
       const body = await request.json() as Record<string, unknown>;
       const actor = actorOf(auth);
+      if (!Types.ObjectId.isValid(id)) return NextResponse.json({ success: false, message: "Invalid medication record ID" }, { status: 400 });
+      const { default: NursingMedication } = await import("@/models/nursing-medication.model");
+      const existing = await NursingMedication.findById(id).select("patient admissionId scheduledTime").lean() as
+        | { patient?: Types.ObjectId; admissionId?: Types.ObjectId; scheduledTime?: Date }
+        | null;
+      if (!existing?.patient) return NextResponse.json({ success: false, message: "Medication record not found" }, { status: 404 });
+      try {
+        await assertMedicationVisible(existing.patient, existing.admissionId, actor);
+      } catch (error: unknown) {
+        const err = error as { statusCode?: number; message?: string };
+        return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 });
+      }
+
+      const patch: Record<string, unknown> = {};
+      for (const key of ["status", "administeredTime", "withheldReason", "notes"] as const) {
+        if (body[key] !== undefined) patch[key] = body[key];
+      }
+      if (body.status !== undefined && !["GIVEN", "PENDING", "WITHHELD", "REFUSED"].includes(String(body.status))) {
+        return NextResponse.json({ success: false, message: "Invalid medication administration status" }, { status: 400 });
+      }
       // Stamp the administering nurse; team check on the stored record.
       if (body.status === "GIVEN" && !body.administeredBy) {
-        body.administeredBy = actor.userId.toString();
+        patch.administeredBy = actor.userId.toString();
       }
       if (body.status === "GIVEN" && !body.administeredTime) {
-        body.administeredTime = new Date().toISOString();
-      }
-      const role = (actor.roleName ?? "").toUpperCase();
-      if (!actor.isSuperAdmin && (isNurseRole(role) || role === "DOCTOR")) {
-        const { default: NursingMedication } = await import("@/models/nursing-medication.model");
-        const existing = await NursingMedication.findById(id).select("patient admissionId").lean() as
-          | { patient?: unknown; admissionId?: unknown }
-          | null;
-        if (!existing?.patient) {
-          return NextResponse.json({ success: false, message: "Medication record not found" }, { status: 404 });
-        }
-        try {
-          await assertMedicationVisible(existing.patient as Types.ObjectId, existing.admissionId as Types.ObjectId | undefined, actor);
-        } catch (e: unknown) {
-          const err = e as { statusCode?: number; message?: string };
-          return NextResponse.json(
-            { success: false, message: err?.message ?? "Forbidden" },
-            { status: err?.statusCode ?? 403 }
-          );
-        }
+        patch.administeredTime = new Date().toISOString();
       }
       // No early administration for any role: a 3pm dose cannot be marked
       // given before 3pm.
       if (body.status === "GIVEN") {
-        const { default: NursingMedication } = await import("@/models/nursing-medication.model");
-        const dose = await NursingMedication.findById(id).select("scheduledTime").lean() as
-          | { scheduledTime?: Date }
-          | null;
-        if (dose?.scheduledTime) {
+        if (existing.scheduledTime) {
           const givenAt = body.administeredTime ? new Date(body.administeredTime as string) : new Date();
-          if (!isDoseDue(new Date(dose.scheduledTime), givenAt)) {
+          if (!isDoseDue(new Date(existing.scheduledTime), givenAt)) {
             return NextResponse.json(
-              { success: false, message: `Too early — this dose is due at ${new Date(dose.scheduledTime).toLocaleString()}` },
+              { success: false, message: `Too early — this dose is due at ${new Date(existing.scheduledTime).toLocaleString()}` },
               { status: 400 }
             );
           }
         }
       }
-      const data = await nursingService.updateMedication(id, body);
+      const data = await nursingService.updateMedication(id, patch);
       return NextResponse.json({ success: true, data });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Failed to update medication record";
@@ -426,6 +480,28 @@ export class NursingController {
       await dbConnect();
       const auth = await authorizeRequest(request, PERMISSION_KEYS.NURSING_TASK_CREATE, "NursingMedication");
       if (!auth.isAuthorized) return auth.response;
+
+      if (!Types.ObjectId.isValid(id)) {
+        return NextResponse.json({ success: false, message: "Invalid medication record ID" }, { status: 400 });
+      }
+      const existing = await NursingMedication.findById(id).select("patient admissionId").lean();
+      if (!existing) return NextResponse.json({ success: false, message: "Medication record not found" }, { status: 404 });
+      try {
+        await assertMedicationVisible(
+          existing.patient as Types.ObjectId,
+          existing.admissionId as Types.ObjectId | undefined,
+          {
+            userId: auth.context.userId,
+            roleName: auth.context.roleName,
+            isSuperAdmin: isSuperAdminRole(auth.context.roleName),
+            branchId: auth.context.branchId,
+            orgScope: auth.grant.orgScope,
+          },
+        );
+      } catch (error: unknown) {
+        const err = error as { statusCode?: number; message?: string };
+        return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 });
+      }
 
       const data = await nursingService.deleteMedication(id);
       return NextResponse.json({ success: true, data });
@@ -443,7 +519,7 @@ export class NursingController {
       const { searchParams } = new URL(request.url);
       const admissionId = searchParams.get("admissionId") || "";
       const patientId = searchParams.get("patientId") || undefined;
-      try { await assertAssignedNursingAdmission(admissionId, patientId, auth); }
+      try { await assertAssignedNursingAdmission(admissionId, patientId, auth, true); }
       catch (e: unknown) { const err = e as { statusCode?: number; message?: string }; return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 }); }
       const data = await DailyNursingRecord.find({ admissionId: new Types.ObjectId(admissionId) })
         .populate("author", "name")
@@ -528,7 +604,7 @@ export class NursingController {
       const patientId = searchParams.get("patientId") || undefined;
       let admission: Awaited<ReturnType<typeof assertAssignedNursingAdmission>>;
       try {
-        admission = await assertAssignedNursingAdmission(admissionId, patientId, auth);
+        admission = await assertAssignedNursingAdmission(admissionId, patientId, auth, true);
       } catch (error: unknown) {
         const err = error as { statusCode?: number; message?: string };
         return NextResponse.json({ success: false, message: err.message }, { status: err.statusCode ?? 403 });

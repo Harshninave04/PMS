@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Types } from "mongoose";
+import { Types, ClientSession } from "mongoose";
+import mongoose from "mongoose";
 import dbConnect from "@/lib/dbConnect";
+import { supportsMongoTransactions } from "@/lib/mongo-transaction-support";
 import defaultInvoiceService, { InvoiceService } from "@/services/invoice.service";
 import Invoice from "@/models/invoice.model";
 import Admission from "@/models/admission.model";
 import Organization from "@/models/organization.model";
+import PaymentModel from "@/models/payment.model";
 import { CreateInvoiceDto, UpdateInvoiceDto } from "@/dto/invoice.dto";
 import { authorizeRequest, hasRequestPermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
@@ -169,6 +172,7 @@ export class InvoiceController {
     }
 
     async createInvoice(request: NextRequest): Promise<NextResponse> {
+        let billingClaim: { admissionId: Types.ObjectId; token: Types.ObjectId } | null = null;
         try {
             await dbConnect();
             const auth = await authorizeRequest(request, PERMISSION_KEYS.BILLING_INVOICE_CREATE, "Invoice");
@@ -225,18 +229,26 @@ export class InvoiceController {
                         }).distinct("_id"),
                     };
                 }
-                const admission = await Admission.findOne(admissionQuery).select("branchId").lean();
+                const admission = await Admission.findOne(admissionQuery).select("branchId dischargeRequested billingRequested").lean();
                 if (!admission) {
                     return NextResponse.json(
                         { success: false, message: "The patient and active admission do not match or are outside your access scope" },
                         { status: 404 }
                     );
                 }
+                if (!admission.dischargeRequested || !admission.billingRequested) {
+                    return NextResponse.json(
+                        { success: false, message: "A final inpatient bill can only be created after the doctor discharge request and nursing billing handoff." },
+                        { status: 409 }
+                    );
+                }
                 linkedAdmission = admission;
             }
 
             // Server does not trust client totals: validate rows and recompute
-            // gross/discount/tax/final from price * quantity.
+            // gross/discount/tax/final from price * quantity. What the billing
+            // desk submitted is kept for the draft-vs-final audit trail below.
+            const submittedFinalAmount = round2(num(data.finalAmount));
             const totals = validateAndRecomputeTotals(data);
             if (!totals.ok) {
                 return NextResponse.json(
@@ -276,7 +288,47 @@ export class InvoiceController {
                         { status: 409 }
                     );
                 }
+
+                const admissionId = new Types.ObjectId(data.admissionId.toString());
+                const token = new Types.ObjectId();
+                const staleClaimBefore = new Date(Date.now() - 15 * 60 * 1000);
+                const claimed = await Admission.findOneAndUpdate(
+                    {
+                        _id: admissionId,
+                        status: { $in: ["ADMITTED", "TRANSFERRED"] },
+                        dischargeRequested: true,
+                        billingRequested: true,
+                        $or: [
+                            { billingInvoiceClaimId: { $exists: false } },
+                            { billingInvoiceClaimId: null },
+                            { billingInvoiceClaimedAt: { $lt: staleClaimBefore } },
+                        ],
+                    },
+                    { $set: { billingInvoiceClaimId: token, billingInvoiceClaimedAt: new Date() } },
+                    { new: true },
+                ).select("_id").lean();
+                if (!claimed) {
+                    return NextResponse.json(
+                        { success: false, message: "Another accountant is already completing this stay's bill. Refresh the queue before retrying." },
+                        { status: 409 }
+                    );
+                }
+                billingClaim = { admissionId, token };
             }
+
+            // Draft-vs-final audit trail: the server-recomputed totals win; what
+            // the workspace submitted (and the drift) is stamped onto the bill so
+            // price drift is always traceable.
+            data.audit = {
+                source: data.admissionId ? "CASE" : "MANUAL",
+                submittedFinalAmount,
+                serverFinalAmount: round2(num(data.finalAmount)),
+                drift: round2(num(data.finalAmount) - submittedFinalAmount),
+                at: new Date(),
+            };
+            // Billing completion is the finalized bill; invoice payment status
+            // remains PAID / PARTIALLY_PAID / UNPAID according to collections.
+            data.billingStatus = "BILLING_COMPLETED";
 
             // Enforce branch boundary
             if (linkedAdmission?.branchId) {
@@ -299,13 +351,86 @@ export class InvoiceController {
             }
 
             try {
-                const invoice = await this.invoiceService.createInvoice(data);
+                // Wrap bill creation + advance application in one transaction
+                // when the deployment supports it (replica set) — a failed
+                // advance link must not leave a bill half-applied.
+                const mongoClient = mongoose.connection.getClient() as ReturnType<
+                    typeof mongoose.connection.getClient
+                > & { topology?: { description?: { type?: string } } };
+                const usedTransaction = supportsMongoTransactions(mongoClient.topology?.description?.type);
+                const session: ClientSession | null = usedTransaction ? await mongoose.startSession() : null;
 
-                return NextResponse.json(
-                    { success: true, message: "Invoice created successfully", data: invoice },
-                    { status: 201 }
-                );
+                try {
+                    if (session) await session.startTransaction();
+
+                    const invoice = await this.invoiceService.createInvoice(data, session ? { session } : undefined);
+
+                    // Phase 3.6: apply the stay's unconsumed ADVANCE receipts
+                    // against the fresh bill — oldest first, capped at the final
+                    // amount; each applied receipt is linked to this invoice so it
+                    // can never be applied twice.
+                    let advanceApplied = 0;
+                    if (data.admissionId) {
+                        const finalAmount = round2(num(invoice.finalAmount));
+                        const advances = await PaymentModel.find({
+                            admissionId: new Types.ObjectId(data.admissionId.toString()),
+                            type: "ADVANCE",
+                            invoiceId: null,
+                        })
+                            .sort({ date: 1 })
+                            .limit(50)
+                            .session(session as ClientSession);
+                        for (const advance of advances) {
+                            if (advanceApplied >= finalAmount) break;
+                            const share = round2(Math.min(num(advance.amount), finalAmount - advanceApplied));
+                            if (share <= 0) break;
+                            advance.invoiceId = invoice._id as Types.ObjectId;
+                            await advance.save(session ? { session } : undefined);
+                            advanceApplied = round2(advanceApplied + share);
+                        }
+                        if (advanceApplied > 0) {
+                            invoice.paidAmount = advanceApplied;
+                            invoice.balanceAmount = round2(finalAmount - advanceApplied);
+                            invoice.status = invoice.balanceAmount <= 0 ? "PAID" : "PARTIALLY_PAID";
+                            await invoice.save(session ? { session } : undefined);
+                        }
+                    }
+
+                    if (session) await session.commitTransaction();
+
+                    if (billingClaim) {
+                        await Admission.updateOne(
+                            { _id: billingClaim.admissionId, billingInvoiceClaimId: billingClaim.token },
+                            {
+                                $set: { billingInvoiceId: invoice._id },
+                                $unset: { billingInvoiceClaimId: 1, billingInvoiceClaimedAt: 1 },
+                            },
+                        ).catch(() => null);
+                        billingClaim = null;
+                    }
+
+                    return NextResponse.json(
+                        { success: true, message: "Invoice created successfully", data: invoice },
+                        { status: 201 }
+                    );
+                } catch (txError) {
+                    if (session) {
+                        try {
+                            await session.abortTransaction();
+                        } catch {}
+                    }
+                    throw txError;
+                } finally {
+                    session?.endSession();
+                }
             } catch (insertError) {
+                if (billingClaim) {
+                    await Admission.updateOne(
+                        { _id: billingClaim.admissionId, billingInvoiceClaimId: billingClaim.token },
+                        { $unset: { billingInvoiceClaimId: 1, billingInvoiceClaimedAt: 1 } },
+                    ).catch(() => null);
+                    billingClaim = null;
+                }
                 if (isDuplicateAdmissionError(insertError)) {
                     const existing = data.admissionId
                         ? await findActiveInvoiceByAdmission(data.admissionId.toString()).catch(() => null)
@@ -321,6 +446,12 @@ export class InvoiceController {
                 throw insertError;
             }
         } catch (error: unknown) {
+            if (billingClaim) {
+                await Admission.updateOne(
+                    { _id: billingClaim.admissionId, billingInvoiceClaimId: billingClaim.token },
+                    { $unset: { billingInvoiceClaimId: 1, billingInvoiceClaimedAt: 1 } },
+                ).catch(() => null);
+            }
             const err = error as { statusCode?: number; message?: string };
             const statusCode = err?.statusCode || 500;
             return NextResponse.json(

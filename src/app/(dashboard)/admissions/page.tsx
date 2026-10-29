@@ -388,11 +388,11 @@ export default function AdmissionsOverviewPage() {
                           <Badge
                             className={`text-[10px] border ${getConditionBadgeColor(adm.dischargeCondition)}`}
                           >
-                            {adm.dischargeCondition || "DISCHARGED"}
+                            PATIENT DISCHARGED
                           </Badge>
                         </TableCell>
                         <TableCell className="text-slate-500 text-[11px]">
-                          {adm.dischargeDate ? new Date(adm.dischargeDate).toLocaleDateString() : "N/A"}
+                          {adm.dischargeDate ? new Date(adm.dischargeDate).toLocaleString() : "N/A"}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button

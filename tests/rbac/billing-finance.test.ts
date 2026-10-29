@@ -6,6 +6,9 @@ import {
   PERMISSION_KEYS
 } from "@/types/rbac";
 import { ScopeResolver } from "@/lib/rbac/scope-resolver";
+import { DEFAULT_ROLE_PERMISSIONS } from "@/lib/rbac/default-permissions";
+import { dischargeBlockReason, isBillingCompleted, isReadyForDischarge } from "@/lib/discharge-workflow";
+import { resolveBillingBranchId } from "@/services/billing-flow.service";
 
 /**
  * Billing & Finance Security Test Suite
@@ -134,6 +137,13 @@ async function runBillingFinanceRbacTests() {
     assert.deepEqual(filter, { branchId: branchA });
   });
 
+  test("Billing: headquarters accountant without branch uses organization as its branch scope", () => {
+    const organizationId = new Types.ObjectId();
+    assert.equal(resolveBillingBranchId({ organizationId, orgScope: "BRANCH" }), organizationId.toString());
+    const branchId = new Types.ObjectId();
+    assert.equal(resolveBillingBranchId({ organizationId, branchId, orgScope: "BRANCH" }), branchId.toString());
+  });
+
   test("Billing: Payment query derives branch boundary filter", () => {
     const grant = cashierContext.grants.get(PERMISSION_KEYS.BILLING_PAYMENT_VIEW)!;
     const filter = ScopeResolver.resolve(grant, cashierContext, "Payment");
@@ -146,6 +156,36 @@ async function runBillingFinanceRbacTests() {
     const canAccess = cashierContext.branchId?.toString() === invoiceBranchB.branchId.toString();
 
     assert.equal(canAccess, false, "Cashier in Branch A must not access Branch B invoices");
+  });
+
+  test("Discharge: finalized credit bill completes billing without bypassing its balance", () => {
+    assert.equal(isBillingCompleted({ billingStatus: "BILLING_COMPLETED", status: "PARTIALLY_PAID" }), true);
+    assert.equal(isBillingCompleted({ billingStatus: "BILLING_COMPLETED", status: "UNPAID" }), true);
+    assert.equal(isBillingCompleted({ status: "CANCELLED" }), false);
+    assert.equal(isBillingCompleted(null), false);
+  });
+
+  test("Discharge: a stay remains pending until doctor, nursing, and billing steps finish", () => {
+    const active = { status: "ADMITTED", dischargeRequested: true, billingRequested: true };
+    assert.equal(dischargeBlockReason({ ...active, billingRequested: false }, { billingStatus: "BILLING_COMPLETED" })?.includes("billing handoff"), true);
+    assert.equal(dischargeBlockReason(active, { status: "UNPAID", billingStatus: "DRAFT" })?.includes("final bill"), true);
+    assert.equal(dischargeBlockReason(active, { status: "UNPAID", billingStatus: "BILLING_COMPLETED" }), null);
+    assert.equal(dischargeBlockReason({ ...active, status: "DISCHARGED" }, { billingStatus: "BILLING_COMPLETED" }), "Patient is already discharged");
+  });
+
+  test("Receptionist ready list keeps billed active stays until authorized discharge completes", () => {
+    const active = { status: "ADMITTED", dischargeRequested: true, billingRequested: true };
+    assert.equal(isReadyForDischarge(active, { status: "UNPAID", billingStatus: "BILLING_COMPLETED" }), true);
+    assert.equal(isReadyForDischarge({ ...active, status: "DISCHARGED" }, { status: "UNPAID", billingStatus: "BILLING_COMPLETED" }), false);
+    assert.equal(isReadyForDischarge({ ...active, billingRequested: false }, { status: "UNPAID", billingStatus: "BILLING_COMPLETED" }), false);
+  });
+
+  test("Nurse, Doctor, Receptionist, and Accountant roles can see their workflow status surfaces", () => {
+    const has = (role: string, permission: string) => DEFAULT_ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
+    assert.equal(has("NURSE", "nursing.patients:view"), true);
+    assert.equal(has("DOCTOR", "clinical.rounds:view"), true);
+    assert.equal(has("RECEPTIONIST", "admissions.current:view"), true);
+    assert.equal(has("ACCOUNTANT", "billing.invoices:view"), true);
   });
 
   console.log("\n=================================================");

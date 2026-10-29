@@ -7,6 +7,7 @@ import Admission from "@/models/admission.model";
 import User from "@/models/user.model";
 import Invoice from "@/models/invoice.model";
 import { getLinkedInvoice } from "@/services/billing-flow.service";
+import { dischargeBlockReason } from "@/lib/discharge-workflow";
 
 export class AdmissionService {
     constructor(private repository: AdmissionRepository = admissionRepository) { }
@@ -385,31 +386,14 @@ export class AdmissionService {
             throw { statusCode: 404, message: "Admission not found" };
         }
 
-        if (admission.status === "DISCHARGED") {
-            throw { statusCode: 400, message: "Patient is already discharged" };
-        }
+        const linkedInvoice = await getLinkedInvoice(admissionId);
+        const blocked = dischargeBlockReason(admission, linkedInvoice);
+        if (blocked) throw { statusCode: admission.status === "DISCHARGED" ? 400 : 409, message: blocked };
 
-        // Discharge-pipeline rule: a stay the nurse handed to billing cannot be
-        // discharged until the accountant's invoice exists (then the bed frees).
-        if (admission.billingRequested) {
-            const linkedInvoice = await getLinkedInvoice(admissionId);
-            if (!linkedInvoice) {
-                throw {
-                    statusCode: 409,
-                    message: "Nursing sent this stay to billing but no bill has been raised yet. The accountant must finalize the bill before this patient can be discharged."
-                };
-            }
-        }
-
-        // Free the bed
-        const bedId = admission.bedId?._id || admission.bedId;
-        if (bedId) {
-            await Bed.findByIdAndUpdate(bedId, { status: "AVAILABLE" });
-        }
-
+        const dischargeDate = dto.dischargeDate ? new Date(dto.dischargeDate) : new Date();
         const updatePayload: any = {
             status: "DISCHARGED",
-            dischargeDate: dto.dischargeDate ? new Date(dto.dischargeDate) : new Date(),
+            dischargeDate,
             dischargeCondition: dto.dischargeCondition,
             finalDiagnosis: dto.finalDiagnosis,
             dischargeSummary: dto.dischargeSummary || "",
@@ -423,7 +407,44 @@ export class AdmissionService {
             updatePayload.notes = admission.notes ? `${admission.notes}\n\n${dto.notes}` : dto.notes;
         }
 
-        return await this.repository.update(admissionId, updatePayload);
+        // The active-status predicate makes completion single-winner under
+        // concurrent requests. A repeated request cannot discharge twice.
+        const discharged = await Admission.findOneAndUpdate(
+            { _id: admissionId, status: { $in: ["ADMITTED", "TRANSFERRED"] }, dischargeRequested: true, billingRequested: true },
+            { $set: updatePayload },
+            { new: true, runValidators: true },
+        );
+        if (!discharged) {
+            throw { statusCode: 409, message: "This admission has already changed; refresh before completing discharge." };
+        }
+
+        const bedId = admission.bedId?._id || admission.bedId;
+        if (bedId) {
+            try {
+                const releasedBed = await Bed.findByIdAndUpdate(bedId, { status: "AVAILABLE" });
+                if (!releasedBed) throw new Error("The assigned bed could not be released");
+            } catch (error) {
+                // Do not leave a completed discharge with a claimed bed if the
+                // bed release fails. Restore the admission fields written here.
+                const before = admission.toObject() as Record<string, unknown>;
+                const restore: Record<string, unknown> = {};
+                const unset: Record<string, 1> = {};
+                for (const key of Object.keys(updatePayload)) {
+                    if (Object.prototype.hasOwnProperty.call(before, key) && before[key] !== undefined) {
+                        restore[key] = before[key];
+                    } else {
+                        unset[key] = 1;
+                    }
+                }
+                await Admission.updateOne(
+                    { _id: admissionId, status: "DISCHARGED", dischargeDate },
+                    { ...(Object.keys(restore).length ? { $set: restore } : {}), ...(Object.keys(unset).length ? { $unset: unset } : {}) },
+                );
+                throw error;
+            }
+        }
+
+        return discharged;
     }
 
     async updateAdmission(id: Types.ObjectId, data: UpdateAdmissionDto): Promise<IAdmission | null> {
@@ -432,12 +453,10 @@ export class AdmissionService {
             throw { statusCode: 404, message: "Admission not found" };
         }
 
-        // If status changed to DISCHARGED via regular update, free the bed
-        if (data.status === "DISCHARGED" && admission.status !== "DISCHARGED") {
-            const bedId = admission.bedId?._id || admission.bedId;
-            if (bedId) {
-                await Bed.findByIdAndUpdate(bedId, { status: "AVAILABLE" });
-            }
+        // Discharge can only be finalized through dischargePatient, which
+        // validates billing completion, role scope, and nursing sign-off.
+        if (data.status === "DISCHARGED") {
+            throw { statusCode: 409, message: "Use the authorized discharge workflow to discharge this patient." };
         }
 
         return await this.repository.update(id, data);

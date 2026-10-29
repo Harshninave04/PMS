@@ -60,6 +60,7 @@ interface InpatientRow {
   roundedToday: boolean;
   dischargeRequested?: boolean;
   dischargeRequestedAt?: string;
+  billingStatus?: string;
 }
 
 interface PersonName { _id?: string; name?: string }
@@ -302,6 +303,7 @@ function MedicinePicker({ value, onChange, className = "" }: { value: string; on
 export default function WardRoundsPage() {
   const { toast } = useToast();
   const [inpatients, setInpatients] = useState<InpatientRow[]>([]);
+  const [recentDischarges, setRecentDischarges] = useState<Array<{ admissionId: string; name: string; uhid: string; dischargeDate?: string; billingStatus?: string }>>([]);
   const [rosterLoading, setRosterLoading] = useState(true);
   const [rosterError, setRosterError] = useState("");
   const [selectedAdmissionId, setSelectedAdmissionId] = useState("");
@@ -359,6 +361,9 @@ export default function WardRoundsPage() {
       if (!response.ok || !result.success) throw new Error(result.message || "Could not load your inpatient list");
       const rows = result.data ?? [];
       setInpatients(rows);
+      const historyResponse = await fetch("/api/care-tasks/my-inpatients?history=discharged");
+      const historyResult = await historyResponse.json() as ApiResult<Array<{ admissionId: string; name: string; uhid: string; dischargeDate?: string; billingStatus?: string }>>;
+      setRecentDischarges(historyResponse.ok && historyResult.success ? historyResult.data ?? [] : []);
       setSelectedAdmissionId((previous) => rows.some((row) => row.admissionId === previous) ? previous : rows[0]?.admissionId ?? "");
       return rows;
     } catch (error) {
@@ -587,6 +592,8 @@ export default function WardRoundsPage() {
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-900"><span className="font-semibold text-slate-900 dark:text-white">Rounded {roundCount}/{inpatients.length} today</span><div className="mt-1.5 h-1.5 w-40 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${inpatients.length ? (roundCount / inpatients.length) * 100 : 0}%` }} /></div></div>
       </header>
 
+      {recentDischarges.length > 0 && <Card className="border-rose-200 bg-rose-50/50 dark:border-rose-900 dark:bg-rose-950/15"><CardContent className="flex flex-wrap items-center gap-2 p-3"><Badge className="bg-rose-700 text-white">PATIENT OUT</Badge>{recentDischarges.slice(0, 5).map((patient) => <div key={patient.admissionId} className="flex flex-wrap items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs dark:border-rose-900 dark:bg-slate-900"><span className="font-semibold text-slate-900 dark:text-white">{patient.name}</span><span className="text-slate-500">{patient.uhid}</span><Badge variant="outline" className="border-rose-300 text-rose-800">PATIENT DISCHARGED</Badge>{patient.billingStatus === "BILLING_COMPLETED" && <Badge className="bg-emerald-100 text-emerald-800">Billing Completed</Badge>}<span className="text-slate-500">{patient.dischargeDate ? new Date(patient.dischargeDate).toLocaleString() : "Date unavailable"}</span></div>)}</CardContent></Card>}
+
       <div className="space-y-2 lg:hidden"><Label htmlFor="patient-roster-search-mobile">Find patient</Label><Input id="patient-roster-search-mobile" value={rosterSearch} onChange={(event) => setRosterSearch(event.target.value)} placeholder="Search name, UHID, or bed" /><Select id="patient-top-select" value={visiblePatients.some((patient) => patient.admissionId === selectedAdmissionId) ? selectedAdmissionId : ""} onChange={(event) => setSelectedAdmissionId(event.target.value)} disabled={!visiblePatients.length}><option value="">Select patient</option>{visiblePatients.map((patient) => <option key={patient.admissionId} value={patient.admissionId}>{cleanRoundDisplayText(patient.name)} - Bed {cleanRoundDisplayText(patient.bedNumber)} - {cleanRoundDisplayText(patient.wardName)}{patient.dischargeRequested ? " - Flagged for discharge" : ""}{hasDraftContent(drafts[patient.admissionId]) ? " - Unsaved" : ""}</option>)}</Select><div className="flex flex-wrap gap-1.5">{(["All", "Not rounded", "Needs attention"] as const).map((filter) => <button key={filter} type="button" aria-pressed={rosterFilter === filter} onClick={() => setRosterFilter(filter)} className={`rounded-full border px-2.5 py-1 text-xs ${rosterFilter === filter ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"}`}>{filter}</button>)}</div></div>
 
       <div className="grid items-start gap-4 lg:grid-cols-[290px_minmax(0,1fr)] xl:grid-cols-[310px_minmax(0,1fr)]">
@@ -602,7 +609,7 @@ export default function WardRoundsPage() {
             const hasPatientDraft = hasDraftContent(drafts[patient.admissionId]);
             const nurses = nurseSummary(patient);
             return <button key={patient.admissionId} type="button" onClick={() => { setSelectedAdmissionId(patient.admissionId); setRoundError(""); }} className={`w-full rounded-xl border p-3 text-left transition ${selected ? "border-emerald-500 bg-emerald-50/70 ring-1 ring-emerald-500/20 dark:bg-emerald-950/30" : "border-slate-200 hover:border-emerald-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/60"}`}>
-              <div className="flex items-start justify-between gap-2"><span className="font-semibold text-sm text-slate-900 dark:text-white">{patient.name}</span><span className="flex shrink-0 items-center gap-1">{hasPatientDraft && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">Unsaved</Badge>}{patient.dischargeRequested && <Badge className="border-0 bg-amber-100 text-[10px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-200" title="Discharge flagged — nursing will take over">Flagged</Badge>}<Badge className={`border-0 text-[10px] ${status.className}`}>{status.label}</Badge></span></div>
+              <div className="flex items-start justify-between gap-2"><span className="font-semibold text-sm text-slate-900 dark:text-white">{patient.name}</span><span className="flex shrink-0 items-center gap-1">{hasPatientDraft && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">Unsaved</Badge>}{patient.dischargeRequested && <Badge className="border-0 bg-amber-100 text-[10px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-200" title="Discharge requested; final billing and authorized discharge are pending">Discharge Pending</Badge>}{patient.billingStatus === "BILLING_COMPLETED" && <Badge className="border-0 bg-emerald-100 text-[10px] text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">Billing Completed</Badge>}<Badge className={`border-0 text-[10px] ${status.className}`}>{status.label}</Badge></span></div>
               <p className="mt-1 text-xs text-slate-500">Bed {cleanRoundDisplayText(patient.bedNumber)} - {cleanRoundDisplayText(patient.wardName)}</p><p title={cleanRoundDisplayText(nurses.full)} className={`mt-1 truncate text-xs ${nurses.unassigned ? "text-slate-500" : "text-slate-600 dark:text-slate-300"}`}>Nurse: {cleanRoundDisplayText(nurses.short)}</p><p className="mt-1 truncate text-xs text-slate-500">{cleanRoundDisplayText(patient.diagnosis)}</p>
               {patient.allergies.length > 0 && <p className="mt-2 flex items-center gap-1 truncate text-[11px] font-medium text-rose-700 dark:text-rose-300"><AlertTriangle className="h-3 w-3 shrink-0" />{patient.allergies.join(", ")}</p>}
             </button>;

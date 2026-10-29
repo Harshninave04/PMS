@@ -12,6 +12,7 @@ import NursingMedicalSupply from "@/models/nursing-medical-supply.model";
 import type { IBillingMedicalSupply } from "@/interfaces/admission.interface";
 import { stayDayNumber } from "@/lib/hospital-time";
 import { isNurseRole } from "@/lib/rbac/roles";
+import Organization from "@/models/organization.model";
 
 interface PopulatedEntity {
     _id?: Types.ObjectId;
@@ -169,6 +170,28 @@ export class AdmissionController {
             if (effectiveBranchId) {
                 if (!Types.ObjectId.isValid(effectiveBranchId)) return NextResponse.json({ success: false, message: "Invalid branch ID" }, { status: 400 });
                 filter.branchId = new Types.ObjectId(effectiveBranchId);
+            } else if (auth.grant.orgScope === "ORGANIZATION") {
+                const organizationId = auth.context.organizationId?.toString();
+                if (!organizationId || !Types.ObjectId.isValid(organizationId)) {
+                    return NextResponse.json({ success: false, message: "Organization scope is missing" }, { status: 403 });
+                }
+                const organizationBranches = await Organization.find({
+                    $or: [
+                        { _id: new Types.ObjectId(organizationId) },
+                        { headQuarter: new Types.ObjectId(organizationId) },
+                    ],
+                }).distinct("_id");
+                if (requestedBranchId) {
+                    if (!Types.ObjectId.isValid(requestedBranchId)) {
+                        return NextResponse.json({ success: false, message: "Invalid branch ID" }, { status: 400 });
+                    }
+                    if (!organizationBranches.some((branchId) => branchId.toString() === requestedBranchId)) {
+                        return NextResponse.json({ success: false, message: "Forbidden: Branch is outside your organization" }, { status: 403 });
+                    }
+                    filter.branchId = new Types.ObjectId(requestedBranchId);
+                } else {
+                    filter.branchId = { $in: organizationBranches };
+                }
             }
 
             if (patientId) {
@@ -400,10 +423,11 @@ export class AdmissionController {
                 { status: 200 }
             );
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to discharge patient";
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to discharge patient");
             return NextResponse.json(
                 { success: false, message },
-                { status: 500 }
+                { status: err?.statusCode ?? 500 }
             );
         }
     }
@@ -714,6 +738,7 @@ export class AdmissionController {
                 roleName: auth.context.roleName,
                 isSuperAdmin: isSuperAdminRole(auth.context.roleName),
                 branchId: auth.context.branchId,
+                organizationId: auth.context.organizationId,
                 orgScope: auth.grant.orgScope,
             };
             const queue = await getBillingQueue(actor);
@@ -873,10 +898,11 @@ export class AdmissionController {
                 { status: 200 }
             );
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to update admission";
+            const err = error as { statusCode?: number; message?: string };
+            const message = err?.message || (error instanceof Error ? error.message : "Failed to update admission");
             return NextResponse.json(
                 { success: false, message },
-                { status: 500 }
+                { status: err?.statusCode ?? 500 }
             );
         }
     }

@@ -1,6 +1,7 @@
 import NursingMedication from "@/models/nursing-medication.model";
 import "@/models/medication-order.model";
 import Admission from "@/models/admission.model";
+import Invoice from "@/models/invoice.model";
 import { ClinicalRecord } from "@/models/clinical-record.model";
 import { Vitals } from "@/models/vitals.model";
 import { flagVitalForReview, type VitalFlag } from "@/lib/vital-flags";
@@ -60,6 +61,54 @@ export function buildNursingTeamQuery(actor: NursingActor): Record<string, unkno
 }
 
 export class NursingService {
+  async getMyDischargedPatients(actor?: NursingActor) {
+    const query: Record<string, unknown> = { status: "DISCHARGED" };
+    if (actor?.userId && !actor.isSuperAdmin) {
+      const role = (actor.roleName ?? "").toUpperCase();
+      const userId = new Types.ObjectId(actor.userId.toString());
+      if (isNurseRole(role)) query.assignedNurses = userId;
+      else if (role === "DOCTOR") query.$or = [{ doctorId: userId }, { assignedDoctors: userId }];
+    }
+    applyBranchConvention(query, actor);
+
+    const admissions = await Admission.find(query)
+      .select("patientId doctorId dischargeDate dischargeCondition branchId")
+      .populate("patientId", "name uhid")
+      .populate("doctorId", "name")
+      .sort({ dischargeDate: -1 })
+      .limit(20)
+      .lean();
+    const ids = admissions.map((admission) => admission._id);
+    const invoices = ids.length
+      ? await Invoice.find({ admissionId: { $in: ids }, status: { $ne: "CANCELLED" } })
+          .select("admissionId billingStatus status")
+          .lean()
+      : [];
+    const billingByAdmission = new Map<string, (typeof invoices)[number]>();
+    for (const invoice of invoices) {
+      const id = invoice.admissionId?.toString();
+      if (id && !billingByAdmission.has(id)) billingByAdmission.set(id, invoice);
+    }
+
+    return admissions.map((admission) => {
+      const patient = admission.patientId as unknown as { _id?: Types.ObjectId; name?: string; uhid?: string };
+      const doctor = admission.doctorId as unknown as { _id?: Types.ObjectId; name?: string };
+      const invoice = billingByAdmission.get(admission._id.toString());
+      return {
+        admissionId: admission._id,
+        patientId: patient?._id,
+        name: patient?.name || "Admitted Patient",
+        uhid: patient?.uhid || "UHID-PENDING",
+        doctorName: doctor?.name || "Attending Physician",
+        status: "DISCHARGED",
+        dischargeDate: admission.dischargeDate,
+        dischargeCondition: admission.dischargeCondition,
+        billingStatus: invoice ? invoice.billingStatus || "BILLING_COMPLETED" : undefined,
+        invoiceStatus: invoice?.status,
+      };
+    });
+  }
+
   // Inpatients visible to the caller. Nurses (and doctors without a wide
   // role) only see stays where they are on the care team; admins,
   // receptionists and pharmacists keep the full ward view for coordination.
@@ -98,15 +147,31 @@ export class NursingService {
       .lean();
 
     const admissionIds = admissions.map((admission) => admission._id);
-    const [vitalRows, roundRows] = admissionIds.length
+    const [vitalRows, roundRows, invoiceRows] = admissionIds.length
       ? await Promise.all([
           Vitals.find({ admissionId: { $in: admissionIds } })
             .sort({ dateRecorded: -1, createdAt: -1 }).lean(),
           ClinicalRecord.find({ admissionId: { $in: admissionIds }, recordType: "Progress Note", $or: [{ visitType: "Round" }, { visitType: { $exists: false } }] })
             .select("admissionId visitedAt dateRecorded createdAt")
             .sort({ visitedAt: -1, dateRecorded: -1, createdAt: -1 }).lean(),
+          Invoice.find({ admissionId: { $in: admissionIds }, status: { $ne: "CANCELLED" } })
+            .select("admissionId billingStatus status")
+            .sort({ createdAt: 1 }).lean(),
         ])
-      : [[], []];
+      : [[], [], []];
+
+    const completedBilling = new Map<string, { billingStatus: string; invoiceStatus: string }>();
+    for (const invoice of invoiceRows) {
+      const key = invoice.admissionId?.toString();
+      if (key && !completedBilling.has(key)) {
+        completedBilling.set(key, {
+          // Existing non-cancelled invoices predate billingStatus and represent
+          // finalized bills in the legacy workflow.
+          billingStatus: invoice.billingStatus || "BILLING_COMPLETED",
+          invoiceStatus: invoice.status,
+        });
+      }
+    }
 
     const latestVitals = new Map<string, (typeof vitalRows)[number]>();
     for (const vital of vitalRows) {
@@ -180,6 +245,8 @@ export class NursingService {
         lastRoundAt: latestRoundAt.get(admissionId)?.toISOString(),
         roundedToday: roundsToday.has(admissionId),
         dischargeRequested: Boolean(adm.dischargeRequested),
+        billingStatus: completedBilling.get(admissionId)?.billingStatus,
+        invoiceStatus: completedBilling.get(admissionId)?.invoiceStatus,
         dischargeRequestedAt: adm.dischargeRequestedAt as Date | undefined,
         flaggedByName:
           typeof (adm.dischargeRequestedBy as Record<string, unknown> | undefined)?.name === "string"

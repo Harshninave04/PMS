@@ -308,6 +308,14 @@ export default function InvoicesListPage() {
                           <p className="text-[10px] text-muted-foreground">
                             UHID: {inv.patientId?.uhid || "N/A"} &bull; Ph: {inv.patientId?.contact || "N/A"}
                           </p>
+                          {inv.admissionId?.status === "DISCHARGED" && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                              <Badge className="bg-rose-700 text-[9px] text-white">DISCHARGED / PATIENT OUT</Badge>
+                              <span className="text-[9px] text-muted-foreground">
+                                {inv.admissionId.dischargeDate ? new Date(inv.admissionId.dischargeDate).toLocaleString("en-IN") : "Discharge time unavailable"}
+                              </span>
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4">
                           <Badge variant="outline" className="text-[10px] font-normal">
@@ -395,14 +403,14 @@ export default function InvoicesListPage() {
       {/* Tax Invoice View / Print Modal */}
       {selectedInvoice && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-background rounded-xl border max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-6">
+          <div id="print-area" className="bg-background rounded-xl border max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-6">
             <div className="flex justify-between items-start border-b pb-4">
               <div>
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white">MEDISTRA HEALTHCARE SYSTEM</h2>
                 <p className="text-xs text-muted-foreground">12 Medical Enclave, Central Avenue, Kolkata &bull; GSTIN: 19AAECM0123M1Z5</p>
                 <p className="text-xs font-semibold text-emerald-600 mt-1">OFFICIAL PATIENT TAX INVOICE</p>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedInvoice(null)} className="h-8 w-8 p-0">
+              <Button variant="ghost" size="sm" onClick={() => setSelectedInvoice(null)} className="h-8 w-8 p-0 no-print">
                 ✕
               </Button>
             </div>
@@ -416,6 +424,14 @@ export default function InvoicesListPage() {
                 </p>
                 <p className="text-muted-foreground mt-1">UHID: {selectedInvoice.patientId?.uhid || "N/A"}</p>
                 <p className="text-muted-foreground">Mobile: {selectedInvoice.patientId?.contact || "N/A"}</p>
+                {selectedInvoice.admissionId?.status === "DISCHARGED" && (
+                  <div className="mt-2 space-y-1">
+                    <Badge className="bg-rose-700 text-white">DISCHARGED / PATIENT OUT</Badge>
+                    <p className="text-[10px] text-muted-foreground">
+                      Patient has left the hospital{selectedInvoice.admissionId.dischargeDate ? ` · ${new Date(selectedInvoice.admissionId.dischargeDate).toLocaleString("en-IN")}` : ""}.
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-muted-foreground">Invoice Number:</p>
@@ -426,6 +442,11 @@ export default function InvoicesListPage() {
                   Date: {new Date(selectedInvoice.createdAt || Date.now()).toLocaleDateString("en-IN", { day: '2-digit', month: 'short', year: 'numeric' })}
                 </p>
                 <p className="text-muted-foreground">Department: {selectedInvoice.department || "General"}</p>
+                {selectedInvoice.audit && Number(selectedInvoice.audit.drift) !== 0 && (
+                  <p className="mt-1 text-[10px] text-amber-600">
+                    Draft-vs-final drift: submitted ₹{Number(selectedInvoice.audit.submittedFinalAmount || 0).toLocaleString("en-IN")}, server computed ₹{Number(selectedInvoice.audit.serverFinalAmount || 0).toLocaleString("en-IN")}
+                  </p>
+                )}
                 <div className="mt-1">{getStatusBadge(selectedInvoice.status)}</div>
               </div>
             </div>
@@ -491,7 +512,7 @@ export default function InvoicesListPage() {
             </div>
 
             {/* Footer Buttons */}
-            <div className="flex justify-between items-center border-t pt-4">
+            <div className="flex justify-between items-center border-t pt-4 no-print">
               <p className="text-[10px] text-muted-foreground">Computer-generated hospital invoice. No physical signature required.</p>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5 text-xs">

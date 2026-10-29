@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { isBillingCompleted, isReadyForDischarge } from "@/lib/discharge-workflow";
 import {
   Bed,
   Search,
@@ -34,6 +35,7 @@ export default function CurrentAdmissionsPage() {
   const { toast } = useToast();
 
   const [admissions, setAdmissions] = useState<any[]>([]);
+  const [billingQueueRows, setBillingQueueRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -112,12 +114,25 @@ export default function CurrentAdmissionsPage() {
 
   const fetchAdmissions = async () => {
     try {
-      const res = await fetch("/api/admission?status=ACTIVE");
+      const [res, billingRes] = await Promise.all([
+        fetch("/api/admission?status=ACTIVE"),
+        fetch("/api/admission/billing-queue").catch(() => null),
+      ]);
       const result = await res.json();
       if (res.ok && result.success) {
         setAdmissions(result.data || []);
       } else {
         toast(result.message || "Failed to fetch admissions", "error");
+      }
+      if (billingRes?.ok) {
+        try {
+          const billingResult = await billingRes.json();
+          if (billingResult.success) setBillingQueueRows(billingResult.data || []);
+        } catch {
+          setBillingQueueRows([]);
+        }
+      } else {
+        setBillingQueueRows([]);
       }
     } catch (err: any) {
       toast("An error occurred while fetching admissions", "error");
@@ -176,6 +191,15 @@ export default function CurrentAdmissionsPage() {
       return matchesSearch && matchesType && matchesStatus;
     });
   }, [admissions, searchQuery, typeFilter, statusFilter]);
+
+  const readyForDischargeRows = useMemo(
+    () => billingQueueRows.filter((row) => isReadyForDischarge(row, row.invoice)),
+    [billingQueueRows]
+  );
+  const billingByAdmissionId = useMemo(
+    () => new Map(billingQueueRows.map((row) => [String(row.admissionId), row])),
+    [billingQueueRows]
+  );
 
   // Counts
   const counts = useMemo(() => {
@@ -402,6 +426,36 @@ export default function CurrentAdmissionsPage() {
         </CardContent>
       </Card>
 
+      <Card className="border-emerald-200 bg-emerald-50/40 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/10">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+            Ready for Discharge <Badge className="bg-emerald-700 text-white">{readyForDischargeRows.length}</Badge>
+          </CardTitle>
+          <CardDescription>Billing Completed — Ready for Discharge. Patients remain admitted until an authorized discharge is finalized.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {readyForDischargeRows.length === 0 ? (
+            <p className="text-sm text-slate-500">No patients are currently ready for discharge.</p>
+          ) : readyForDischargeRows.map((row) => (
+            <div key={String(row.admissionId)} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-white px-3 py-2 dark:border-emerald-900 dark:bg-slate-900">
+              <div>
+                <p className="text-sm font-semibold text-slate-900 dark:text-white">{row.patientName} <span className="font-mono text-xs font-normal text-slate-500">{row.uhid}</span></p>
+                <p className="text-xs text-slate-500">{row.admissionType || "Inpatient"} · {row.wardName || "Ward"}, Room {row.roomNumber || "—"}, Bed {row.bedNumber || "—"}</p>
+                <p className="text-xs text-slate-500">Doctor: {(row.assignedDoctorNames ?? []).join(", ") || row.doctorName || "—"} · Nurse: {(row.assignedNurseNames ?? []).join(", ") || "—"}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="bg-emerald-100 text-emerald-800">Billing Completed</Badge>
+                <Badge className="bg-amber-100 text-amber-800">Discharge Pending</Badge>
+                <span className="text-xs text-slate-600 dark:text-slate-300">Balance: ₹{Number(row.invoice?.balanceAmount || 0).toLocaleString("en-IN")}</span>
+                <Button size="sm" variant="outline" onClick={() => router.push(`/admissions/discharge?admissionId=${row.admissionId}`)}>
+                  Review discharge
+                </Button>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
       {/* Inpatients Table */}
       <Card className="border shadow-sm">
         <CardHeader className="pb-3 flex flex-row items-center justify-between">
@@ -451,7 +505,10 @@ export default function CurrentAdmissionsPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredAdmissions.map((adm) => (
+                  filteredAdmissions.map((adm) => {
+                    const billingRow = billingByAdmissionId.get(String(adm._id));
+                    const readyForDischarge = billingRow && isReadyForDischarge(billingRow, billingRow.invoice);
+                    return (
                     <TableRow key={adm._id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
                       {/* Patient Details */}
                       <TableCell>
@@ -468,6 +525,14 @@ export default function CurrentAdmissionsPage() {
                             {adm.patientId?.gender} • {adm.patientId?.age}y
                           </span>
                         </div>
+                        {(adm.dischargeRequested || billingRow) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {isBillingCompleted(billingRow?.invoice) && <Badge className="bg-emerald-100 text-[9px] text-emerald-800">Billing Completed</Badge>}
+                            <Badge className={readyForDischarge ? "bg-emerald-700 text-[9px] text-white" : "bg-amber-100 text-[9px] text-amber-800"}>
+                              {readyForDischarge ? "Ready for Discharge" : "Discharge Pending"}
+                            </Badge>
+                          </div>
+                        )}
                       </TableCell>
 
                       {/* Ward & Bed */}
@@ -593,7 +658,8 @@ export default function CurrentAdmissionsPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))
+                    );
+                  })
                 )}
               </TableBody>
             </Table>

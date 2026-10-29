@@ -72,10 +72,12 @@ export function DialogContent({
   children,
   className,
   side = "center",
+  id,
 }: {
   children: React.ReactNode;
   className?: string;
   side?: "center" | "right";
+  id?: string;
 }) {
   const { open, setOpen } = React.useContext(DialogContext);
 
@@ -101,6 +103,7 @@ export function DialogContent({
       />
       {/* Content */}
       <div
+        id={id}
         className={cn(
           "relative z-[101] w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900",
           "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-4",
@@ -109,7 +112,7 @@ export function DialogContent({
       >
         <button
           onClick={() => setOpen(false)}
-          className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300 transition-colors"
+          className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300 transition-colors no-print"
         >
           <X className="h-4 w-4" />
         </button>

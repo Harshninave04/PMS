@@ -1,13 +1,13 @@
 import invoiceRepository, { InvoiceRepository } from "@/repositories/invoice.repository";
-import { Types } from "mongoose";
+import { Types, ClientSession } from "mongoose";
 import { IInvoice } from "@/interfaces/invoice.interface";
 import { CreateInvoiceDto, UpdateInvoiceDto } from "@/dto/invoice.dto";
 
 export class InvoiceService {
     constructor(private repository: InvoiceRepository = invoiceRepository) { }
 
-    async createInvoice(data: CreateInvoiceDto): Promise<IInvoice> {
-        return await this.repository.create(data);
+    async createInvoice(data: CreateInvoiceDto, options?: { session?: ClientSession }): Promise<IInvoice> {
+        return await this.repository.create(data, options);
     }
 
     async getAllInvoices(): Promise<IInvoice[]> {

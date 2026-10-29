@@ -27,8 +27,18 @@ export interface CreateInvoiceDto {
     dueDate?: Date;
     notes?: string;
     status?: string;
+    /** Set by the server when a final invoice is created. */
+    billingStatus?: "BILLING_COMPLETED";
     branchId?: Types.ObjectId | string;
     isActive?: boolean;
+    /** Server-set only (draft-vs-final audit trail) — the controller overwrites whatever the client sends. */
+    audit?: {
+        source: "CASE" | "MANUAL";
+        submittedFinalAmount?: number;
+        serverFinalAmount: number;
+        drift: number;
+        at: Date;
+    };
 }
 
 export interface UpdateInvoiceDto {
