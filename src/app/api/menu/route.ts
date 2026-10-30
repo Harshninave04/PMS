@@ -30,9 +30,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
  */
 export async function GET(request: NextRequest) {
     try {
-        return await menuController.getMenus(request);
+        const response = await menuController.getMenus(request);
+        response.headers.set("Cache-Control", "no-store, max-age=0");
+        return response;
     } catch (e) {
         console.log(e);
-        return Response.json({ error: e }, { status: 500 });
+        return Response.json({ error: e }, { status: 500, headers: { "Cache-Control": "no-store, max-age=0" } });
     }
 }

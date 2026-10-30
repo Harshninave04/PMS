@@ -13,7 +13,8 @@ import { Vitals } from "@/models/vitals.model";
 import Admission from "@/models/admission.model";
 import { CreateCareTaskDto, UpdateCareTaskDto } from "@/dto/care-task.dto";
 import type { CareTaskStatus } from "@/models/care-task.model";
-import { HOSPITAL_TIME_ZONE, stayDayNumber } from "@/lib/hospital-time";
+import { stayDayNumber } from "@/lib/hospital-time";
+import { getHospitalProfile } from "@/services/hospital-profile.service";
 import { flagVitalForReview } from "@/lib/vital-flags";
 
 interface TimelineItem {
@@ -255,7 +256,7 @@ export class CareTaskController {
                 }
             }
             const patientId = (admission as { patientId?: unknown }).patientId;
-            const hospital = await Admission.findById(admissionId).select("branchId").populate("branchId", "organizationName").lean();
+            const hospitalProfile = await getHospitalProfile();
             const [tasks, medications, vitals, notes, visits, orders, handoverHistory] = await Promise.all([
                 careTaskService.listForAdmissions([admissionId]),
                 nursingService.getMedications(
@@ -279,12 +280,10 @@ export class CareTaskController {
                     .lean()
                     .then((record) => record?.nursingHandoverHistory ?? []),
             ]);
-            const hospitalName = (hospital?.branchId as { organizationName?: string } | undefined)?.organizationName;
-            return NextResponse.json({ success: true, data: { tasks, medications, vitals, notes, visits, orders, handoverHistory, currentUserId: auth.context.userId.toString(), hospitalName } }, { status: 200 });
             const admissionDate = new Date((admission as { admissionDate: Date }).admissionDate);
             const withDay = <T,>(items: T[], timeOf: (item: T) => Date) => items.map((item) => ({
                 ...recordOf(item),
-                dayNumber: stayDayNumber(admissionDate, timeOf(item)),
+                dayNumber: stayDayNumber(admissionDate, timeOf(item), hospitalProfile.timeZone),
             }));
             const visitsWithDay = withDay(visits, (item) => {
                 const value = recordOf(item);
@@ -297,7 +296,7 @@ export class CareTaskController {
             const ordersWithDay = withDay(orders, (item) => timestampOf(recordOf(item), "createdAt"));
             const timelineItems: TimelineItem[] = [];
             const pushItem = (kind: TimelineItem["kind"], item: Record<string, unknown>, at: Date, title: string, detail?: string, flag?: string) => {
-                timelineItems.push({ id: String(item._id ?? `${kind}-${at.getTime()}-${timelineItems.length}`), kind, at: at.toISOString(), dayNumber: stayDayNumber(admissionDate, at), title, detail, flag });
+                timelineItems.push({ id: String(item._id ?? `${kind}-${at.getTime()}-${timelineItems.length}`), kind, at: at.toISOString(), dayNumber: stayDayNumber(admissionDate, at, hospitalProfile.timeZone), title, detail, flag });
             };
 
             for (const raw of visitsWithDay) {
@@ -350,7 +349,10 @@ export class CareTaskController {
                     visits: visitsWithDay,
                     orders: ordersWithDay,
                     timelineItems,
-                    timeZone: HOSPITAL_TIME_ZONE,
+                    timeZone: hospitalProfile.timeZone,
+                    hospitalName: hospitalProfile.name,
+                    currentUserId: auth.context.userId.toString(),
+                    handoverHistory,
                 },
             }, { status: 200 });
         } catch (error: unknown) {

@@ -69,7 +69,7 @@ check("a missing ADMIN role is a clear error", () => {
 console.log("bootstrap reference dataset");
 
 check("the sample data is internally consistent", () => {
-    assert.equal(HOSPITAL.organizationId, "MEDISTRA-MAIN");
+    assert.equal(HOSPITAL.organizationId, "MAIN");
     assert.equal(HOSPITAL.branchType, "MAIN");
 
     const codes = DEPARTMENTS.map((d) => d.code);

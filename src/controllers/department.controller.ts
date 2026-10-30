@@ -60,15 +60,9 @@ export class DepartmentController {
         } else if (authResult.context.organizationId) {
           data.organizationId = authResult.context.organizationId;
         } else {
-          let org = await Organization.findOne();
+          const org = await Organization.findOne();
           if (!org) {
-            org = await Organization.create({
-              organizationName: "Medistra Central Hospital",
-              organizationId: "ORG-001",
-              organizationType: "HOSPITAL",
-              branchType: "MAIN",
-              isActive: true,
-            });
+            return NextResponse.json({ success: false, message: "Configure the hospital profile before adding departments." }, { status: 409 });
           }
           data.organizationId = org._id;
         }

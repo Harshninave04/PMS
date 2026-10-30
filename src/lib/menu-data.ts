@@ -56,8 +56,8 @@ export function restrictToCanonicalMenus<T extends MenuNode>(menus: readonly T[]
  *
  * The Receptionist works from desk shortcuts that mirror exactly what the
  * role may open (see DEFAULT_ROLE_PERMISSIONS): booking, patients,
- * admissions, beds and front-desk billing — so nothing permitted needs a
- * typed URL.
+ * admissions, discharge summaries, beds and front-desk billing — so nothing
+ * permitted needs a typed URL.
  */
 const FLAT_NAV_FOR_ROLE: Record<string, readonly { path: string; icon: string; name?: string }[]> = {
     DOCTOR: [
@@ -71,6 +71,9 @@ const FLAT_NAV_FOR_ROLE: Record<string, readonly { path: string; icon: string; n
         { path: "/appointments/book", icon: "CalendarPlus" },
         { path: "/appointments/list", icon: "Calendar" },
         { path: "/admissions/current", icon: "BedDouble" },
+        { path: "/admissions/discharge", icon: "LogOut" },
+        { path: "/admissions/summary", icon: "FileText", name: "Discharge Summary" },
+        { path: "/admissions/history", icon: "History" },
         { path: "/wards/availability", icon: "Bed" },
         { path: "/patients/list", icon: "Users" },
     ],

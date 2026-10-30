@@ -100,7 +100,8 @@ const SUB_ITEM_KEY_OVERRIDES: Readonly<Record<string, string>> = {
 const SPECIAL_ACTIONS_BY_ROUTE: Readonly<Record<string, readonly SpecialActionDefinition[]>> = {
     "/patients/documents": [{ action: "upload", label: "Upload" }],
     "/clinical/prescriptions": [{ action: "prescribe", label: "Prescribe" }],
-    "/admissions/discharge": [{ action: "discharge", label: "Discharge" }],
+    "/admissions/discharge": [{ action: "discharge", label: "Complete discharge" }],
+    "/admissions/summary": [{ action: "print", label: "Print discharge packet" }],
     "/pharmacy/dispensing": [{ action: "dispense", label: "Dispense" }],
     "/finance/payments": [{ action: "refund", label: "Refund" }],
     // Create Bill: a discount above the configured share of the gross needs a
@@ -243,6 +244,32 @@ export function viewPermissionsFor(moduleKey: string, subItemKey: string): reado
     ];
 }
 
+/** Finds the canonical catalogue entry for an exact page route. */
+function subItemForRoute(path: string): { module: ModulePermission; subItem: SubItemPermission } | undefined {
+    const normalised = (path || "").replace(/\/+$/, "").toLowerCase();
+    for (const module of PERMISSION_MODULES) {
+        const subItem = module.subItems.find((item) => item.route.toLowerCase() === normalised);
+        if (subItem) return { module, subItem };
+    }
+    return undefined;
+}
+
+/**
+ * Resolves the key for a named action from the same catalogue used by the
+ * permission editor. API route rules use this instead of repeating a key.
+ */
+export function permissionForRouteAction(path: string, action: string): string | undefined {
+    const entry = subItemForRoute(path);
+    if (!entry) return undefined;
+    const allowedActions = [
+        ...entry.subItem.actions,
+        ...entry.subItem.specials.map((special) => special.action),
+    ];
+    return allowedActions.includes(action)
+        ? permissionKey(entry.module.key, entry.subItem.key, action)
+        : undefined;
+}
+
 /** Resolves the permission key guarding a sidebar path (module path or sub-item path). */
 export function permissionsForRoute(path: string): readonly string[] {
     const normalised = (path || "").replace(/\/+$/, "").toLowerCase();
@@ -255,7 +282,10 @@ export function permissionsForRoute(path: string): readonly string[] {
         }
         for (const subItem of catalogueModule.subItems) {
             if (subItem.route.toLowerCase() === normalised) {
-                return viewPermissionsFor(catalogueModule.key, subItem.key);
+                return [
+                    ...viewPermissionsFor(catalogueModule.key, subItem.key),
+                    ...subItem.specials.map((special) => permissionKey(catalogueModule.key, subItem.key, special.action)),
+                ];
             }
         }
     }
@@ -281,6 +311,7 @@ const ALWAYS_OPEN_PAGES: ReadonlySet<string> = new Set(["/forbidden", "/login", 
 
 /** `/admin/roles/<id>/permissions` — the id is the only variable segment. */
 const ROLE_PERMISSIONS_PATH = /^\/admin\/roles\/[^/]+\/permissions\/?$/;
+const DISCHARGE_PACKET_PATH = /^\/admissions\/[^/]+\/discharge-packet\/?$/;
 /** `/nursing/patients/<admissionId>/handover` — inherits admitted-patient view access. */
 const NURSING_HANDOVER_PATH = /^\/nursing\/patients\/[^/]+\/handover$/;
 /** `/nursing/medications/<patientId>` — medication details require medication view access. */
@@ -301,6 +332,10 @@ export function permissionsForPage(path: string): readonly string[] {
 
     if (ROLE_PERMISSIONS_PATH.test(normalised)) {
         return [permissionKey("admin", "roles", "view")];
+    }
+
+    if (DISCHARGE_PACKET_PATH.test(normalised)) {
+        return [permissionKey("admissions", "summary", "print")];
     }
 
     if (NURSING_HANDOVER_PATH.test(normalised)) {

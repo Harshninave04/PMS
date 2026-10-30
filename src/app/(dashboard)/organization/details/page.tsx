@@ -6,6 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { useRouter } from "next/navigation";
+import { publishHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
+import { hospitalProfileFromRecords } from "@/types/hospital-profile";
+import { DEFAULT_HOSPITAL_TIME_ZONE } from "@/types/hospital-profile";
 import { Building2, MapPin, Mail, Phone, BedDouble, FileText, Edit, Save, RefreshCw, Globe } from "lucide-react";
 import {
   Dialog,
@@ -30,6 +34,7 @@ interface HospitalForm {
 interface SettingsForm {
   panNumber: string;
   gstin: string;
+  timeZone: string;
   website: string;
   emergencyHotline: string;
   letterheadHeader: string;
@@ -37,7 +42,7 @@ interface SettingsForm {
 }
 
 const EMPTY_HOSPITAL: HospitalForm = { organizationName: "", email: "", phone: "", address: "", city: "", state: "", pincode: "", capacity: 0 };
-const EMPTY_SETTINGS: SettingsForm = { panNumber: "", gstin: "", website: "", emergencyHotline: "", letterheadHeader: "", letterheadFooter: "" };
+const EMPTY_SETTINGS: SettingsForm = { panNumber: "", gstin: "", timeZone: DEFAULT_HOSPITAL_TIME_ZONE, website: "", emergencyHotline: "", letterheadHeader: "", letterheadFooter: "" };
 
 function pick<T extends object>(source: Record<string, unknown> | null | undefined, empty: T): T {
   const out = { ...empty } as Record<string, unknown>;
@@ -57,6 +62,7 @@ export default function HospitalProfilePage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
+  const router = useRouter();
 
   const fetchProfile = async () => {
     try {
@@ -106,9 +112,11 @@ export default function HospitalProfilePage() {
       ]);
       const [orgData, settingsData] = await Promise.all([orgRes.json(), settingsRes.json()]);
       if (orgData.success && settingsData.success) {
+        publishHospitalProfile(hospitalProfileFromRecords(orgData.data, settingsData.data));
         toast({ title: "Saved", description: "Hospital profile updated." });
         setEditing(false);
         fetchProfile();
+        router.refresh();
       } else {
         toast({ title: "Update Failed", description: orgData.message || settingsData.message, variant: "destructive" });
       }
@@ -179,6 +187,8 @@ export default function HospitalProfilePage() {
       ) : !hospitalId ? (
         <div className="py-16 text-center text-muted-foreground">No hospital found. Please run the database seed.</div>
       ) : (
+        <>
+        {!hospital.organizationName.trim() && <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 no-print">Hospital name is not configured. Add it here before generating patient documents.</p>}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <Card className="shadow-sm border lg:col-span-2">
             <CardHeader className="border-b pb-4">
@@ -229,6 +239,7 @@ export default function HospitalProfilePage() {
             </CardContent>
           </Card>
         </div>
+        </>
       )}
 
       <Dialog open={editing} onOpenChange={setEditing}>
@@ -257,6 +268,7 @@ export default function HospitalProfilePage() {
               {settingsField("panNumber", "PAN")}
               {settingsField("gstin", "GSTIN")}
             </div>
+            {settingsField("timeZone", "Hospital time zone (IANA name)")}
             {settingsField("website", "Website")}
             {settingsField("letterheadHeader", "Letterhead Title")}
             {settingsField("letterheadFooter", "Letterhead Footer")}

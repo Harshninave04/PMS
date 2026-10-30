@@ -14,6 +14,8 @@ export interface IRole extends Document {
     permissions: string[];
     /** True once an administrator has explicitly saved the list, including an empty list. */
     permissionsCustomized: boolean;
+    /** One-time additive permission migrations already applied to this role. */
+    permissionMigrations?: string[];
     /** Seeded role: cannot be renamed or deleted. */
     isSystem: boolean;
     description: string;

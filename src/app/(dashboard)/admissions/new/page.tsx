@@ -29,6 +29,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
+import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
+import { hospitalDateTimeInputToUtc } from "@/lib/hospital-date";
 import { PatientDuplicateDialog, type PatientDuplicateMatch, type SharedPhoneRelation } from "@/components/patients/patient-duplicate-dialog";
 
 interface Patient {
@@ -146,6 +148,7 @@ function InlineError({
 }
 
 export default function NewAdmissionPage() {
+  const hospital = useHospitalProfile();
   const router = useRouter();
   const { toast } = useToast();
   const patientPickerRef = useRef<HTMLDivElement>(null);
@@ -397,6 +400,14 @@ export default function NewAdmissionPage() {
     event.preventDefault();
     if (submitting || missing.length > 0) return;
 
+    const admissionInstant = dateChanged && formData.admissionDate
+      ? hospitalDateTimeInputToUtc(formData.admissionDate, hospital.timeZone)
+      : new Date();
+    if (!admissionInstant) {
+      toast("Enter a valid admission date and time in the hospital time zone", "error");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const availableBeds = await fetchAvailableBeds();
@@ -413,9 +424,7 @@ export default function NewAdmissionPage() {
           patientId: formData.patientId,
           doctorId: formData.doctorId,
           bedId: formData.bedId,
-          admissionDate: dateChanged && formData.admissionDate
-            ? new Date(formData.admissionDate).toISOString()
-            : new Date().toISOString(),
+          admissionDate: admissionInstant.toISOString(),
           admissionType: formData.admissionType,
           status: "ADMITTED",
           reasonForAdmission: formData.reasonForAdmission,

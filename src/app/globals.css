@@ -45,7 +45,7 @@ body {
   background: #475569; /* slate-600 */
 }
 
-/* Printing: only the marked #print-area (invoice card, payment receipt)
+/* Printing: only the marked #print-area (invoice, receipt, discharge summary)
    goes on paper — the dashboard shell, filters and behind-the-modal content
    are hidden. Elements marked .no-print are dropped even inside the area. */
 @media print {

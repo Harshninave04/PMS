@@ -111,6 +111,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]
 
         ...act("admissions", "new", "view", "create"),
         ...act("admissions", "current", "view", "update"),
+        ...act("admissions", "summary", "view", "print"),
+        ...act("admissions", "discharge", "view", "discharge"),
 
         ...act("wards", "availability", "view"),
 

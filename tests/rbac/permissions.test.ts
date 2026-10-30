@@ -42,7 +42,7 @@ import {
 } from "@/lib/rbac/migrate-access";
 import { ALL_ROLES, ADMIN_ROLE, buildRoleAccess } from "@/lib/rbac/role-access";
 import { MENUS, filterMenusByPermissions } from "@/lib/menu-data";
-import { expectedPermissionsFor } from "@/lib/rbac/canonical-sync";
+import { expectedPermissionsFor, RECEPTIONIST_DISCHARGE_PERMISSION_MIGRATION } from "@/lib/rbac/canonical-sync";
 import { PERMISSION_KEYS } from "@/lib/rbac/permissions";
 
 /** Every `route.ts` under `src/app/api`. */
@@ -156,6 +156,42 @@ async function runPermissionTests() {
         `reports.${report}:export is missing`
       );
     }
+  });
+
+  test("Receptionist discharge and history pages share their preview, page and API permissions", () => {
+    const receptionist = new Set(defaultPermissionsFor("RECEPTIONIST"));
+    assert.equal(canOpenPage(permissionsForPage("/admissions/discharge"), { all: receptionist }), true);
+    assert.equal(canOpenPage(permissionsForPage("/admissions/summary"), { all: receptionist }), true);
+
+    const dischargeDraft = findRouteRule(new Request("http://localhost/api/admission/65f1c2a3b4c5d6e7f8091234/discharge-draft"))!;
+    const discharge = findRouteRule(new Request("http://localhost/api/admission/discharge", { method: "POST" }))!;
+    const packet = findRouteRule(new Request("http://localhost/api/admission/65f1c2a3b4c5d6e7f8091234/discharge-packet"))!;
+    assert.equal(routeRuleAllows(dischargeDraft, receptionist), true);
+    assert.equal(routeRuleAllows(discharge, receptionist), true);
+    assert.equal(routeRuleAllows(packet, receptionist), true);
+
+    const historyOnly = new Set(["admissions.history:view"]);
+    assert.equal(canOpenPage(permissionsForPage("/admissions/history"), { all: historyOnly }), true);
+    const historyList = findRouteRule(new Request("http://localhost/api/admission?status=DISCHARGED"))!;
+    assert.equal(routeRuleAllows(historyList, historyOnly), true);
+  });
+
+  test("Saved Receptionist role receives only the one-time discharge grants additively", () => {
+    const saved = {
+      permissionsCustomized: true,
+      permissions: ["admissions.history:view", "patients.list:view"],
+    };
+    const migrated = expectedPermissionsFor("RECEPTIONIST", saved);
+    assert.ok(migrated.includes("admissions.history:view"));
+    assert.ok(migrated.includes("patients.list:view"));
+    assert.ok(migrated.includes("admissions.summary:print"));
+    assert.ok(migrated.includes("admissions.discharge:discharge"));
+
+    const reviewed = expectedPermissionsFor("RECEPTIONIST", {
+      ...saved,
+      permissionMigrations: [RECEPTIONIST_DISCHARGE_PERMISSION_MIGRATION],
+    });
+    assert.deepEqual(reviewed, saved.permissions);
   });
 
   test("OPD consultation save requires queue access and both legacy clinical write grants", () => {

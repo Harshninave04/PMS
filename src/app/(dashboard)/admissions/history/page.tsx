@@ -11,6 +11,8 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
+import { formatHospitalDateTime, formatLengthOfStay } from "@/lib/hospital-date";
 import {
   Clock,
   Search,
@@ -30,6 +32,7 @@ import {
 export default function AdmissionHistoryPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const hospital = useHospitalProfile();
 
   const [admissions, setAdmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,15 +75,7 @@ export default function AdmissionHistoryPage() {
     fetchHistory();
   };
 
-  const getDurationText = (admissionDate: string, dischargeDate?: string) => {
-    const start = new Date(admissionDate).getTime();
-    const end = dischargeDate ? new Date(dischargeDate).getTime() : Date.now();
-    const diffHours = Math.max(0, Math.floor((end - start) / (1000 * 60 * 60)));
-    const days = Math.floor(diffHours / 24);
-    const hours = diffHours % 24;
-    if (days === 0) return `${hours} hrs`;
-    return `${days}d ${hours}h`;
-  };
+  const getDurationText = (admissionDate: string, dischargeDate?: string) => formatLengthOfStay(admissionDate, dischargeDate);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -181,8 +176,8 @@ export default function AdmissionHistoryPage() {
       a.patientId?.age || "",
       a.patientId?.gender || "",
       `"${a.patientId?.contact || ""}"`,
-      `"${new Date(a.admissionDate).toLocaleString()}"`,
-      a.dischargeDate ? `"${new Date(a.dischargeDate).toLocaleString()}"` : "Still Admitted",
+      `"${formatHospitalDateTime(a.admissionDate, hospital.timeZone)}"`,
+      a.dischargeDate ? `"${formatHospitalDateTime(a.dischargeDate, hospital.timeZone)}"` : "Still Admitted",
       `"${getDurationText(a.admissionDate, a.dischargeDate)}"`,
       `"${a.bedId?.roomId?.wardId?.wardName || ""}"`,
       `"${a.bedId?.bedNumber || ""}"`,
@@ -435,26 +430,14 @@ export default function AdmissionHistoryPage() {
                     <TableRow key={adm._id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 text-xs">
                       {/* Admission Date */}
                       <TableCell className="font-medium">
-                        {new Date(adm.admissionDate).toLocaleDateString()}
-                        <div className="text-[10px] text-slate-400">
-                          {new Date(adm.admissionDate).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit"
-                          })}
-                        </div>
+                        {formatHospitalDateTime(adm.admissionDate, hospital.timeZone)}
                       </TableCell>
 
                       {/* Discharge Date */}
                       <TableCell>
                         {adm.dischargeDate ? (
                           <>
-                            <div>{new Date(adm.dischargeDate).toLocaleDateString()}</div>
-                            <div className="text-[10px] text-slate-400">
-                              {new Date(adm.dischargeDate).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit"
-                              })}
-                            </div>
+                            <div>{formatHospitalDateTime(adm.dischargeDate, hospital.timeZone)}</div>
                           </>
                         ) : (
                           <span className="text-emerald-600 font-medium">Currently Admitted</span>
@@ -551,14 +534,14 @@ export default function AdmissionHistoryPage() {
                   <div>
                     <span className="text-xs text-slate-500 block">Admission Date</span>
                     <span className="font-medium">
-                      {new Date(selectedAdmission.admissionDate).toLocaleString()}
+                      {formatHospitalDateTime(selectedAdmission.admissionDate, hospital.timeZone)}
                     </span>
                   </div>
                   <div>
                     <span className="text-xs text-slate-500 block">Discharge Date</span>
                     <span className="font-medium">
                       {selectedAdmission.dischargeDate
-                        ? new Date(selectedAdmission.dischargeDate).toLocaleString()
+                        ? formatHospitalDateTime(selectedAdmission.dischargeDate, hospital.timeZone)
                         : "Still Admitted"}
                     </span>
                   </div>
@@ -620,7 +603,7 @@ export default function AdmissionHistoryPage() {
                             Bed {t.fromBedId?.bedNumber || "Prior"} → Bed {t.toBedId?.bedNumber || "New"}
                           </div>
                           <div className="text-slate-500 text-[11px] mt-0.5">
-                            Reason: {t.reason} • Date: {new Date(t.transferDate).toLocaleString()}
+                            Reason: {t.reason} • Date: {formatHospitalDateTime(t.transferDate, hospital.timeZone)}
                           </div>
                         </div>
                       ))}

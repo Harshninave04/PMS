@@ -9,10 +9,15 @@
  * route is missing from this table, which is what makes "deny by default"
  * enforceable rather than aspirational.
  */
-import { permissionKey } from "./permissions.config";
+import { permissionForRouteAction, permissionKey } from "./permissions.config";
 import { PERMISSION_KEYS } from "./permissions";
 
 const K = permissionKey;
+const actionFor = (path: string, action: string): string => {
+    const key = permissionForRouteAction(path, action);
+    if (!key) throw new Error(`No ${action} permission is defined for ${path}`);
+    return key;
+};
 
 /** Endpoints every authenticated user may call. */
 export const PUBLIC_ENDPOINTS: readonly string[] = ["/api/auth", "/api/me/permissions"];
@@ -152,9 +157,10 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     post("/admission/patients", K("admissions", "new", "create")),
     get("/admission/wards", K("admissions", "new", "create")),
     { path: "/admission/[id]", method: "GET", permission: K("admissions", "current", "view") },
+    get("/admission/[id]/discharge-draft", actionFor("/admissions/discharge", "view")),
     { path: "/admission/[id]", method: "PUT", permission: K("admissions", "current", "update") },
     { path: "/admission/[id]", method: "DELETE", permission: K("admissions", "current", "delete") },
-    post("/admission/discharge", K("admissions", "discharge", "discharge")),
+    post("/admission/discharge", actionFor("/admissions/discharge", "discharge")),
     // Doctor-side discharge pipeline: flag/withdraw a pending discharge before
     // nursing takes over. Doctors already hold the rounds permissions.
     post("/admission/discharge-request", K("clinical", "rounds", "update")),
@@ -169,6 +175,8 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     get("/admission/billing-queue", K("billing", "invoices", "view")),
     post("/admission/transfer", K("admissions", "transfer", "create")),
     get("/admission/stats", K("admissions", "current", "view")),
+    get("/admission/[id]/discharge-packet", actionFor("/admissions/summary", "print")),
+    get("/admission/[id]/treatment-summary", actionFor("/admissions/summary", "print")),
     { path: "/admission/[id]/care-team", method: "PUT", permission: K("admissions", "current", "update") },
 
     // Wards
@@ -358,6 +366,9 @@ export function resolveRoutePath(pathname: string): string {
  * admission forms read the ward/room lists).
  */
 export const ROUTE_ALTERNATIVES: Readonly<Record<string, readonly string[]>> = {
+    "GET /admission": [actionFor("/admissions/history", "view")],
+    "GET /admission/[id]": [actionFor("/admissions/history", "view")],
+    "GET /organization/settings": [K("billing", "invoices", "view"), K("billing", "payments", "view"), K("admissions", "summary", "print")],
     "GET /clinical/records": [K("nursing", "notes", "view")],
     "POST /clinical/records": [K("nursing", "notes", "create")],
     "PUT /clinical/records/[id]": [K("nursing", "notes", "update")],

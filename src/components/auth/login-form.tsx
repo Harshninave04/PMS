@@ -7,17 +7,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Activity, Lock, Mail, Eye, EyeOff, AlertCircle, CheckCircle2 } from "lucide-react";
-import { splitBrandName, type SoftwareBranding } from "@/lib/software-branding";
+import { Lock, Mail, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
 
-export default function LoginForm({ branding }: { branding: SoftwareBranding }) {
+export default function LoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@hospital.com");
-  const [password, setPassword] = useState("password123");
+  const hospital = useHospitalProfile();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const brandName = splitBrandName(branding.softwareName);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,27 +54,15 @@ export default function LoginForm({ branding }: { branding: SoftwareBranding }) 
       <div className="relative w-full max-w-md">
         {/* Brand Badge */}
         <div className="mb-6 flex flex-col items-center justify-center text-center">
-          {branding.logoUrl ? (
+          {hospital.logo ? (
             <img
-              src={branding.logoUrl}
-              alt={branding.softwareName}
+              src={hospital.logo}
+              alt={hospital.name || ""}
               className="h-14 w-14 rounded-2xl object-contain border border-emerald-500/30 bg-white/95 p-1.5 shadow-xl shadow-emerald-500/10"
             />
-          ) : (
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shadow-xl shadow-emerald-500/10 backdrop-blur-md">
-              <Activity className="h-8 w-8 animate-pulse" />
-            </div>
-          )}
-          <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white">
-            {brandName.head}
-            {brandName.accent && (
-              <>
-                {" "}
-                <span className="text-emerald-400">{brandName.accent}</span>
-              </>
-            )}
-          </h1>
-          <p className="mt-1 text-sm text-slate-400">{branding.tagline}</p>
+          ) : null}
+          {hospital.name && <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white">{hospital.name}</h1>}
+          {hospital.address && <p className="mt-1 text-sm text-slate-400">{hospital.address}</p>}
         </div>
 
         {/* Card Component */}
@@ -105,7 +93,7 @@ export default function LoginForm({ branding }: { branding: SoftwareBranding }) 
                   <Input
                     id="email"
                     type="email"
-                    placeholder="doctor@hospital.com"
+                    placeholder="name@domain.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -161,38 +149,9 @@ export default function LoginForm({ branding }: { branding: SoftwareBranding }) 
               </Button>
             </form>
 
-            <div className="mt-6 rounded-lg bg-emerald-950/40 border border-emerald-800/30 p-3 text-xs text-emerald-300/80">
-              <div className="flex items-center gap-1.5 font-medium text-emerald-400 mb-1">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Default Credentials
-              </div>
-              <p>Email: <span className="font-mono text-white">admin@hospital.com</span></p>
-              <p>Password: <span className="font-mono text-white">password123</span></p>
-            </div>
           </CardContent>
         </Card>
 
-        {/* Software authorship footer */}
-        {(branding.copyright || branding.version || branding.authorName) && (
-          <div className="mt-6 text-center text-[11px] text-slate-500">
-            {branding.copyright && <p>{branding.copyright}</p>}
-            <p className="mt-1 flex items-center justify-center gap-1.5">
-              {branding.version && <span>v{branding.version}</span>}
-              {branding.version && branding.authorName && <span aria-hidden="true">·</span>}
-              {branding.authorName && <span>{branding.authorName}</span>}
-            </p>
-            {branding.authorWebsite && (
-              <a
-                href={branding.authorWebsite}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-1 inline-block text-slate-400 hover:text-emerald-400 transition-colors"
-              >
-                {branding.authorWebsite}
-              </a>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

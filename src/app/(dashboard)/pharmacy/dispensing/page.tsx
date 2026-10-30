@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { HospitalHeader } from "@/components/print/hospital-header";
 
 interface CartItem {
   medicineId: string;
@@ -756,16 +757,8 @@ function PharmacyDispenseContent() {
           {completedBill && (
             <div className="space-y-4 pt-2 text-xs" id="pharmacy-receipt-area">
               {/* Hospital Header */}
-              <div className="text-center pb-3 border-b space-y-0.5">
-                <h3 className="font-bold text-sm text-slate-900 dark:text-white uppercase tracking-wider">
-                  MEDISTRA SUPER SPECIALITY HOSPITAL
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Central Pharmacy Dispensary • 24x7 Emergency Services
-                </p>
-                <p className="text-[10px] text-slate-400 font-mono">
-                  GSTIN: 07AAACM1234E1Z1 • DL No: DL-20B/21B-MED9920
-                </p>
+              <div className="pb-3 border-b space-y-0.5">
+                <HospitalHeader className="justify-center border-0 pb-0" />
               </div>
 
               {/* Bill & Patient Meta */}
@@ -825,7 +818,7 @@ function PharmacyDispenseContent() {
               </div>
 
               <div className="text-[10px] text-slate-400 text-center italic">
-                Thank you for choosing Medistra Hospital Pharmacy. Keep medicines out of reach of children.
+                Keep medicines out of reach of children.
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-2">

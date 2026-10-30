@@ -1,7 +1,9 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+
+export const PERMISSIONS_UPDATED_EVENT = "pms:permissions-updated";
 
 export interface PermissionSnapshot {
     /** `module.submodule:action` keys the caller currently holds. */
@@ -89,27 +91,88 @@ export function PermissionsProvider({
     roleName: string | null;
     children: React.ReactNode;
 }) {
+    const [currentSnapshot, setCurrentSnapshot] = useState(snapshot);
+    const snapshotRef = useRef(snapshot);
+    const [currentRoleName, setCurrentRoleName] = useState(roleName);
+    const [currentIsSuperAdmin, setCurrentIsSuperAdmin] = useState(isSuperAdmin);
+    const identityRef = useRef({ roleName, isSuperAdmin });
+
+    useEffect(() => {
+        snapshotRef.current = snapshot;
+        identityRef.current = { roleName, isSuperAdmin };
+        setCurrentSnapshot(snapshot);
+        setCurrentRoleName(roleName);
+        setCurrentIsSuperAdmin(isSuperAdmin);
+    }, [snapshot, roleName, isSuperAdmin]);
+
+    useEffect(() => {
+        let active = true;
+        const refresh = async () => {
+            try {
+                const response = await fetch("/api/me/permissions", { cache: "no-store" });
+                if (!response.ok) return;
+                const result = await response.json();
+                const data = result?.success ? result.data : null;
+                if (!active || !data || !Array.isArray(data.permissions)) return;
+
+                const nextPermissions = data.permissions as string[];
+                const nextRoleName = typeof data.roleName === "string" ? data.roleName : null;
+                const nextIsSuperAdmin = Boolean(data.isSuperAdmin);
+                const previous = snapshotRef.current;
+                const identityChanged = identityRef.current.roleName !== nextRoleName ||
+                    identityRef.current.isSuperAdmin !== nextIsSuperAdmin;
+                const permissionsChanged = previous.epoch !== Number(data.epoch ?? 0) ||
+                    previous.subItem.length !== nextPermissions.length ||
+                    previous.subItem.some((permission, index) => permission !== nextPermissions[index]);
+                if (permissionsChanged) {
+                    const nextSnapshot = { ...previous, subItem: nextPermissions, epoch: Number(data.epoch ?? previous.epoch) };
+                    snapshotRef.current = nextSnapshot;
+                    setCurrentSnapshot(nextSnapshot);
+                }
+                if (identityChanged) identityRef.current = { roleName: nextRoleName, isSuperAdmin: nextIsSuperAdmin };
+                setCurrentRoleName(nextRoleName);
+                setCurrentIsSuperAdmin(nextIsSuperAdmin);
+                if (permissionsChanged || identityChanged) window.dispatchEvent(new Event(PERMISSIONS_UPDATED_EVENT));
+            } catch {
+                // Keep the last server-rendered snapshot when a transient refresh fails.
+            }
+        };
+
+        const refreshWhenVisible = () => {
+            if (document.visibilityState === "visible") void refresh();
+        };
+        window.addEventListener("focus", refreshWhenVisible);
+        document.addEventListener("visibilitychange", refreshWhenVisible);
+        const timer = window.setInterval(refreshWhenVisible, 60_000);
+        return () => {
+            active = false;
+            window.removeEventListener("focus", refreshWhenVisible);
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
+            window.clearInterval(timer);
+        };
+    }, []);
+
     const value = useMemo<PermissionContextValue>(() => {
         const can = (...permissions: string[]) => {
-            if (isSuperAdmin) return true;
-            return permissions.every((permission) => matches(snapshot.subItem, permission));
+            if (currentIsSuperAdmin) return true;
+            return permissions.every((permission) => matches(currentSnapshot.subItem, permission));
         };
         const canAny = (...permissions: string[]) => {
-            if (isSuperAdmin) return true;
-            return permissions.some((permission) => matches(snapshot.subItem, permission));
+            if (currentIsSuperAdmin) return true;
+            return permissions.some((permission) => matches(currentSnapshot.subItem, permission));
         };
         const canAll = can;
 
         return {
-            ...snapshot,
+            ...currentSnapshot,
             loading: false,
-            isSuperAdmin,
-            roleName,
+            isSuperAdmin: currentIsSuperAdmin,
+            roleName: currentRoleName,
             can,
             canAny,
             canAll,
         };
-    }, [snapshot, isSuperAdmin, roleName]);
+    }, [currentSnapshot, currentIsSuperAdmin, currentRoleName]);
 
     return <PermissionContext.Provider value={value}>{children}</PermissionContext.Provider>;
 }
@@ -117,8 +180,9 @@ export function PermissionsProvider({
 /**
  * Reads the permission snapshot the layout fetched on the server.
  *
- * There is no client-side fetch on purpose: the layout already awaits
- * `/api/me/permissions`, so navigation never flashes the wrong buttons.
+ * The layout supplies the first snapshot to avoid flashing controls. The
+ * provider then refreshes it on focus and periodically so role edits apply to
+ * already-open sessions without requiring a sign-out.
  */
 export function usePermissions(): PermissionContextValue {
     const value = useContext(PermissionContext);

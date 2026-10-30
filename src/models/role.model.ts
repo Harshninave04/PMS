@@ -49,6 +49,10 @@ const roleSchema = new Schema<IRole>({
         type: Boolean,
         default: false,
     },
+    permissionMigrations: {
+        type: [String],
+        default: [],
+    },
     /** Seeded roles cannot be renamed or deleted at runtime. */
     isSystem: {
         type: Boolean,

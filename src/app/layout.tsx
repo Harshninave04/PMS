@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "./providers";
-import { SoftwareMetadataService } from "@/services/software-metadata.service";
+import { getHospitalProfile } from "@/services/hospital-profile.service";
+import { HospitalProfileProvider } from "@/components/hospital-profile/hospital-profile-context";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,28 +17,23 @@ const geistMono = Geist_Mono({
 });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const branding = await SoftwareMetadataService.getBranding();
+  await connection();
+  const hospital = await getHospitalProfile();
 
   return {
-    title: branding.softwareName,
-    description: branding.description,
-    icons: {
-      icon: [
-        ...(branding.logoUrl ? [{ url: branding.logoUrl }] : []),
-        { url: "/icon.svg", type: "image/svg+xml" },
-        { url: "/favicon.ico", sizes: "any" },
-      ],
-      shortcut: "/icon.svg",
-      apple: "/icon.svg",
-    },
+    title: { default: hospital.name || "", template: hospital.name ? `%s | ${hospital.name}` : "%s" },
+    description: hospital.name || "",
+    ...(hospital.logo ? { icons: { icon: hospital.logo, apple: hospital.logo } } : { icons: {} }),
   };
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  await connection();
+  const hospitalProfile = await getHospitalProfile();
   return (
     <html
       lang="en"
@@ -44,7 +41,9 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <Providers>{children}</Providers>
+        <HospitalProfileProvider initialProfile={hospitalProfile}>
+          <Providers>{children}</Providers>
+        </HospitalProfileProvider>
       </body>
     </html>
   );

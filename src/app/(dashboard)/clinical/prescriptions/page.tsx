@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { HospitalHeader } from "@/components/print/hospital-header";
 import {
   Pill,
   Search,
@@ -697,9 +698,7 @@ function ClinicalPrescriptionsContent() {
               <DialogHeader>
                 <div className="flex items-center justify-between border-b pb-3">
                   <div>
-                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                      MEDISTRA HOSPITAL EMR
-                    </h2>
+                    <HospitalHeader className="border-0 pb-0" />
                     <p className="text-[11px] text-slate-500">
                       Official Medical Prescription & Outpatient Advice
                     </p>

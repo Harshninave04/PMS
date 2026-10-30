@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
+import { HospitalHeader } from "@/components/print/hospital-header";
 
 export default function InvoicesListPage() {
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -406,8 +407,7 @@ export default function InvoicesListPage() {
           <div id="print-area" className="bg-background rounded-xl border max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-6">
             <div className="flex justify-between items-start border-b pb-4">
               <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">MEDISTRA HEALTHCARE SYSTEM</h2>
-                <p className="text-xs text-muted-foreground">12 Medical Enclave, Central Avenue, Kolkata &bull; GSTIN: 19AAECM0123M1Z5</p>
+                <HospitalHeader className="border-0 pb-0" />
                 <p className="text-xs font-semibold text-emerald-600 mt-1">OFFICIAL PATIENT TAX INVOICE</p>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setSelectedInvoice(null)} className="h-8 w-8 p-0 no-print">

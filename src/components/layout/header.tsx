@@ -5,6 +5,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import { Menu as MenuIcon, Bell, Search, LogOut, User as UserIcon, Building2, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
 
 interface HeaderProps {
   onMobileToggle: () => void;
@@ -12,6 +13,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onMobileToggle }) => {
   const { data: session } = useSession();
+  const hospital = useHospitalProfile();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
 
@@ -30,12 +32,12 @@ export const Header: React.FC<HeaderProps> = ({ onMobileToggle }) => {
           <MenuIcon className="h-5 w-5" />
         </button>
 
-        <div className="hidden sm:flex items-center gap-2">
+        {hospital.name && <div className="hidden sm:flex items-center gap-2">
           <Building2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-            Medistra Central Hospital
+            {hospital.name}
           </span>
-        </div>
+        </div>}
       </div>
 
       {/* Center: Search Bar */}
@@ -69,10 +71,10 @@ export const Header: React.FC<HeaderProps> = ({ onMobileToggle }) => {
         <div className="flex items-center gap-3">
           <div className="hidden flex-col text-right sm:flex">
             <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">
-              {session?.user?.name || "Super Admin"}
+              {session?.user?.name}
             </span>
             <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
-              {session?.user?.email || "admin@hospital.com"}
+              {session?.user?.email}
             </span>
           </div>
 

@@ -22,10 +22,13 @@ import {
   Loader2
 } from "lucide-react";
 import { ModuleNavCards } from "@/components/layout/module-nav-cards";
+import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
+import { formatHospitalDateTime, formatLengthOfStay } from "@/lib/hospital-date";
 
 export default function AdmissionsOverviewPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const hospital = useHospitalProfile();
   const [stats, setStats] = useState<any>(null);
   const [recentAdmissions, setRecentAdmissions] = useState<any[]>([]);
   const [recentDischarges, setRecentDischarges] = useState<any[]>([]);
@@ -77,15 +80,7 @@ export default function AdmissionsOverviewPage() {
     fetchDashboardData();
   };
 
-  const getDurationText = (admissionDate: string, dischargeDate?: string) => {
-    const start = new Date(admissionDate).getTime();
-    const end = dischargeDate ? new Date(dischargeDate).getTime() : Date.now();
-    const diffHours = Math.max(0, Math.floor((end - start) / (1000 * 60 * 60)));
-    const days = Math.floor(diffHours / 24);
-    const hours = diffHours % 24;
-    if (days === 0) return `${hours} hrs`;
-    return `${days}d ${hours}h`;
-  };
+  const getDurationText = (admissionDate: string, dischargeDate?: string) => formatLengthOfStay(admissionDate, dischargeDate);
 
   const getConditionBadgeColor = (condition?: string) => {
     switch (condition) {
@@ -392,7 +387,7 @@ export default function AdmissionsOverviewPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-slate-500 text-[11px]">
-                          {adm.dischargeDate ? new Date(adm.dischargeDate).toLocaleString() : "N/A"}
+                          {adm.dischargeDate ? formatHospitalDateTime(adm.dischargeDate, hospital.timeZone) : "N/A"}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button
