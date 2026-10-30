@@ -76,7 +76,6 @@ export class NursingService {
       .populate("patientId", "name uhid")
       .populate("doctorId", "name")
       .sort({ dischargeDate: -1 })
-      .limit(20)
       .lean();
     const ids = admissions.map((admission) => admission._id);
     const invoices = ids.length

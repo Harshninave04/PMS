@@ -5,6 +5,7 @@ export interface IDailyNursingRecord extends Document {
   admissionId: mongoose.Types.ObjectId;
   nursingDay: number;
   recordDate: Date;
+  hospitalDate?: string;
   vitals: { bloodPressure?: string; pulse?: number; temperature?: number; respiratoryRate?: number; oxygenSaturation?: number };
   observations?: string;
   procedures?: string;
@@ -22,6 +23,7 @@ const recordSchema = new Schema<IDailyNursingRecord>({
   admissionId: { type: Schema.Types.ObjectId, ref: "Admission", required: true, index: true },
   nursingDay: { type: Number, required: true, min: 1 },
   recordDate: { type: Date, required: true },
+  hospitalDate: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ },
   vitals: {
     bloodPressure: { type: String, trim: true, maxlength: 30 },
     pulse: { type: Number, min: 0, max: 300 },

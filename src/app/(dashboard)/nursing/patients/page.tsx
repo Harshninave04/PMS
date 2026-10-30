@@ -58,6 +58,7 @@ function MyInpatientsContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [handoverAdmissionId, setHandoverAdmissionId] = useState("");
+  const [patientTab, setPatientTab] = useState<"inpatients" | "discharged">("inpatients");
 
   // Shared stay timeline (instructions + meds + vitals + notes)
   const [timeline, setTimeline] = useState<any>(null);
@@ -127,6 +128,11 @@ function MyInpatientsContent() {
   };
 
   const openTimeline = async (patient: any) => {
+    if (!patient.discharged && patient.admissionId) {
+      router.push(`/nursing/patients/${encodeURIComponent(String(patient.admissionId))}/handover`);
+      return;
+    }
+
     setSelectedPatient(patient);
     setTimeline(null);
     setTimelineLoading(true);
@@ -537,35 +543,6 @@ function MyInpatientsContent() {
         </div>
       </div>
 
-      {recentDischarges.length > 0 && (
-        <Card className="border-rose-200 bg-rose-50/40 dark:border-rose-900 dark:bg-rose-950/10">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-              Recently Discharged <Badge className="bg-rose-700 text-white">PATIENT OUT</Badge>
-            </CardTitle>
-            <CardDescription>Read-only history for stays previously assigned to you.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {recentDischarges.slice(0, 8).map((patient) => (
-              <div key={patient.admissionId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-white px-3 py-2 dark:border-rose-900 dark:bg-slate-900">
-                <div>
-                  <p className="text-sm font-medium text-slate-900 dark:text-white">{patient.name} <span className="font-mono text-xs text-slate-500">{patient.uhid}</span></p>
-                  <p className="text-xs text-slate-500">{patient.dischargeDate ? new Date(patient.dischargeDate).toLocaleString() : "Discharge time unavailable"}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {patient.billingStatus === "BILLING_COMPLETED" && <Badge className="bg-emerald-100 text-emerald-800">Billing Completed</Badge>}
-                  <Badge variant="outline" className="border-rose-300 text-rose-800">DISCHARGED</Badge>
-                  <span className="text-xs text-slate-600 dark:text-slate-300">Patient has left the hospital.</span>
-                  <Button variant="outline" size="sm" onClick={() => void openTimeline({ ...patient, discharged: true })}>
-                    <Eye className="mr-1 h-3.5 w-3.5" /> View history
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
       <div
         className="flex gap-1 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -575,17 +552,43 @@ function MyInpatientsContent() {
           id="nursing-inpatients-tab"
           type="button"
           role="tab"
-          aria-selected="true"
+          aria-selected={patientTab === "inpatients"}
           aria-controls="nursing-inpatients-panel"
-          tabIndex={0}
-          className="border-b-2 border-emerald-600 px-4 py-2 text-sm font-medium text-emerald-700 dark:text-emerald-300"
+          tabIndex={patientTab === "inpatients" ? 0 : -1}
+          onClick={() => setPatientTab("inpatients")}
+          className={`border-b-2 px-4 py-2 text-sm font-medium ${
+            patientTab === "inpatients"
+              ? "border-emerald-600 text-emerald-700 dark:text-emerald-300"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+          }`}
         >
           My Allotted Inpatients
+        </button>
+        <button
+          id="nursing-discharged-tab"
+          type="button"
+          role="tab"
+          aria-selected={patientTab === "discharged"}
+          aria-controls="nursing-discharged-panel"
+          tabIndex={patientTab === "discharged" ? 0 : -1}
+          onClick={() => setPatientTab("discharged")}
+          className={`border-b-2 px-4 py-2 text-sm font-medium ${
+            patientTab === "discharged"
+              ? "border-emerald-600 text-emerald-700 dark:text-emerald-300"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+          }`}
+        >
+          Discharged Patients
+          {recentDischarges.length > 0 && (
+            <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-800">
+              {recentDischarges.length}
+            </span>
+          )}
         </button>
       </div>
 
       {/* Filter Bar */}
-      <div
+      {patientTab === "inpatients" ? <div
         id="nursing-inpatients-panel"
         role="tabpanel"
         aria-labelledby="nursing-inpatients-tab"
@@ -829,7 +832,51 @@ function MyInpatientsContent() {
           </div>
         </CardContent>
       </Card>
-      </div>
+      </div> : (
+        <div
+          id="nursing-discharged-panel"
+          role="tabpanel"
+          aria-labelledby="nursing-discharged-tab"
+          tabIndex={0}
+          className="space-y-3"
+        >
+          <Card className="border shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold">Discharged Patients</CardTitle>
+              <CardDescription>
+                Read-only history for stays previously assigned to you · {recentDischarges.length} patients
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {recentDischarges.length === 0 ? (
+                <p className="py-8 text-center text-sm text-slate-500">
+                  No discharged patients are available in your assigned history.
+                </p>
+              ) : recentDischarges.map((patient) => (
+                <div key={patient.admissionId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
+                      {patient.name} <span className="font-mono text-xs text-slate-500">{patient.uhid}</span>
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Discharged {patient.dischargeDate ? new Date(patient.dischargeDate).toLocaleString() : "time unavailable"}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {patient.billingStatus === "BILLING_COMPLETED" && (
+                      <Badge className="bg-emerald-100 text-emerald-800">Billing Completed</Badge>
+                    )}
+                    <Badge variant="outline" className="border-rose-300 text-rose-800">DISCHARGED</Badge>
+                    <Button variant="outline" size="sm" onClick={() => void openTimeline({ ...patient, discharged: true })}>
+                      <Eye className="mr-1 h-3.5 w-3.5" /> View history
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Dialog
         open={!!handoverPatient}

@@ -13,6 +13,7 @@ export interface INursingMedicalSupply extends Document {
   patient: mongoose.Types.ObjectId;
   admissionId: mongoose.Types.ObjectId;
   nursingDay: number;
+  hospitalDate?: string;
   category: NursingSupplyCategory;
   itemName: string;
   quantity: number;
@@ -24,7 +25,8 @@ export interface INursingMedicalSupply extends Document {
 const nursingMedicalSupplySchema = new Schema<INursingMedicalSupply>({
   patient: { type: Schema.Types.ObjectId, ref: "Patient", required: true, index: true },
   admissionId: { type: Schema.Types.ObjectId, ref: "Admission", required: true, index: true },
-  nursingDay: { type: Number, required: true, min: 1, max: 7 },
+  nursingDay: { type: Number, required: true, min: 1 },
+  hospitalDate: { type: String, match: /^\d{4}-\d{2}-\d{2}$/ },
   category: { type: String, enum: NURSING_SUPPLY_CATEGORIES, required: true },
   itemName: { type: String, trim: true, required: true, maxlength: 200 },
   quantity: { type: Number, required: true, min: 0.01, max: 100000 },

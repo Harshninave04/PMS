@@ -52,6 +52,9 @@ export function expandHospitalDoseTimes(
 }
 
 export function hospitalDayKey(date: Date, timeZone = HOSPITAL_TIME_ZONE): string {
+  if (!Number.isFinite(date.getTime())) {
+    throw new RangeError("A valid date is required to calculate a hospital day");
+  }
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
@@ -60,6 +63,22 @@ export function hospitalDayKey(date: Date, timeZone = HOSPITAL_TIME_ZONE): strin
   }).formatToParts(date);
   const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "00";
   return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+export function calculateHospitalDay(
+  admissionDate: Date,
+  referenceDate: Date,
+  timeZone = HOSPITAL_TIME_ZONE,
+): { day: number; admissionDate: string; hospitalDate: string } {
+  const admissionDay = hospitalDayKey(admissionDate, timeZone);
+  const hospitalDate = hospitalDayKey(referenceDate, timeZone);
+  const admissionMidnight = Date.parse(`${admissionDay}T00:00:00.000Z`);
+  const currentMidnight = Date.parse(`${hospitalDate}T00:00:00.000Z`);
+  const day = Math.floor((currentMidnight - admissionMidnight) / 86_400_000) + 1;
+  if (day < 1) {
+    throw new RangeError("The hospital date is before the admission date");
+  }
+  return { day, admissionDate: admissionDay, hospitalDate };
 }
 
 export function stayDayNumber(admissionDate: Date, eventDate: Date, timeZone = HOSPITAL_TIME_ZONE): number {
