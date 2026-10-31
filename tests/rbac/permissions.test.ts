@@ -418,6 +418,17 @@ async function runPermissionTests() {
     assert.equal(hasResolvedSubItemPermission(legacyOnly, "patients.register:create"), false);
   });
 
+  test("Medicine search is limited to doctor, nurse, and pharmacist permission grants", () => {
+    const rule = findRouteRule(new Request("http://localhost/api/pharmacy/medicines/search?q=am"))!;
+    assert.equal(rule.permission, "pharmacy.medicines:view");
+    assert.equal(routeRuleAllows(rule, new Set(["clinical.prescriptions:prescribe"])), true);
+    assert.equal(routeRuleAllows(rule, new Set(["clinical.consultations:create"])), true);
+    assert.equal(routeRuleAllows(rule, new Set(["nursing.medications:create"])), true);
+    assert.equal(routeRuleAllows(rule, new Set(["admissions.discharge:discharge"])), true);
+    assert.equal(routeRuleAllows(rule, new Set(["pharmacy.medicines:view"])), true);
+    assert.equal(routeRuleAllows(rule, new Set(["patients.profile:view"])), false);
+  });
+
   test("Default role API flows pass route and controller authorization", () => {
     const requestRule = (url: string, method: string) =>
       findRouteRule(new Request(`http://localhost${url}`, { method }))!;

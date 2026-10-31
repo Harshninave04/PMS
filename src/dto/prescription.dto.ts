@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 
 export interface MedicationDto {
     name: string;
+    isCatalogueMedicine: boolean;
     dosage?: string;
     frequency?: string;
     duration?: string;

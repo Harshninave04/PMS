@@ -3,6 +3,7 @@ import type { ConsultationAppointment } from "@/types/consultation";
 export interface MedicationDraft {
   id: string;
   name: string;
+  isCatalogueMedicine: boolean | null;
   dosage: string;
   frequency: string;
   duration: string;
@@ -32,7 +33,7 @@ export function createConsultationDraft(appointment: ConsultationAppointment): C
 }
 
 export function createMedicationDraft(id: string = createId()): MedicationDraft {
-  return { id, name: "", dosage: "", frequency: "", duration: "", instructions: "" };
+  return { id, name: "", isCatalogueMedicine: null, dosage: "", frequency: "", duration: "", instructions: "" };
 }
 
 export function isBlankMedication(medication: MedicationDraft): boolean {
@@ -59,6 +60,7 @@ export function validateConsultationDraft(
   const active = activeMedications(medications);
   for (const [index, medication] of active.entries()) {
     if (!medication.name.trim()) return `Enter a drug name for medicine ${index + 1}.`;
+    if (medication.isCatalogueMedicine === null) return `Select a catalogue medicine or use the typed name for medicine ${index + 1}.`;
   }
 
   const names = active.map((medication) => medication.name.trim().toLocaleLowerCase());
@@ -73,6 +75,7 @@ export function consultationPayload(draft: ConsultationDraft, medications: Medic
     investigations: [...new Set(draft.investigations.map((item) => item.trim()).filter(Boolean))],
     medications: activeMedications(medications).map((medication) => ({
       name: medication.name.trim(),
+      isCatalogueMedicine: medication.isCatalogueMedicine,
       dosage: medication.dosage.trim(),
       frequency: medication.frequency.trim(),
       duration: medication.duration.trim(),

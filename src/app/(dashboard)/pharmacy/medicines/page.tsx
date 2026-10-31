@@ -63,6 +63,7 @@ export default function MedicinesPage() {
     name: "",
     category: "Antibiotics",
     genericName: "",
+    strength: "",
     dosageForm: "TABLET",
     manufacturer: "",
     batchNumber: "",
@@ -175,6 +176,7 @@ export default function MedicinesPage() {
       name,
       category: categories[0]?.name || "Antibiotics",
       genericName: "",
+      strength: "",
       dosageForm: "TABLET",
       manufacturer: "",
       batchNumber: `BAT-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -199,6 +201,7 @@ export default function MedicinesPage() {
       name: med.name || "",
       category: med.category || "Antibiotics",
       genericName: med.genericName || "",
+      strength: med.strength || "",
       dosageForm: med.dosageForm || "TABLET",
       manufacturer: med.manufacturer || "",
       batchNumber: med.batchNumber || "",
@@ -862,6 +865,21 @@ export default function MedicinesPage() {
                   value={formData.genericName}
                   onChange={(e) =>
                     setFormData({ ...formData, genericName: e.target.value })
+                  }
+                  className="text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="strength" className="text-xs">
+                  Strength
+                </Label>
+                <Input
+                  id="strength"
+                  placeholder="e.g. 500 mg / 5 ml"
+                  value={formData.strength}
+                  onChange={(e) =>
+                    setFormData({ ...formData, strength: e.target.value })
                   }
                   className="text-xs"
                 />

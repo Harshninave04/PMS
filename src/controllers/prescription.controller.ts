@@ -6,6 +6,8 @@ import { CreatePrescriptionDto, UpdatePrescriptionDto } from "@/dto/prescription
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 import { ClinicalRecord } from "@/models/clinical-record.model";
+import Doctor from "@/models/doctor.model";
+import "@/models/department.model";
 
 function extractEntityId(field: unknown): string | null {
     if (!field) return null;
@@ -40,6 +42,19 @@ export class PrescriptionController {
             if (!data.patientId || !data.doctorId || !data.visitDate || !data.medications) {
                 return NextResponse.json(
                     { success: false, message: "Required fields: patientId, doctorId, visitDate, medications" },
+                    { status: 400 }
+                );
+            }
+            if (
+                !Array.isArray(data.medications) ||
+                data.medications.some((medication) =>
+                    !medication ||
+                    typeof medication.name !== "string" ||
+                    typeof medication.isCatalogueMedicine !== "boolean"
+                )
+            ) {
+                return NextResponse.json(
+                    { success: false, message: "Every medicine needs a name and a catalogue/free-text selection" },
                     { status: 400 }
                 );
             }
@@ -138,16 +153,42 @@ export class PrescriptionController {
                 .filter((id): id is string => id !== null && Types.ObjectId.isValid(id)))];
             const consultationRecords = appointmentIds.length
                 ? await ClinicalRecord.find({ appointmentId: { $in: appointmentIds }, recordType: "Consultation" })
-                    .select("appointmentId admitAdvised admitReason")
+                    .select("appointmentId admitAdvised admitReason chiefComplaint plan")
                     .lean()
                 : [];
-            const admissionAdviceByAppointment = new Map(
-                consultationRecords.map((record) => [String(record.appointmentId), { admitAdvised: record.admitAdvised, admitReason: record.admitReason }]),
+            const consultationByAppointment = new Map(
+                consultationRecords.map((record) => [String(record.appointmentId), {
+                    admitAdvised: record.admitAdvised,
+                    admitReason: record.admitReason,
+                    chiefComplaint: record.chiefComplaint,
+                    investigations: record.plan,
+                }]),
             );
-            const prescriptionData = prescriptions.map((prescription) => ({
-                ...prescription,
-                ...(admissionAdviceByAppointment.get(extractEntityId(prescription.appointmentId) || "") || { admitAdvised: false, admitReason: "" }),
-            }));
+            const doctorUserIds = [...new Set(prescriptions
+                .map((prescription) => extractEntityId(prescription.doctorId))
+                .filter((id): id is string => id !== null && Types.ObjectId.isValid(id)))];
+            const doctorProfiles = doctorUserIds.length
+                ? await Doctor.find({ userId: { $in: doctorUserIds.map((id) => new Types.ObjectId(id)) } })
+                    .select("userId qualification specialization departmentId")
+                    .populate("departmentId", "name")
+                    .lean()
+                : [];
+            const doctorProfileByUserId = new Map(
+                doctorProfiles.map((profile) => [String(profile.userId), profile]),
+            );
+            const prescriptionData = prescriptions.map((prescription) => {
+                const consultation = consultationByAppointment.get(extractEntityId(prescription.appointmentId) || "");
+                const notes = typeof prescription.notes === "string" ? prescription.notes.trim() : "";
+                const investigations = typeof consultation?.investigations === "string" ? consultation.investigations.trim() : "";
+                const symptoms = typeof prescription.symptoms === "string" ? prescription.symptoms.trim() : "";
+                return {
+                    ...prescription,
+                    ...(consultation || { admitAdvised: false, admitReason: "" }),
+                    doctorRecord: doctorProfileByUserId.get(extractEntityId(prescription.doctorId) || "") || null,
+                    chiefComplaint: symptoms || consultation?.chiefComplaint || "",
+                    generalAdvice: notes && notes !== investigations ? prescription.notes : "",
+                };
+            });
 
             return NextResponse.json(
                 { success: true, count: prescriptionData.length, data: prescriptionData },

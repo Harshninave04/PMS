@@ -263,9 +263,9 @@ async function runClinicalRbacTests() {
     );
   });
 
-  test("Free-typed values are accepted, duplicates blocked, and blank rows dropped from the payload", () => {
+  test("Medicine origin is explicit, duplicates are blocked, and blank rows are dropped from the payload", () => {
     const base = { chiefComplaint: " Fever ", diagnosisNotes: " viral ", investigations: ["CBC", " CBC ", "Dengue NS1"] };
-    const filled = { ...createMedicationDraft("m1"), name: " Dolo 650 ", dosage: "half tablet", frequency: "every 4 hrs" };
+    const filled = { ...createMedicationDraft("m1"), name: " Dolo 650 ", isCatalogueMedicine: false, dosage: "half tablet", frequency: "every 4 hrs" };
     const blank = createMedicationDraft("m2");
 
     assert.equal(validateConsultationDraft(base, [filled, blank]), null);
@@ -273,10 +273,14 @@ async function runClinicalRbacTests() {
     assert.equal(payload.chiefComplaint, "Fever");
     assert.equal(payload.diagnosisNotes, "viral");
     assert.deepEqual(payload.investigations, ["CBC", "Dengue NS1"]);
-    assert.deepEqual(payload.medications, [{ name: "Dolo 650", dosage: "half tablet", frequency: "every 4 hrs", duration: "", instructions: "" }]);
+    assert.deepEqual(payload.medications, [{ name: "Dolo 650", isCatalogueMedicine: false, dosage: "half tablet", frequency: "every 4 hrs", duration: "", instructions: "" }]);
 
-    const duplicate = { ...createMedicationDraft("m3"), name: "dolo 650" };
+    const duplicate = { ...createMedicationDraft("m3"), name: "dolo 650", isCatalogueMedicine: true };
     assert.equal(validateConsultationDraft(base, [filled, duplicate]), "Remove duplicate medicines from the prescription.");
+    assert.match(
+      normalizeConsultationInput({ chiefComplaint: "Fever", medications: [{ name: "Dolo 650" }] }).error || "",
+      /catalogue medicine/
+    );
   });
 
   test("Consultation saves ignore spoofed client patient and doctor ids", () => {
@@ -287,12 +291,12 @@ async function runClinicalRbacTests() {
     assert.equal(documents.clinicalRecord.doctor, "trusted-doctor-user");
     assert.equal(documents.prescription, null);
 
-    const withPrescription = normalizeConsultationInput({ chiefComplaint: "Fever", patientId: "spoofed", doctorId: "spoofed", medications: [{ name: "Dolo 650", dosage: "1 Tablet" }] });
+    const withPrescription = normalizeConsultationInput({ chiefComplaint: "Fever", patientId: "spoofed", doctorId: "spoofed", medications: [{ name: "Dolo 650", isCatalogueMedicine: true, dosage: "1 Tablet" }] });
     const pharmacyDocument = buildConsultationDocuments(withPrescription.data!, { appointmentId: "trusted-appointment", patientId: "trusted-patient", doctorUserId: "trusted-doctor-user", branchId: "trusted-branch" }).prescription;
     assert.equal(pharmacyDocument?.doctorId, "trusted-doctor-user");
     assert.equal(pharmacyDocument?.patientId, "trusted-patient");
     assert.equal(pharmacyDocument?.branchId, "trusted-branch");
-    assert.deepEqual(pharmacyDocument?.medications, [{ name: "Dolo 650", dosage: "1 Tablet", frequency: undefined, duration: undefined, instructions: undefined }]);
+    assert.deepEqual(pharmacyDocument?.medications, [{ name: "Dolo 650", isCatalogueMedicine: true, dosage: "1 Tablet", frequency: undefined, duration: undefined, instructions: undefined }]);
   });
 
   test("Consultation input enforces field and collection length limits", () => {
@@ -301,10 +305,10 @@ async function runClinicalRbacTests() {
     assert.match(normalizeConsultationInput({ chiefComplaint: "Fever", investigations: Array.from({ length: 16 }, (_, index) => `Test ${index}`) }).error || "", /15 investigations/);
     assert.match(normalizeConsultationInput({ chiefComplaint: "Fever", medications: Array.from({ length: 16 }, (_, index) => ({ name: `Medicine ${index}` })) }).error || "", /15 medicines/);
     for (const field of ["name", "dosage", "frequency", "duration", "instructions"] as const) {
-      const medication = { name: "Medicine", [field]: "x".repeat(201) };
+      const medication = { name: "Medicine", isCatalogueMedicine: true, [field]: "x".repeat(201) };
       assert.match(normalizeConsultationInput({ chiefComplaint: "Fever", medications: [medication] }).error || "", /200/);
     }
-    assert.ok(normalizeConsultationInput({ chiefComplaint: "Fever".repeat(40), diagnosisNotes: "d".repeat(1000), investigations: Array.from({ length: 15 }, (_, index) => `Test ${index}`), medications: [{ name: "m".repeat(200), dosage: "d".repeat(200), frequency: "f".repeat(200), duration: "t".repeat(200), instructions: "i".repeat(200) }] }).data);
+    assert.ok(normalizeConsultationInput({ chiefComplaint: "Fever".repeat(40), diagnosisNotes: "d".repeat(1000), investigations: Array.from({ length: 15 }, (_, index) => `Test ${index}`), medications: [{ name: "m".repeat(200), isCatalogueMedicine: true, dosage: "d".repeat(200), frequency: "f".repeat(200), duration: "t".repeat(200), instructions: "i".repeat(200) }] }).data);
   });
 
   test("Completed visit access is restricted to the doctor's own appointments completed today", () => {

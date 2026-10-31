@@ -237,6 +237,7 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     post("/pharmacy/dispense", K("pharmacy", "dispensing", "dispense")),
     { path: "/pharmacy/dispense/[id]", method: "GET", permission: K("pharmacy", "dispensing", "view") },
     get("/pharmacy/medicines", K("pharmacy", "medicines", "view")),
+    get("/pharmacy/medicines/search", K("pharmacy", "medicines", "view")),
     post("/pharmacy/medicines", K("pharmacy", "medicines", "create")),
     { path: "/pharmacy/medicines/[id]", method: "GET", permission: K("pharmacy", "medicines", "view") },
     { path: "/pharmacy/medicines/[id]", method: "PUT", permission: K("pharmacy", "medicines", "update") },
@@ -393,6 +394,14 @@ export const ROUTE_ALTERNATIVES: Readonly<Record<string, readonly string[]>> = {
     "POST /medication-orders": [K("clinical", "prescriptions", "prescribe")],
     "PUT /medication-orders/[id]": [K("clinical", "prescriptions", "update")],
     "GET /pharmacy/medicines": [K("clinical", "rounds", "view")],
+    "GET /pharmacy/medicines/search": [
+        K("clinical", "rounds", "view"),
+        K("clinical", "rounds", "create"),
+        K("clinical", "prescriptions", "prescribe"),
+        K("clinical", "consultations", "create"),
+        K("nursing", "medications", "create"),
+        K("admissions", "discharge", "discharge"),
+    ],
 };
 
 /**

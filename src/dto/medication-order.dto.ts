@@ -5,6 +5,7 @@ export interface CreateMedicationOrderDto {
     patientId: Types.ObjectId | string;
     visitId?: Types.ObjectId | string;
     medicationName: string;
+    isCatalogueMedicine: boolean;
     dosage?: string;
     route?: "ORAL" | "IV" | "IM" | "SC" | "TOPICAL" | "INHALATION" | "OTHER" | string;
     frequency: string;

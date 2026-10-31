@@ -47,6 +47,9 @@ export class MedicationOrderService {
         if (!data.admissionId || !data.patientId) {
             throw { statusCode: 400, message: "Admission and patient are required" };
         }
+        if (typeof data.isCatalogueMedicine !== "boolean") {
+            throw { statusCode: 400, message: "Select a catalogue medicine or explicitly use the typed name" };
+        }
         if (!data.medicationName?.trim() || (!options.allowUnspecifiedDosage && !data.dosage?.trim()) || !data.frequency) {
             throw { statusCode: 400, message: options.allowUnspecifiedDosage ? "Medication name and frequency are required" : "Medication name, dosage and frequency are required" };
         }
@@ -74,6 +77,7 @@ export class MedicationOrderService {
             visitId: data.visitId ? new Types.ObjectId(data.visitId.toString()) : undefined,
             prescribedBy: new Types.ObjectId(prescriberId.toString()),
             medicationName: data.medicationName.trim(),
+            isCatalogueMedicine: data.isCatalogueMedicine,
             dosage: data.dosage?.trim() ?? "",
             route: data.route ?? "ORAL",
             frequency: data.frequency,
@@ -102,6 +106,7 @@ export class MedicationOrderService {
                         admissionId: order.admissionId,
                         orderId: order._id,
                         medicationName: order.medicationName,
+                        isCatalogueMedicine: order.isCatalogueMedicine,
                         dosage: order.dosage,
                         route: order.route,
                         scheduledTime,

@@ -45,6 +45,9 @@ const prescriptionSchema = new Schema<IPrescription>(
                     type: String,
                     required: true
                 },
+                isCatalogueMedicine: {
+                    type: Boolean
+                },
                 dosage: {
                     type: String
                 },

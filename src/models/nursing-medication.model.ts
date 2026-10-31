@@ -6,6 +6,7 @@ export interface INursingMedication extends Document {
   orderId?: Types.ObjectId;
   administeredBy?: Types.ObjectId;
   medicationName: string;
+  isCatalogueMedicine?: boolean;
   dosage: string;
   route: "ORAL" | "IV" | "IM" | "SC" | "TOPICAL" | "INHALATION" | "OTHER";
   scheduledTime: Date;
@@ -24,6 +25,7 @@ const NursingMedicationSchema = new Schema(
     orderId: { type: Schema.Types.ObjectId, ref: "MedicationOrder", index: true },
     administeredBy: { type: Schema.Types.ObjectId, ref: "User" },
     medicationName: { type: String, required: true },
+    isCatalogueMedicine: { type: Boolean },
     dosage: { type: String, required: false, default: "" },
     route: {
       type: String,

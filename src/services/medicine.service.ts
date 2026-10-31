@@ -2,6 +2,31 @@ import Medicine from "@/models/medicine.model";
 import { IMedicine } from "@/interfaces/medicine.interface";
 
 export class MedicineService {
+    static async searchSuggestions(query: string) {
+        const expression = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const fields = "name strength dosageForm stockQuantity reorderLevel";
+        const prefix = await Medicine.find({
+            isActive: true,
+            name: { $regex: `^${expression}`, $options: "i" },
+        })
+            .select(fields)
+            .sort({ name: 1 })
+            .limit(10)
+            .lean();
+        const remainder = prefix.length < 10
+            ? await Medicine.find({
+                  isActive: true,
+                  name: { $regex: expression, $options: "i" },
+                  _id: { $nin: prefix.map((medicine) => medicine._id) },
+              })
+                  .select(fields)
+                  .sort({ name: 1 })
+                  .limit(10 - prefix.length)
+                  .lean()
+            : [];
+        return [...prefix, ...remainder];
+    }
+
     static async create(data: Partial<IMedicine>) {
         return Medicine.create(data);
     }

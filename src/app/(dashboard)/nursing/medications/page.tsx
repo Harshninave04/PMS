@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { MedicineAutocomplete } from "@/components/pharmacy/medicine-autocomplete";
 import {
   Pill,
   Search,
@@ -131,6 +132,7 @@ function MedicationAdministrationContent() {
     patient: initialPatientId,
     admissionId: initialAdmissionId,
     medicationName: "",
+    isCatalogueMedicine: null as boolean | null,
     dosage: "1 Tab",
     route: "ORAL",
     scheduledTime: new Date().toISOString().slice(0, 16),
@@ -199,6 +201,10 @@ function MedicationAdministrationContent() {
       toast("Please select a patient, drug name, and dosage", "error");
       return;
     }
+    if (formData.isCatalogueMedicine === null) {
+      toast("Choose a catalogue medicine or explicitly select Use as typed", "error");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -213,6 +219,7 @@ function MedicationAdministrationContent() {
         patient: formData.patient,
         admissionId: stayId,
         medicationName: formData.medicationName,
+        isCatalogueMedicine: formData.isCatalogueMedicine,
         dosage: formData.dosage,
         route: formData.route,
         scheduledTime: new Date(formData.scheduledTime).toISOString(),
@@ -234,6 +241,7 @@ function MedicationAdministrationContent() {
           patient: selectedPatientFilter !== "ALL" ? selectedPatientFilter : "",
           admissionId: initialAdmissionId,
           medicationName: "",
+          isCatalogueMedicine: null,
           dosage: "1 Tab",
           route: "ORAL",
           scheduledTime: new Date().toISOString().slice(0, 16),
@@ -695,7 +703,7 @@ function MedicationAdministrationContent() {
                   value={formData.patient}
                   onChange={(e) => setFormData({ ...formData, patient: e.target.value })}
                   required
-                  className="h-9 text-xs"
+                  className="[&_input]:h-9 [&_input]:text-xs"
                 >
                   <option value="">-- Choose Inpatient --</option>
                   {inpatients.map((p) => (
@@ -710,13 +718,15 @@ function MedicationAdministrationContent() {
                 <Label htmlFor="med" className="text-xs font-semibold">
                   Medication Name & Strength *
                 </Label>
-                <Input
+                <MedicineAutocomplete
                   id="med"
-                  placeholder="e.g. Inj Ceftriaxone 1g, Tab Paracetamol 650mg, IV Normal Saline"
+                  placeholder="Search medicine catalogue"
+                  ariaLabel="Nurse medication name and strength"
                   value={formData.medicationName}
-                  onChange={(e) => setFormData({ ...formData, medicationName: e.target.value })}
+                  isCatalogueMedicine={formData.isCatalogueMedicine}
+                  onChange={(medicationName, isCatalogueMedicine) => setFormData({ ...formData, medicationName, isCatalogueMedicine })}
                   required
-                  className="h-9 text-xs"
+                  className="[&_input]:h-9 [&_input]:text-xs"
                 />
               </div>
 
