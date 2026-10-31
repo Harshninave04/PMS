@@ -24,6 +24,7 @@ type RoundOrder = MedicineOrderInput | InstructionOrderInput;
 interface MedicineOrderInput {
   type: "MEDICINE";
   medicationName: string;
+  isCatalogueMedicine: boolean;
   dosage?: string;
   route: string;
   frequency: string;
@@ -152,6 +153,7 @@ export class ClinicalRoundController {
       for (const [index, order] of orders.entries()) {
         if (order.type === "MEDICINE") {
           if (typeof order.medicationName !== "string" || (order.dosage !== undefined && typeof order.dosage !== "string")) return validationError(`Medicine ${index + 1}: medication and optional dose must be text`);
+          if (typeof order.isCatalogueMedicine !== "boolean") return validationError(`Medicine ${index + 1}: select a catalogue medicine or explicitly use the typed name`);
           const medicationName = order.medicationName.trim();
           const dosage = typeof order.dosage === "string" ? order.dosage.trim() : "";
           if (!medicationName) return validationError(`Medicine ${index + 1}: medication name is required`);
@@ -248,6 +250,7 @@ export class ClinicalRoundController {
             patientId,
             visitId: visitId.toString(),
             medicationName: order.medicationName.trim(),
+            isCatalogueMedicine: order.isCatalogueMedicine,
             dosage: order.dosage?.trim() ?? "",
             route: order.route.toUpperCase(),
             frequency: order.frequency.toUpperCase(),

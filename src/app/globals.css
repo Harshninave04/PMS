@@ -83,4 +83,75 @@ body {
   @page {
     margin: 12mm;
   }
+
+  @page prescription {
+    size: A4;
+    margin: 12mm;
+  }
+
+  .prescription-dialog-content {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    transform: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .prescription-dialog-content #print-area {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+  }
+
+  .prescription-print-area {
+    page: prescription;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    font-size: 10pt !important;
+  }
+
+  .compact-opd-prescription {
+    font-size: 9pt !important;
+    line-height: 1.25 !important;
+  }
+
+  .compact-opd-prescription .text-sm {
+    font-size: 9pt !important;
+  }
+
+  .compact-opd-prescription .text-xs {
+    font-size: 8pt !important;
+  }
+
+  .prescription-print-area table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .prescription-print-area thead {
+    display: table-header-group;
+  }
+
+  .prescription-table-wrap {
+    overflow: visible !important;
+  }
+
+  .prescription-print-area tr,
+  .prescription-print-area th,
+  .prescription-print-area td,
+  .prescription-keep-together {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
 }

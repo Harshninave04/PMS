@@ -447,6 +447,20 @@ export class AdmissionController {
                     { status: 400 }
                 );
             }
+            if (
+                data.dischargeMedications !== undefined &&
+                (!Array.isArray(data.dischargeMedications) ||
+                    data.dischargeMedications.some((medicine) =>
+                        !medicine ||
+                        typeof medicine.medicineName !== "string" ||
+                        typeof medicine.isCatalogueMedicine !== "boolean"
+                    ))
+            ) {
+                return NextResponse.json(
+                    { success: false, message: "Every discharge medicine needs a name and a catalogue/free-text selection" },
+                    { status: 400 }
+                );
+            }
 
             if (!Types.ObjectId.isValid(data.admissionId.toString())) {
                 return NextResponse.json(

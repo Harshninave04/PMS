@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { ComboField } from "@/components/consultation/combo-field";
+import { MedicineAutocomplete } from "@/components/pharmacy/medicine-autocomplete";
 import {
   COMMON_CHIEF_COMPLAINTS,
   COMMON_INVESTIGATIONS,
@@ -35,12 +36,6 @@ interface ConsultationModalProps {
   appointment: ConsultationAppointment | null;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void | Promise<void>;
-}
-
-async function searchMedicines(query: string): Promise<string[]> {
-  const response = await fetch(`/api/appointments/consultation-medicines?q=${encodeURIComponent(query)}`);
-  const result = await response.json();
-  return response.ok && result.success ? (result.data as string[]) : [];
 }
 
 function Info({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
@@ -297,14 +292,13 @@ export function ConsultationModal({ open, appointment, onOpenChange, onSaved }: 
                 return (
                   <div key={medication.id} className="space-y-1.5 rounded-lg border border-slate-200 p-2 dark:border-slate-700">
                     <div className="flex items-center gap-2">
-                      <ComboField
+                      <MedicineAutocomplete
                         className="min-w-0 flex-1 [&_input]:h-9 [&_input]:text-sm"
                         ariaLabel={`${label} drug name and strength`}
                         placeholder="Drug name & strength"
                         value={medication.name}
-                        onChange={(value) => updateMedication(medication.id, { name: value })}
-                        fetchSuggestions={searchMedicines}
-                        minChars={2}
+                        isCatalogueMedicine={medication.isCatalogueMedicine}
+                        onChange={(value, isCatalogueMedicine) => updateMedication(medication.id, { name: value, isCatalogueMedicine })}
                       />
                       {medications.length > 1 && (
                         <Button

@@ -12,6 +12,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { HospitalHeader } from "@/components/print/hospital-header";
+import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
+import { FieldIfPresent } from "@/components/clinical/field-if-present";
+import { MedicineAutocomplete } from "@/components/pharmacy/medicine-autocomplete";
 import {
   Pill,
   Search,
@@ -28,6 +31,7 @@ import {
 
 interface MedicationRow {
   name: string;
+  isCatalogueMedicine: boolean | null;
   dosage: string;
   frequency: string;
   duration: string;
@@ -53,6 +57,7 @@ function ClinicalPrescriptionsContent() {
   const searchParams = useSearchParams();
   const initialPatientId = searchParams.get("patientId") || "";
   const { toast } = useToast();
+  const hospital = useHospitalProfile();
 
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
@@ -77,7 +82,7 @@ function ClinicalPrescriptionsContent() {
   });
 
   const [medications, setMedications] = useState<MedicationRow[]>([
-    { name: "", dosage: "1 Tablet", frequency: "Twice daily (BD)", duration: "5 days", instructions: "Take after meals" }
+    { name: "", isCatalogueMedicine: null, dosage: "1 Tablet", frequency: "Twice daily (BD)", duration: "5 days", instructions: "Take after meals" }
   ]);
 
   // View Rx Modal
@@ -123,7 +128,7 @@ function ClinicalPrescriptionsContent() {
   const handleAddMedication = () => {
     setMedications([
       ...medications,
-      { name: "", dosage: "1 Tablet", frequency: "Twice daily (BD)", duration: "5 days", instructions: "Take after meals" }
+      { name: "", isCatalogueMedicine: null, dosage: "1 Tablet", frequency: "Twice daily (BD)", duration: "5 days", instructions: "Take after meals" }
     ]);
   };
 
@@ -132,9 +137,15 @@ function ClinicalPrescriptionsContent() {
     setMedications(medications.filter((_, i) => i !== index));
   };
 
-  const handleMedChange = (index: number, field: keyof MedicationRow, val: string) => {
+  const handleMedChange = (index: number, field: Exclude<keyof MedicationRow, "name" | "isCatalogueMedicine">, val: string) => {
     const updated = [...medications];
     updated[index][field] = val;
+    setMedications(updated);
+  };
+
+  const handleMedicineSelection = (index: number, name: string, isCatalogueMedicine: boolean | null) => {
+    const updated = [...medications];
+    updated[index] = { ...updated[index], name, isCatalogueMedicine };
     setMedications(updated);
   };
 
@@ -148,6 +159,10 @@ function ClinicalPrescriptionsContent() {
     const validMeds = medications.filter((m) => m.name.trim() !== "");
     if (validMeds.length === 0) {
       toast("Please specify at least one medication with a valid name", "error");
+      return;
+    }
+    if (validMeds.some((medication) => medication.isCatalogueMedicine === null)) {
+      toast("Choose a catalogue medicine or explicitly select Use as typed for each medicine", "error");
       return;
     }
 
@@ -184,7 +199,7 @@ function ClinicalPrescriptionsContent() {
           notes: ""
         });
         setMedications([
-          { name: "", dosage: "1 Tablet", frequency: "Twice daily (BD)", duration: "5 days", instructions: "Take after meals" }
+          { name: "", isCatalogueMedicine: null, dosage: "1 Tablet", frequency: "Twice daily (BD)", duration: "5 days", instructions: "Take after meals" }
         ]);
         loadData();
       } else {
@@ -569,12 +584,14 @@ function ClinicalPrescriptionsContent() {
                         <span className="text-[10px] text-slate-500 font-semibold uppercase">
                           Drug Name & Strength *
                         </span>
-                        <Input
-                          placeholder="e.g. Amoxicillin 500mg"
+                        <MedicineAutocomplete
+                          placeholder="Search medicine catalogue"
+                          ariaLabel={`Medicine ${idx + 1} name and strength`}
                           value={med.name}
-                          onChange={(e) => handleMedChange(idx, "name", e.target.value)}
+                          isCatalogueMedicine={med.isCatalogueMedicine}
+                          onChange={(name, isCatalogueMedicine) => handleMedicineSelection(idx, name, isCatalogueMedicine)}
                           required
-                          className="h-8 text-xs"
+                          className="[&_input]:h-8 [&_input]:text-xs"
                         />
                       </div>
 
@@ -692,136 +709,123 @@ function ClinicalPrescriptionsContent() {
 
       {/* View / Print Rx Sheet Modal */}
       <Dialog open={!!selectedRx} onOpenChange={() => setSelectedRx(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="prescription-dialog-content max-h-[90vh] max-w-3xl overflow-y-auto">
           {selectedRx && (
-            <div className="space-y-4 text-xs">
-              <DialogHeader>
-                <div className="flex items-center justify-between border-b pb-3">
-                  <div>
-                    <HospitalHeader className="border-0 pb-0" />
-                    <p className="text-[11px] text-slate-500">
-                      Official Medical Prescription & Outpatient Advice
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-mono text-xs text-slate-500 block">
-                      Rx #{selectedRx._id?.slice(-6).toUpperCase()}
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      Date: {new Date(selectedRx.visitDate).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-              </DialogHeader>
+            <div className="space-y-4">
+              <div id="print-area" className="prescription-print-area space-y-5 text-sm text-slate-900">
+                <HospitalHeader className="border-b-2 border-slate-800 pb-3" includeGstin={false} />
 
-              {/* Patient & Doctor Header */}
-              <div className="grid grid-cols-2 gap-4 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg">
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">
-                    Patient Details
-                  </span>
-                  <div className="font-bold text-slate-900 dark:text-white text-sm">
-                    {selectedRx.patientId?.name}
-                  </div>
-                  <div className="text-slate-500 text-[11px]">
-                    UHID: {selectedRx.patientId?.uhid} • Age/Gender: {selectedRx.patientId?.age}y /{" "}
-                    {selectedRx.patientId?.gender}
-                  </div>
-                  <div className="text-slate-500 text-[11px]">
-                    Contact: {selectedRx.patientId?.contact}
+                <div className="flex items-end justify-between border-b pb-3">
+                  <h2 className="text-xl font-bold tracking-wide">PRESCRIPTION</h2>
+                  <div className="text-right text-sm">
+                    <FieldIfPresent
+                      label="Date"
+                      value={selectedRx.visitDate ? new Date(selectedRx.visitDate).toLocaleDateString() : ""}
+                    />
+                    <FieldIfPresent
+                      label="Token / Rx number"
+                      value={selectedRx.appointmentId?.tokenNumber || selectedRx._id?.slice(-6).toUpperCase()}
+                    />
                   </div>
                 </div>
 
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">
-                    Prescribing Physician
-                  </span>
-                  <div className="font-bold text-slate-900 dark:text-white text-sm">
-                    Dr. {selectedRx.doctorId?.name || "Medical Officer"}
+                <section className="prescription-keep-together rounded border p-3">
+                  <h3 className="mb-2 font-semibold">Patient</h3>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                    <FieldIfPresent label="Name" value={selectedRx.patientId?.name} />
+                    <FieldIfPresent label="UHID" value={selectedRx.patientId?.uhid} />
+                    <FieldIfPresent
+                      label="Age / Gender"
+                      value={[
+                        selectedRx.patientId?.age ? `${selectedRx.patientId.age} years` : "",
+                        selectedRx.patientId?.gender || "",
+                      ].filter(Boolean).join(" / ")}
+                    />
+                    <FieldIfPresent label="Phone" value={selectedRx.patientId?.contact} />
                   </div>
-                  <div className="text-slate-500 text-[11px]">
-                    Diagnosis: {selectedRx.diagnosis || "Clinical Condition"}
-                  </div>
-                </div>
-              </div>
+                </section>
 
-              {/* Medications List */}
-              <div className="space-y-2">
-                <span className="font-bold text-slate-900 dark:text-white block text-sm flex items-center gap-1 text-sky-600">
-                  <Pill className="h-4 w-4" /> ℞ Medications Prescribed
-                </span>
+                <section className="prescription-keep-together rounded border p-3">
+                  <h3 className="mb-2 font-semibold">Consulting Doctor</h3>
+                  <FieldIfPresent label="Name" value={selectedRx.doctorId?.name} />
+                  <FieldIfPresent
+                    label="Qualification / Specialization"
+                    value={[
+                      selectedRx.doctorRecord?.qualification,
+                      selectedRx.doctorRecord?.specialization,
+                    ].filter(Boolean).join(" / ")}
+                  />
+                  <FieldIfPresent
+                    label="Department"
+                    value={selectedRx.doctorRecord?.departmentId?.name}
+                  />
+                </section>
 
-                <div className="rounded-md border overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50 dark:bg-slate-800/60 text-[11px]">
-                        <TableHead>#</TableHead>
-                        <TableHead>Medication Name</TableHead>
-                        <TableHead>Dosage</TableHead>
-                        <TableHead>Frequency</TableHead>
-                        <TableHead>Duration</TableHead>
-                        <TableHead>Special Instructions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedRx.medications?.map((m: any, idx: number) => (
-                        <TableRow key={idx} className="text-xs">
-                          <TableCell className="font-mono text-slate-400">{idx + 1}</TableCell>
-                          <TableCell className="font-bold text-slate-900 dark:text-white">
-                            {m.name}
-                          </TableCell>
-                          <TableCell className="font-medium">{m.dosage || "1 Tab"}</TableCell>
-                          <TableCell>{m.frequency || "BD"}</TableCell>
-                          <TableCell className="font-mono">{m.duration || "5d"}</TableCell>
-                          <TableCell className="text-slate-500">{m.instructions || "After food"}</TableCell>
+                <section className="grid grid-cols-2 gap-4">
+                  <FieldIfPresent
+                    label="Chief complaint"
+                    value={selectedRx.chiefComplaint || "Not recorded"}
+                    allowNotRecorded
+                  />
+                  <FieldIfPresent
+                    label="Diagnosis"
+                    value={selectedRx.diagnosis || "Not recorded"}
+                    allowNotRecorded
+                  />
+                </section>
+
+                <section>
+                  <h3 className="mb-2 font-semibold">Rx</h3>
+                  <div className="overflow-hidden rounded border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>#</TableHead>
+                          <TableHead>Medicine</TableHead>
+                          <TableHead>Dose</TableHead>
+                          <TableHead>Frequency</TableHead>
+                          <TableHead>Duration</TableHead>
+                          <TableHead>Instructions</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-
-              {/* Advice & Follow-up */}
-              {(selectedRx.notes || selectedRx.followUpDate) && (
-                <div className="p-3 border rounded-lg space-y-1 bg-sky-50/30 dark:bg-sky-950/20">
-                  {selectedRx.notes && (
-                    <div>
-                      <span className="font-semibold text-slate-700 dark:text-slate-300">
-                        Physician Advice:{" "}
-                      </span>
-                      <span className="text-slate-600 dark:text-slate-400">{selectedRx.notes}</span>
-                    </div>
-                  )}
-                  {selectedRx.followUpDate && (
-                    <div>
-                      <span className="font-semibold text-slate-700 dark:text-slate-300">
-                        Next Review / Follow-Up:{" "}
-                      </span>
-                      <span className="font-mono font-bold text-sky-700 dark:text-sky-300">
-                        {new Date(selectedRx.followUpDate).toLocaleDateString()}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {selectedRx.admitAdvised && (
-                <div className="rounded-lg border-2 border-amber-500 bg-amber-50 p-3 text-sm font-bold text-amber-950 dark:border-amber-400 dark:bg-amber-950/40 dark:text-amber-100">
-                  ADMISSION ADVISED. Reason: {selectedRx.admitReason}
-                </div>
-              )}
-
-              {/* Doctor Signature Line */}
-              <div className="flex justify-end pt-6">
-                <div className="text-center w-48 border-t border-slate-300 dark:border-slate-700 pt-2">
-                  <div className="font-bold text-slate-900 dark:text-white">
-                    Dr. {selectedRx.doctorId?.name}
+                      </TableHeader>
+                      <TableBody>
+                        {selectedRx.medications?.map((medicine: any, index: number) => (
+                          <TableRow key={medicine._id || index}>
+                            <TableCell>{index + 1}</TableCell>
+                            <TableCell>{medicine.name}</TableCell>
+                            <TableCell>{medicine.dosage}</TableCell>
+                            <TableCell>{medicine.frequency}</TableCell>
+                            <TableCell>{medicine.duration}</TableCell>
+                            <TableCell>{medicine.instructions}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
-                  <div className="text-[10px] text-slate-400">Authorized Physician Signature</div>
-                </div>
+                </section>
+
+                <section className="space-y-3">
+                  <FieldIfPresent label="Investigations advised" value={selectedRx.investigations} />
+                  <FieldIfPresent label="General advice" value={selectedRx.generalAdvice} />
+                </section>
+
+                <footer className="prescription-keep-together flex items-end justify-between border-t pt-8">
+                  <div className="space-y-1">
+                    <p className="text-xs">Computer generated prescription</p>
+                    <FieldIfPresent label="Address" value={hospital.address} />
+                    <FieldIfPresent label="Phone" value={hospital.phone} />
+                  </div>
+                  <div className="w-56 border-t border-slate-800 pt-2 text-center">
+                    <FieldIfPresent
+                      label="Consulting Doctor"
+                      value={selectedRx.doctorId?.name}
+                      valueClassName="font-semibold"
+                    />
+                  </div>
+                </footer>
               </div>
 
-              <DialogFooter className="flex justify-between items-center sm:justify-between pt-2 border-t">
+              <DialogFooter className="no-print flex justify-between items-center sm:justify-between pt-2 border-t">
                 <Button
                   variant="outline"
                   size="sm"

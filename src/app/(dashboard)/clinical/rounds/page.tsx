@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/toast";
 import { FREQUENCY_SUGGESTIONS } from "@/lib/medication-schedule";
 import { flagVitalForReview, type VitalFlag } from "@/lib/vital-flags";
 import { cleanRoundDisplayText, formatRoundDateTime, RoundCard, type RoundView } from "@/components/clinical/round-card";
+import { MedicineAutocomplete } from "@/components/pharmacy/medicine-autocomplete";
 
 type Condition = "Improving" | "Stable" | "Deteriorating" | "Critical";
 type RoundTab = "Round" | "Timeline" | "Orders";
@@ -150,10 +151,10 @@ interface TimelineResponse {
   hospitalName?: string;
 }
 interface ApiResult<T> { success: boolean; data?: T; message?: string }
-interface MedicineOption { _id: string; name: string; stockQuantity?: number }
 interface MedicineDraft {
   type: "MEDICINE";
   medicationName: string;
+  isCatalogueMedicine: boolean | null;
   dosage: string;
   route: Route;
   frequency: Frequency | "";
@@ -200,7 +201,7 @@ const FREQUENCY_SUMMARIES: Record<Frequency, string> = {
 function createDraft(): Draft {
   return {
     condition: "", notes: "",
-    medicine: { type: "MEDICINE", medicationName: "", dosage: "", route: "ORAL", frequency: "", timesOfDay: [], timesText: "", durationDays: "", instructions: "", editSchedule: false },
+    medicine: { type: "MEDICINE", medicationName: "", isCatalogueMedicine: null, dosage: "", route: "ORAL", frequency: "", timesOfDay: [], timesText: "", durationDays: "", instructions: "", editSchedule: false },
     instructionTitle: "", instructionPriority: "Routine", orders: [], newRoundOpen: false,
   };
 }
@@ -278,28 +279,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function InlineError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><span>{message}</span><Button type="button" size="sm" variant="outline" onClick={onRetry}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Retry</Button></div>;
 }
-function MedicinePicker({ value, onChange, className = "" }: { value: string; onChange: (value: string) => void; className?: string }) {
-  const [results, setResults] = useState<MedicineOption[]>([]);
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    const query = value.trim();
-    if (query.length < 2) { setResults([]); setOpen(false); return; }
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setLoading(true);
-      try {
-        const response = await fetch(`/api/pharmacy/medicines?search=${encodeURIComponent(query)}`, { signal: controller.signal });
-        const result = await response.json() as ApiResult<MedicineOption[]>;
-        if (response.ok && result.success) { setResults((result.data ?? []).slice(0, 7)); setOpen(true); }
-      } catch { /* Free text remains available if stock lookup is unavailable. */ }
-      finally { setLoading(false); }
-    }, 250);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [value]);
-  return <div className={`relative min-w-0 ${className}`}><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input value={value} onChange={(event) => onChange(event.target.value)} onFocus={() => results.length > 0 && setOpen(true)} onBlur={() => window.setTimeout(() => setOpen(false), 140)} placeholder="Search stock or type medicine" className="h-10 pl-9" />{loading && <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-slate-400" />}{open && results.length > 0 && <div className="absolute z-30 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl dark:border-slate-700 dark:bg-slate-900">{results.map((medicine) => <button key={medicine._id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(medicine.name); setOpen(false); }} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-emerald-50 dark:hover:bg-emerald-950/40"><span className="truncate font-medium">{medicine.name}</span><span className="shrink-0 text-xs text-slate-500">{medicine.stockQuantity ?? 0} in stock</span></button>)}</div>}</div>;
-}
-
 export default function WardRoundsPage() {
   const { toast } = useToast();
   const [inpatients, setInpatients] = useState<InpatientRow[]>([]);
@@ -457,6 +436,7 @@ export default function WardRoundsPage() {
     const medicine = draft.medicine;
     const frequency = medicine.frequency;
     if (!medicine.medicationName.trim()) { setRoundError("Choose or type a medicine before adding it."); return; }
+    if (medicine.isCatalogueMedicine === null) { setRoundError("Select a catalogue medicine or explicitly use the typed name."); return; }
     if (!frequency) { setRoundError("Choose a medicine frequency."); return; }
     if (frequency !== "STAT" && frequency !== "PRN" && (!medicine.durationDays || !medicine.timesOfDay.length)) { setRoundError("Choose dose times and course length."); return; }
     const order: OrderDraft = { ...medicine, frequency, id: crypto.randomUUID() };
@@ -486,6 +466,7 @@ export default function WardRoundsPage() {
     }
     for (const [index, order] of draftAtSave.orders.entries()) {
       if (order.type === "MEDICINE" && !order.medicationName.trim()) { setRoundError(`Medicine ${index + 1}: choose a medicine.`); return; }
+      if (order.type === "MEDICINE" && order.isCatalogueMedicine === null) { setRoundError(`Medicine ${index + 1}: choose a catalogue medicine or use the typed name.`); return; }
       if (order.type === "INSTRUCTION" && !order.title.trim()) { setRoundError(`Instruction ${index + 1}: enter a title.`); return; }
     }
     setSaving(true); setRoundError("");
@@ -495,7 +476,7 @@ export default function WardRoundsPage() {
         condition: draftAtSave.condition || undefined,
         notes: draftAtSave.notes.trim() || undefined,
         orders: draftAtSave.orders.map((order) => order.type === "MEDICINE" ? {
-          type: order.type, medicationName: order.medicationName.trim(), dosage: order.dosage.trim(), route: order.route,
+          type: order.type, medicationName: order.medicationName.trim(), isCatalogueMedicine: order.isCatalogueMedicine, dosage: order.dosage.trim(), route: order.route,
           frequency: order.frequency, timesOfDay: order.frequency === "STAT" || order.frequency === "PRN" ? [] : order.timesOfDay,
           durationDays: order.frequency === "STAT" ? 1 : Number(order.durationDays || 1), instructions: order.instructions.trim() || undefined,
         } : { type: order.type, title: order.title.trim(), priority: order.priority }),
@@ -684,7 +665,7 @@ export default function WardRoundsPage() {
                   <section className="space-y-2 border-t border-slate-100 pt-2.5 dark:border-slate-800">
                     <div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-semibold text-slate-900 dark:text-white">Orders (optional)</h4><span title="Medicines appear in the medication list; instructions appear in the nurse inbox." aria-label="Orders information" className="inline-flex h-5 w-5 items-center justify-center text-slate-500"><Info className="h-3.5 w-3.5" /></span><div className="ml-auto flex flex-wrap gap-1.5"><Button type="button" size="sm" variant="outline" aria-expanded={medicineSectionOpen} onClick={() => toggleOrderSection("medicine")}><Plus className="mr-1 h-3.5 w-3.5" />Add medicine</Button><Button type="button" size="sm" variant="outline" aria-expanded={instructionSectionOpen} onClick={() => toggleOrderSection("instruction")}><Plus className="mr-1 h-3.5 w-3.5" />Add instruction</Button></div></div>
                     {medicineSectionOpen && <div id="round-medicine-section" className="space-y-1.5 border-t border-slate-100 pt-2 dark:border-slate-800"><h5 className="text-sm font-medium text-slate-800 dark:text-slate-200">Give medicine</h5>
-                      <div className="grid min-w-0 items-center gap-1.5 sm:grid-cols-[minmax(200px,1fr)_minmax(160px,0.8fr)_72px_auto]"><MedicinePicker value={draft.medicine.medicationName} onChange={(medicationName) => updateMedicine({ medicationName })} /><Select aria-label="Frequency" value={draft.medicine.frequency} onChange={(event) => updateFrequency(event.target.value as Frequency | "")}><option value="">Select frequency</option>{FREQUENCIES.map((frequency) => <option key={frequency} value={frequency}>{FREQUENCY_LABELS[frequency]}</option>)}</Select><Input aria-label="Course days" placeholder="Days" type="number" min={1} max={30} disabled={!draft.medicine.frequency || draft.medicine.frequency === "STAT" || draft.medicine.frequency === "PRN"} value={!draft.medicine.frequency || draft.medicine.frequency === "STAT" || draft.medicine.frequency === "PRN" ? "" : draft.medicine.durationDays} onChange={(event) => updateMedicine({ durationDays: event.target.value })} /><Button type="button" size="sm" onClick={addMedicine} className="bg-emerald-600 text-white hover:bg-emerald-700"><Plus className="mr-1 h-4 w-4" />Add</Button></div>
+                      <div className="grid min-w-0 items-center gap-1.5 sm:grid-cols-[minmax(200px,1fr)_minmax(160px,0.8fr)_72px_auto]"><MedicineAutocomplete ariaLabel="IPD medicine" value={draft.medicine.medicationName} isCatalogueMedicine={draft.medicine.isCatalogueMedicine} onChange={(medicationName, isCatalogueMedicine) => updateMedicine({ medicationName, isCatalogueMedicine })} /><Select aria-label="Frequency" value={draft.medicine.frequency} onChange={(event) => updateFrequency(event.target.value as Frequency | "")}><option value="">Select frequency</option>{FREQUENCIES.map((frequency) => <option key={frequency} value={frequency}>{FREQUENCY_LABELS[frequency]}</option>)}</Select><Input aria-label="Course days" placeholder="Days" type="number" min={1} max={30} disabled={!draft.medicine.frequency || draft.medicine.frequency === "STAT" || draft.medicine.frequency === "PRN"} value={!draft.medicine.frequency || draft.medicine.frequency === "STAT" || draft.medicine.frequency === "PRN" ? "" : draft.medicine.durationDays} onChange={(event) => updateMedicine({ durationDays: event.target.value })} /><Button type="button" size="sm" onClick={addMedicine} className="bg-emerald-600 text-white hover:bg-emerald-700"><Plus className="mr-1 h-4 w-4" />Add</Button></div>
                       <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500">{!draft.medicine.frequency ? <span>Select a frequency to set suggested dose times.</span> : draft.medicine.frequency === "STAT" ? <span>One dose now</span> : draft.medicine.frequency === "PRN" ? <span>No fixed dose times</span> : <span>{draft.medicine.timesOfDay.join("  -  ") || "Choose times"}</span>}{draft.medicine.frequency && <><button type="button" className="font-medium text-emerald-700 underline dark:text-emerald-300" onClick={() => updateMedicine({ editSchedule: !draft.medicine.editSchedule })}>{draft.medicine.editSchedule ? "Edit schedule" : "Edit details"}</button><span> -  Route: {draft.medicine.route}</span></>}</div>
                       {draft.medicine.editSchedule && <div className="grid gap-2 border-t border-slate-100 pt-2 sm:grid-cols-2 dark:border-slate-800"><div className="space-y-1"><Label htmlFor="round-dose">Dose (optional)</Label><Input id="round-dose" placeholder="e.g. 500 mg" value={draft.medicine.dosage} onChange={(event) => updateMedicine({ dosage: event.target.value })} /></div><div className="space-y-1"><Label htmlFor="round-route">Route</Label><Select id="round-route" value={draft.medicine.route} onChange={(event) => updateMedicine({ route: event.target.value as Route })}>{ROUTES.map((route) => <option key={route}>{route}</option>)}</Select></div>{draft.medicine.frequency && draft.medicine.frequency !== "STAT" && draft.medicine.frequency !== "PRN" && <div className="space-y-1"><Label htmlFor="round-times">Dose times</Label><Input id="round-times" placeholder="08:00, 20:00" value={draft.medicine.timesText} onChange={(event) => updateMedicine({ timesText: event.target.value, timesOfDay: event.target.value.split(",").map((time) => time.trim()).filter(Boolean) })} /></div>}<div className="space-y-1"><Label htmlFor="round-nurse-note">Nurse note (optional)</Label><Input id="round-nurse-note" placeholder="Additional instruction" value={draft.medicine.instructions} onChange={(event) => updateMedicine({ instructions: event.target.value })} /></div></div>}
                       {draft.orders.some((order) => order.type === "MEDICINE") && <div className="flex flex-wrap gap-1.5 pt-1">{draft.orders.filter((order): order is Extract<OrderDraft, { type: "MEDICINE" }> => order.type === "MEDICINE").map((order) => <span key={order.id} className="inline-flex max-w-full items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"><Pill className="h-3 w-3 shrink-0" /><span className="truncate">{order.medicationName}{doseSuffix(order.medicationName, order.dosage)} {order.frequency} {order.durationDays}d</span><button type="button" aria-label="Remove order" className="rounded p-0.5 text-slate-500 hover:text-rose-600" onClick={() => removeOrder(order.id)}><X className="h-3 w-3" /></button></span>)}</div>}

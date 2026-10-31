@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
+import { MedicineAutocomplete } from "@/components/pharmacy/medicine-autocomplete";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +33,7 @@ import {
 
 interface MedicationItem {
   medicineName: string;
+  isCatalogueMedicine: boolean | null;
   dosage: string;
   frequency: string;
   duration: string;
@@ -149,7 +151,7 @@ function DischargeContent() {
   const addMedicationRow = () => {
     setMedications((prev) => [
       ...prev,
-      { medicineName: "", dosage: "", frequency: "", duration: "", instructions: "" }
+      { medicineName: "", isCatalogueMedicine: null, dosage: "", frequency: "", duration: "", instructions: "" }
     ]);
   };
 
@@ -157,12 +159,18 @@ function DischargeContent() {
     setMedications((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const updateMedication = (index: number, field: keyof MedicationItem, val: string) => {
+  const updateMedication = (index: number, field: Exclude<keyof MedicationItem, "isCatalogueMedicine">, val: string) => {
     setMedications((prev) => {
       const copy = [...prev];
-      copy[index] = { ...copy[index], [field]: val };
+      copy[index] = { ...copy[index], [field]: val, ...(field === "medicineName" ? { isCatalogueMedicine: null } : {}) };
       return copy;
     });
+  };
+
+  const handleMedicineSelection = (index: number, medicineName: string, isCatalogueMedicine: boolean | null) => {
+    setMedications((prev) => prev.map((medicine, row) =>
+      row === index ? { ...medicine, medicineName, isCatalogueMedicine } : medicine
+    ));
   };
 
   const handleDischargeSubmit = async (e: React.FormEvent) => {
@@ -197,6 +205,10 @@ function DischargeContent() {
     });
     if (incompleteMedication) {
       toast("Complete the medicine name, dosage, frequency, and duration for each medicine, or remove the empty row", "error");
+      return;
+    }
+    if (medications.some((medicine) => medicine.medicineName.trim() && medicine.isCatalogueMedicine === null)) {
+      toast("Choose a catalogue medicine or explicitly select Use as typed for each medicine", "error");
       return;
     }
 
@@ -531,11 +543,13 @@ function DischargeContent() {
                     {medications.map((med, idx) => (
                       <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-slate-50 dark:bg-slate-800/40 p-2 rounded border">
                         <div className="sm:col-span-3">
-                          <Input
-                            placeholder="Medicine name and strength"
+                          <MedicineAutocomplete
+                            ariaLabel={`Discharge medicine ${idx + 1} name and strength`}
+                            placeholder="Search medicine catalogue"
                             value={med.medicineName}
-                            onChange={(e) => updateMedication(idx, "medicineName", e.target.value)}
-                            className="h-7 text-xs"
+                            isCatalogueMedicine={med.isCatalogueMedicine}
+                            onChange={(medicineName, isCatalogueMedicine) => handleMedicineSelection(idx, medicineName, isCatalogueMedicine)}
+                            className="[&_input]:h-7 [&_input]:text-xs"
                           />
                         </div>
                         <div className="sm:col-span-2">

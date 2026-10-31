@@ -428,6 +428,12 @@ export class NursingController {
       if (!body.patient) {
         return NextResponse.json({ success: false, message: "Patient is required" }, { status: 400 });
       }
+      if (typeof body.isCatalogueMedicine !== "boolean") {
+        return NextResponse.json(
+          { success: false, message: "Select a catalogue medicine or explicitly use the typed name" },
+          { status: 400 }
+        );
+      }
       const actor = actorOf(auth);
       try {
         const { admissionId } = await assertMedicationVisible(

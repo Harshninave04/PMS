@@ -4,6 +4,10 @@ import dbConnect from "@/lib/dbConnect";
 import Appointment from "@/models/appointment.model";
 import { ClinicalRecord } from "@/models/clinical-record.model";
 import Prescription from "@/models/prescription.model";
+import "@/models/patient.model";
+import "@/models/doctor.model";
+import "@/models/user.model";
+import "@/models/department.model";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { buildCompletedTodayFilter, buildCompletedVisitRecordFilters, getTodayDateRange, isCompletedVisitInScope } from "@/lib/completed-today";
 
@@ -28,6 +32,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       const appointment = await Appointment.findOne({ ...filter, _id: new Types.ObjectId(appointmentId) })
         .populate("patientId", "name uhid contact email age gender bloodGroup address emergencyContact dateOfBirth maritalStatus guardianName guardianRelation allergies medicalHistory")
+        .populate({
+          path: "doctorId",
+          select: "userId specialization qualification licenseNo departmentId",
+          populate: [
+            { path: "userId", select: "name" },
+            { path: "departmentId", select: "name" },
+          ],
+        })
         .lean();
 
       // Recheck the scope before reading visit or prescription records.

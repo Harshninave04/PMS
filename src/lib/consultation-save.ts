@@ -8,6 +8,7 @@ export interface NormalizedConsultationInput {
   investigations: string[];
   medications: {
     name: string;
+    isCatalogueMedicine: boolean;
     dosage?: string;
     frequency?: string;
     duration?: string;
@@ -53,10 +54,17 @@ export function normalizeConsultationInput(body: unknown): { data?: NormalizedCo
   if (diagnosisNotes.length > 1000) return { error: "Diagnosis notes must be 1000 characters or fewer" };
   const rawMedications = Array.isArray(input.medications) ? input.medications : [];
   if (rawMedications.length > 15) return { error: "A maximum of 15 medicines is allowed" };
+  if (rawMedications.some((raw) => {
+    const medication = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+    return typeof medication.isCatalogueMedicine !== "boolean";
+  })) {
+    return { error: "Choose a catalogue medicine or explicitly use the typed name for each prescription row" };
+  }
   const medications = rawMedications.map((raw) => {
     const medication = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
     return {
       name: trimmed(medication.name),
+      isCatalogueMedicine: medication.isCatalogueMedicine === true,
       dosage: trimmed(medication.dosage) || undefined,
       frequency: trimmed(medication.frequency) || undefined,
       duration: trimmed(medication.duration) || undefined,

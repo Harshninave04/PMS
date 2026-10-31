@@ -4,6 +4,53 @@ import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 
 export class MedicineController {
+    static async search(req: Request | NextRequest): Promise<NextResponse> {
+        const noStore = { "Cache-Control": "no-store, private", Vary: "Cookie" };
+        try {
+            const nextReq = req instanceof NextRequest ? req : new NextRequest(req.url, { headers: req.headers });
+            const auth = await authorizeRequest(nextReq, PERMISSION_KEYS.PHARMACY_STOCK_VIEW, "Medicine");
+            if (!auth.isAuthorized) {
+                auth.response.headers.set("Cache-Control", noStore["Cache-Control"]);
+                return auth.response;
+            }
+            if (
+                (auth.grant.orgScope === "BRANCH" && !auth.context.branchId && !auth.context.organizationId) ||
+                (auth.grant.orgScope === "ORGANIZATION" && !auth.context.organizationId)
+            ) {
+                return NextResponse.json(
+                    { success: false, message: "A valid branch or organization assignment is required" },
+                    { status: 403, headers: noStore },
+                );
+            }
+
+            const query = new URL(req.url).searchParams.get("q")?.trim() ?? "";
+            if (!query || query.length > 100) {
+                return NextResponse.json(
+                    { success: false, message: "Search query must contain 1 to 100 characters" },
+                    { status: 400, headers: noStore },
+                );
+            }
+
+            // The catalogue is global by design; caller branch context is still required above.
+            const medicines = await MedicineService.searchSuggestions(query);
+            const data = medicines.map((medicine) => {
+                const stock = Number(medicine.stockQuantity ?? 0);
+                const reorderLevel = Number(medicine.reorderLevel ?? 0);
+                return {
+                    _id: medicine._id.toString(),
+                    name: medicine.name,
+                    strength: medicine.strength,
+                    dosageForm: medicine.dosageForm,
+                    stockStatus: stock <= 0 ? "Out" : stock <= reorderLevel ? "Low" : "In stock",
+                };
+            });
+            return NextResponse.json({ success: true, data }, { headers: noStore });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to search medicines";
+            return NextResponse.json({ success: false, message }, { status: 500, headers: noStore });
+        }
+    }
+
     static async create(req: Request | NextRequest): Promise<NextResponse> {
         try {
             const nextReq = req instanceof NextRequest ? req : new NextRequest(req.url, { headers: req.headers });

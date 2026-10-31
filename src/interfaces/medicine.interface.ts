@@ -4,6 +4,7 @@ export interface IMedicine extends Document {
     name: string;
     category: string;
     genericName?: string;
+    strength?: string;
     dosageForm?: string; // TABLET, CAPSULE, SYRUP, INJECTION, OINTMENT, DROPS, INHALER
     manufacturer?: string;
     batchNumber?: string;

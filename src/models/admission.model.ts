@@ -39,6 +39,7 @@ const transferHistorySchema = new Schema(
 const dischargeMedicationSchema = new Schema(
     {
         medicineName: { type: String, required: true },
+        isCatalogueMedicine: { type: Boolean },
         dosage: { type: String, required: true },
         frequency: { type: String, required: true },
         duration: { type: String, required: true },

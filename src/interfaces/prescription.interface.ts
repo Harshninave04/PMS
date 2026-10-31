@@ -20,6 +20,7 @@ export interface IPrescription extends Document {
 
 export interface IMedication {
     name: string;
+    isCatalogueMedicine?: boolean;
     dosage?: string;
     frequency?: string;
     duration?: string;

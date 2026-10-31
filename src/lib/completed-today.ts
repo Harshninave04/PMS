@@ -28,13 +28,24 @@ export function buildCompletedVisitRecordFilters(appointmentId: unknown, patient
   };
 }
 
+function referenceId(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "object" && "_id" in value) {
+    const id = (value as { _id?: unknown })._id;
+    if (id !== undefined && id !== null) return String(id);
+  }
+  return String(value);
+}
+
 export function isCompletedVisitInScope(
   appointment: CompletedAppointmentLike,
   doctorProfileId: unknown,
   start: Date,
   end: Date
 ): boolean {
-  if (!appointment.doctorId || !doctorProfileId || String(appointment.doctorId) !== String(doctorProfileId)) return false;
+  const assignedDoctorId = referenceId(appointment.doctorId);
+  const expectedDoctorId = referenceId(doctorProfileId);
+  if (!assignedDoctorId || !expectedDoctorId || assignedDoctorId !== expectedDoctorId) return false;
   if (appointment.status !== "COMPLETED" && appointment.queueStatus !== "COMPLETED") return false;
   if (!appointment.consultationEndedAt) return false;
 

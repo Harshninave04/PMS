@@ -6,6 +6,7 @@ const medicineSchema = new Schema<IMedicine>(
         name: { type: String, required: true },
         category: { type: String, required: true },
         genericName: { type: String },
+        strength: { type: String, trim: true, maxlength: 100 },
         dosageForm: { type: String, default: "TABLET" },
         manufacturer: { type: String },
         batchNumber: { type: String },

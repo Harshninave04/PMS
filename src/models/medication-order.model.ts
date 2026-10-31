@@ -23,6 +23,7 @@ export interface IMedicationOrder extends Document {
     visitId?: Types.ObjectId;
     prescribedBy: Types.ObjectId;
     medicationName: string;
+    isCatalogueMedicine?: boolean;
     dosage: string;
     route: "ORAL" | "IV" | "IM" | "SC" | "TOPICAL" | "INHALATION" | "OTHER";
     frequency: MedicationOrderFrequency;
@@ -50,6 +51,7 @@ const MedicationOrderSchema: Schema = new Schema(
         visitId: { type: Schema.Types.ObjectId, ref: "ClinicalRecord" },
         prescribedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
         medicationName: { type: String, required: true, trim: true, maxlength: 200 },
+        isCatalogueMedicine: { type: Boolean },
         dosage: { type: String, required: false, trim: true, maxlength: 100, default: "" },
         route: {
             type: String,

@@ -49,6 +49,7 @@ export interface UpdateAdmissionDto {
     dischargeSummary?: string;
     dischargeMedications?: Array<{
         medicineName: string;
+        isCatalogueMedicine: boolean;
         dosage: string;
         frequency: string;
         duration: string;
@@ -81,6 +82,7 @@ export interface DischargeAdmissionDto {
     dischargeSummary?: string;
     dischargeMedications?: Array<{
         medicineName: string;
+        isCatalogueMedicine: boolean;
         dosage: string;
         frequency: string;
         duration: string;
