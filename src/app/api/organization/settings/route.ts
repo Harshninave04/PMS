@@ -43,6 +43,13 @@ export async function PUT(request: Request) {
       }
       body.timeZone = body.timeZone.trim();
     }
+    if (body.billDiscountCapPercent !== undefined) {
+      const cap = Number(body.billDiscountCapPercent);
+      if (!Number.isFinite(cap) || cap < 0 || cap > 100) {
+        return NextResponse.json({ success: false, message: "Bill discount cap must be between 0 and 100 percent." }, { status: 400 });
+      }
+      body.billDiscountCapPercent = cap;
+    }
     const updated = await OrganizationMgmtService.updateOrgSettings(body);
     return NextResponse.json({
       success: true,

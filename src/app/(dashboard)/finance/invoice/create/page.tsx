@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { Fragment, useEffect, useRef, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import {
   FilePlus2,
@@ -17,6 +17,7 @@ import {
   Plus,
   Trash2,
   Receipt,
+  CircleAlert,
   UserRound,
   Eye,
   Printer,
@@ -36,12 +37,15 @@ import { usePermissions } from "@/components/permissions/permission-context";
 
 interface ItemRow {
   name: string;
-  quantity: number;
-  price: number;
+  quantity: number | null;
+  price: number | null;
   // "draft" rows were generated from the clinical records; deleting them from
   // the bill requires a typed reason (kept in the invoice notes).
   source?: "draft" | "manual" | "supply";
   nursingSupplyId?: string;
+  needsManualRate?: boolean;
+  manualRate?: boolean;
+  rateHint?: string;
 }
 
 interface NursingSupplyRow {
@@ -54,11 +58,12 @@ interface NursingSupplyRow {
   recordedAt: string;
   nurseName: string;
   serviceName?: string;
-  rate?: number;
+  rate?: number | null;
+  price?: number | null;
   missingRate: boolean;
 }
 
-const emptyRow: ItemRow = { name: "", quantity: 1, price: 0 };
+const emptyRow: ItemRow = { name: "", quantity: 1, price: null };
 
 interface ServiceOption {
   _id: string;
@@ -66,11 +71,6 @@ interface ServiceOption {
   category: string;
   defaultRate: number;
 }
-
-// A bill discount above this share of the gross needs the billing discount
-// permission ("Discount above limit" on Create Bill). Configured here and in
-// the invoice controller — one management decision, two simple constants.
-const BILL_DISCOUNT_CAP = 0.1;
 
 const PAYMENT_METHODS = ["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE", "INSURANCE_TPA"];
 
@@ -102,10 +102,9 @@ export default function CreateInvoicePage() {
   const [selectedCase, setSelectedCase] = useState<any>(null);
   const [draftLoading, setDraftLoading] = useState(false);
   const [invoiceInfo, setInvoiceInfo] = useState<any>(null);
-  const [nurseNotes, setNurseNotes] = useState<Array<{ text: string; at?: string; nurseName: string }>>([]);
   const [medicalSupplies, setMedicalSupplies] = useState<NursingSupplyRow[]>([]);
   const [selectedSupplyIds, setSelectedSupplyIds] = useState<string[]>([]);
-  const [nurseNotesExpanded, setNurseNotesExpanded] = useState(false);
+  const [discountCapPercent, setDiscountCapPercent] = useState<number | null>(null);
   // Pending-charge disclosure: active medication orders + scheduled-but-not-given
   // doses reported by the draft; saving requires an explicit confirmation.
   const [pendingMedicationOrders, setPendingMedicationOrders] = useState<Array<{ name: string; dosage: string; frequency: string }>>([]);
@@ -164,17 +163,29 @@ export default function CreateInvoicePage() {
     loadQueue();
   }, []);
 
+  useEffect(() => {
+    fetch("/api/organization/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        const cap = Number(data.data?.billDiscountCapPercent);
+        if (data.success && Number.isFinite(cap) && cap >= 0) setDiscountCapPercent(cap);
+      })
+      .catch(() => toast("Could not load the configured discount cap", "error"));
+  }, [toast]);
+
   const fetchServices = useCallback(async () => {
     try {
       const res = await fetch("/api/service?active=true");
       const data = await res.json();
       if (data.success) {
-        const rows = ((data.data || []) as Array<{ _id?: unknown; name?: unknown; category?: unknown; defaultRate?: unknown }>).map((service) => ({
-          _id: String(service._id ?? ""),
-          name: String(service.name ?? ""),
-          category: String(service.category ?? "General"),
-          defaultRate: num(service.defaultRate),
-        }));
+        const rows = ((data.data || []) as Array<{ _id?: unknown; name?: unknown; category?: unknown; defaultRate?: unknown }>)
+          .filter((service) => Number(service.defaultRate) > 0)
+          .map((service) => ({
+            _id: String(service._id ?? ""),
+            name: String(service.name ?? ""),
+            category: String(service.category ?? "General"),
+            defaultRate: num(service.defaultRate),
+          }));
         setServices(rows);
       } else {
         toast(data.message || "Failed to load the service rate list", "error");
@@ -205,10 +216,8 @@ export default function CreateInvoicePage() {
     setDiscountReason("");
     setNotes("");
     setInvoiceInfo(row.invoice ?? null);
-    setNurseNotes([]);
     setMedicalSupplies([]);
     setSelectedSupplyIds([]);
-    setNurseNotesExpanded(false);
     setPendingMedicationOrders([]);
     setPendingDoseCount(0);
     setPendingConfirm(false);
@@ -227,16 +236,19 @@ export default function CreateInvoicePage() {
           ? (data.data.items as any[]).map((it) => ({
               name: it.name,
               quantity: num(it.quantity),
-              price: num(it.price),
+              price: it.price === null || it.price === undefined ? null : Number(it.price),
+              needsManualRate: it.needsManualRate === true,
+              rateHint: it.rateHint,
               source: "draft",
             }))
           : [{ ...emptyRow }];
       const noteText =
         res.ok && data.success
-          ? `IPD bill for ${data.data.context.patient.name} (stay #${String(row.admissionId).slice(-6).toUpperCase()})`
+          ? `IPD bill for ${data.data.context.patient.name} (${data.data.context.patient.uhid}) · Admitted ${formatDateIN(data.data.context.admissionDate)} · Discharge ${data.data.context.expectedDischargeAt ? formatDateIN(data.data.context.expectedDischargeAt) : "Pending"}`
           : "";
       if (res.ok && data.success) {
-        setNurseNotes(data.data.context.nurseNotes || []);
+        const cap = Number(data.data.config?.discountCapPercent);
+        if (Number.isFinite(cap) && cap >= 0) setDiscountCapPercent(cap);
         setMedicalSupplies(data.data.context.medicalSupplies || []);
         setPendingMedicationOrders(data.data.context.pendingMedicationOrders || []);
         setPendingDoseCount(data.data.context.pendingDoseCount ?? 0);
@@ -307,7 +319,7 @@ export default function CreateInvoicePage() {
   const advanceTotal = round2(advances.reduce((sum, advance) => sum + num(advance.amount), 0));
   const billDiscount = num(globalDiscount);
   const reasonValue = discountReason.trim();
-  const discountCap = round2(gross * BILL_DISCOUNT_CAP);
+  const discountCap = discountCapPercent === null ? null : round2(gross * discountCapPercent / 100);
   const finalAmount = round2(Math.max(0, gross - billDiscount));
   const unbilled = queue.filter((row) => !row.invoice);
   const billed = queue.filter((row) => row.invoice);
@@ -341,7 +353,7 @@ export default function CreateInvoicePage() {
     setItems((rows: ItemRow[]) =>
       rows.map((row, i) =>
         i === index
-          ? { ...row, name: service.name, price: service.defaultRate, quantity: num(row.quantity) || 1 }
+          ? { ...row, name: service.name, price: service.defaultRate, quantity: num(row.quantity) || 1, needsManualRate: false, manualRate: false }
           : row
       )
     );
@@ -353,7 +365,8 @@ export default function CreateInvoicePage() {
       .map((supply): ItemRow => ({
         name: supply.serviceName || supply.itemName,
         quantity: num(supply.quantity),
-        price: supply.rate ?? 0,
+        price: supply.price ?? supply.rate ?? null,
+        needsManualRate: supply.missingRate,
         source: "supply",
         nursingSupplyId: supply.id,
       }));
@@ -363,9 +376,9 @@ export default function CreateInvoicePage() {
   };
 
   // Draft rows carry clinical charges, so removing one is an accounting event:
-  // it needs a typed reason (appended to the invoice notes). Manual rows go free.
+  // it needs a typed reason (appended to the invoice notes).
   const removeRow = (index: number, row: ItemRow) => {
-    if (row.source === "draft" || row.source === "supply") {
+    if (row.source === "draft") {
       const reason = window.prompt(`Deleting the auto-generated line "${row.name}" requires a reason (e.g. "patient did not use the service")`, "");
       const trimmed = reason?.trim() ?? "";
       if (!trimmed) {
@@ -375,7 +388,7 @@ export default function CreateInvoicePage() {
       setNotes((prev) => (prev ? `${prev}\nRemoved line (${row.name}): ${trimmed}` : `Removed line (${row.name}): ${trimmed}`));
     }
     setItems((rows: ItemRow[]) =>
-      row.source === "draft" || row.source === "supply"
+      row.source === "draft"
         ? rows.filter((_, i) => i !== index)
         : rows.length === 1
           ? [{ ...emptyRow }]
@@ -384,13 +397,15 @@ export default function CreateInvoicePage() {
   };
 
   const buildPayload = () => ({
-    items: computed.map((row) => ({
+    items: computed.filter((row) => row.name.trim()).map((row) => ({
       name: row.name?.trim(),
-      price: num(row.price),
-      quantity: num(row.quantity),
+      price: row.price,
+      quantity: row.quantity,
       discount: 0,
       tax: 0,
       total: row.lineTotal,
+      manualRate: row.manualRate === true,
+      ...(row.nursingSupplyId ? { nursingSupplyId: row.nursingSupplyId } : {}),
     })),
     totalAmount: gross,
     discount: billDiscount,
@@ -400,6 +415,27 @@ export default function CreateInvoicePage() {
     ...(billDiscount > 0 ? { discountReason: reasonValue } : {}),
     status: "UNPAID",
   });
+
+  // Cheap string list, rebuilt each render; React Compiler memoizes it
+  // automatically, so no hand-written dependency array is needed here.
+  const blockers: string[] = [];
+  const namedRows = items.filter((row) => row.name.trim());
+  if (namedRows.length === 0) blockers.push("Add at least one charge row with a description.");
+  if (items.some((row) => !row.name.trim() && row.price !== null && row.price > 0)) {
+    blockers.push("Add a description to every row with a rate.");
+  }
+  for (const row of namedRows) {
+    if (row.price === null || row.price <= 0) blockers.push(`Rate needed for “${row.name}”.`);
+    if (row.quantity === null || row.quantity <= 0) blockers.push(`Quantity must be greater than zero for “${row.name}”.`);
+  }
+  if (billDiscount > 0 && !reasonValue) blockers.push("Enter a reason for the discount.");
+  if (discountCap !== null && billDiscount > discountCap && !canDiscountOverCap) {
+    blockers.push(`Discount exceeds the configured ${discountCapPercent}% cap; billing discount permission is required.`);
+  }
+  if (discountCap === null) blockers.push("The configured discount cap is still loading.");
+  if (pendingMedicationOrders.length > 0 && !pendingConfirm) blockers.push("Confirm the pending medication items were handled.");
+  if (manualMode && !manualPatientId) blockers.push("Choose a patient for this manual invoice.");
+  if (round2(gross - billDiscount) <= 0) blockers.push("Final amount must be greater than zero.");
 
   const saveInvoice = async () => {
     const validRows = items.filter((row) => row.name?.trim());
@@ -442,8 +478,8 @@ export default function CreateInvoicePage() {
       toast("A reason is required when a discount is applied", "error");
       return;
     }
-    if (billDiscount > discountCap && !canDiscountOverCap) {
-      toast(`Discounts above 10% of the gross (${fmtMoney(discountCap)}) need the billing discount permission — ask an admin to grant "Discount above limit"`, "error");
+    if (discountCap !== null && billDiscount > discountCap && !canDiscountOverCap) {
+      toast(`Discounts above ${discountCapPercent}% of the gross (${fmtMoney(discountCap)}) need the billing discount permission — ask an admin to grant "Discount above limit"`, "error");
       return;
     }
     if (finalAmount <= 0) {
@@ -604,7 +640,7 @@ export default function CreateInvoicePage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(300px,380px)_1fr] gap-5 items-start">
-        <Card className="border shadow-sm">
+        <Card className="border shadow-sm xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
               <AlarmClock className="h-4 w-4 text-amber-600" />
@@ -642,7 +678,7 @@ export default function CreateInvoicePage() {
                           {row.patientName} <span className="text-slate-400">({row.uhid})</span>
                         </p>
                         <p className="text-[11px] text-slate-500 truncate">
-                          Bed {row.bedNumber} · {row.wardName} · {row.doctorName}
+                          Bed {row.bedNumber} · {row.wardName} · {row.doctorName || "Not assigned"}
                         </p>
                       </div>
                       {row.invoice ? (
@@ -707,13 +743,21 @@ export default function CreateInvoicePage() {
 
         <Card className="border shadow-sm">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold">
-              {manualMode
-                ? "Manual invoice"
-                : selectedAdmissionId
-                  ? `Bill — ${selectedQueueRow?.patientName ?? ""} (${selectedQueueRow?.uhid ?? ""})`
-                  : "Charge workspace"}
-            </CardTitle>
+            <div className="flex items-start justify-between gap-3">
+              <CardTitle className="text-base font-semibold">
+                {manualMode
+                  ? "Manual invoice"
+                  : selectedAdmissionId
+                    ? `Bill — ${selectedQueueRow?.patientName ?? ""} (${selectedQueueRow?.uhid ?? ""})`
+                    : "Charge workspace"}
+              </CardTitle>
+              {selectedAdmissionId && !invoiceInfo && (
+                <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 gap-1" onClick={() => selectedQueueRow && void openCase(selectedQueueRow)} disabled={draftLoading || saving}>
+                  <RefreshCw className={`h-3.5 w-3.5 ${draftLoading ? "animate-spin" : ""}`} />
+                  Refresh draft
+                </Button>
+              )}
+            </div>
             <CardDescription>
               {manualMode
                 ? "Free-form billing for OPD or services without a stay."
@@ -790,7 +834,11 @@ export default function CreateInvoicePage() {
                   gross={gross}
                   billDiscount={billDiscount}
                   discountCap={discountCap}
+                  discountCapPercent={discountCapPercent}
                   canDiscountOverCap={canDiscountOverCap}
+                  blockers={blockers}
+                  advanceAdjusted={round2(Math.min(advanceTotal, finalAmount))}
+                  netPayable={round2(Math.max(0, finalAmount - advanceTotal))}
                   discountReason={discountReason}
                   setDiscountReason={setDiscountReason}
                   setGlobalDiscount={setGlobalDiscount}
@@ -840,7 +888,7 @@ export default function CreateInvoicePage() {
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-400 uppercase font-semibold block">Attending</span>
-                      <div className="font-bold text-slate-900 dark:text-white mt-0.5">{selectedQueueRow.doctorName}</div>
+                        <div className="font-bold text-slate-900 dark:text-white mt-0.5">{selectedQueueRow.doctorName || "Not assigned"}</div>
                       <div className="text-slate-500 text-[11px]">{selectedQueueRow.insurance}</div>
                     </div>
                     <div>
@@ -860,32 +908,6 @@ export default function CreateInvoicePage() {
                     Allergies on file: {selectedQueueRow.allergies.join(", ")}
                   </p>
                 )}
-
-                <section className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-[11px] text-amber-900 dark:bg-amber-950/20">
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 text-left font-semibold"
-                    aria-expanded={nurseNotesExpanded}
-                    onClick={() => setNurseNotesExpanded((expanded) => !expanded)}
-                  >
-                    <StickyNote className="h-3.5 w-3.5 shrink-0" />
-                    Nurse notes ({selectedQueueRow?.nurseNoteCount ?? nurseNotes.length})
-                    <span className="ml-auto text-slate-500">{nurseNotesExpanded ? "Hide" : "Show"}</span>
-                  </button>
-                  {nurseNotesExpanded && (
-                    <div className="mt-2 space-y-2">
-                      {nurseNotes.length ? nurseNotes.map((note, index) => (
-                        <article key={`${note.at || "note"}-${index}`} className="rounded border border-amber-200 bg-white/70 p-2">
-                          <div className="mb-1 flex flex-wrap justify-between gap-x-3 text-[10px] text-slate-500">
-                            <span>{note.nurseName}</span>
-                            <time>{note.at ? new Date(note.at).toLocaleString("en-IN") : "Time unavailable"}</time>
-                          </div>
-                          <p className="whitespace-pre-wrap">{note.text}</p>
-                        </article>
-                      )) : <p className="text-slate-500">No nurse notes recorded.</p>}
-                    </div>
-                  )}
-                </section>
 
                 <section className="rounded-lg border p-3 space-y-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -932,7 +954,7 @@ export default function CreateInvoicePage() {
                                 {supply.nurseName} · {supply.recordedAt ? new Date(supply.recordedAt).toLocaleString("en-IN") : "Time unavailable"}
                               </p>
                               {supply.missingRate && <p className="mt-1 font-medium text-rose-700">Rate missing in Services. Add the line to the bill and enter a rate before saving.</p>}
-                              {!supply.missingRate && <p className="mt-1 text-emerald-700">Catalogue rate: {fmtMoney(supply.rate || 0)}</p>}
+                              {!supply.missingRate && supply.rate != null && <p className="mt-1 text-emerald-700">Catalogue rate: {fmtMoney(supply.rate)}</p>}
                               {transferred && <p className="mt-1 font-medium text-sky-700">Added to bill</p>}
                             </div>
                             <Button
@@ -1014,7 +1036,11 @@ export default function CreateInvoicePage() {
                   gross={gross}
                   billDiscount={billDiscount}
                   discountCap={discountCap}
+                  discountCapPercent={discountCapPercent}
                   canDiscountOverCap={canDiscountOverCap}
+                  blockers={blockers}
+                  advanceAdjusted={round2(Math.min(advanceTotal, finalAmount))}
+                  netPayable={round2(Math.max(0, finalAmount - advanceTotal))}
                   discountReason={discountReason}
                   setDiscountReason={setDiscountReason}
                   setGlobalDiscount={setGlobalDiscount}
@@ -1139,8 +1165,12 @@ interface ItemsEditorProps {
   computed: any[];
   gross: number;
   billDiscount: number;
-  discountCap: number;
+  discountCap: number | null;
+  discountCapPercent: number | null;
   canDiscountOverCap: boolean;
+  blockers: string[];
+  advanceAdjusted: number;
+  netPayable: number;
   discountReason: string;
   setDiscountReason: (value: string) => void;
   setGlobalDiscount: (value: number) => void;
@@ -1165,7 +1195,11 @@ function ItemsEditor(props: ItemsEditorProps) {
     gross,
     billDiscount,
     discountCap,
+    discountCapPercent,
     canDiscountOverCap,
+    blockers,
+    advanceAdjusted,
+    netPayable,
     discountReason,
     setDiscountReason,
     setGlobalDiscount,
@@ -1176,9 +1210,17 @@ function ItemsEditor(props: ItemsEditorProps) {
     saveInvoice,
   } = props;
   const [suggestOpen, setSuggestOpen] = useState<number | null>(null);
-  const overCap = billDiscount > discountCap;
+  const overCap = discountCap !== null && billDiscount > discountCap;
   const reasonMissing = billDiscount > 0 && !discountReason.trim();
   const needsClearance = overCap && !canDiscountOverCap;
+  const duplicateNames = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of items) {
+      const name = row.name.trim().toLowerCase();
+      if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return Array.from(counts.entries()).filter(([, count]) => count > 1).map(([name]) => name);
+  }, [items]);
   const suggestionsFor = (query: string) => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
@@ -1186,27 +1228,43 @@ function ItemsEditor(props: ItemsEditorProps) {
   };
   return (
     <>
-      <div className="rounded-md border overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead className="bg-slate-50 dark:bg-slate-800/60">
+      {duplicateNames.length > 0 && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+          Duplicate row names: {duplicateNames.join(", ")}. Review these repeated charges before saving.
+        </p>
+      )}
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/50">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Bill items</h3>
+            <p className="mt-0.5 text-[11px] text-slate-500">Review quantities and rates before saving.</p>
+          </div>
+          <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+            {items.length} {items.length === 1 ? "item" : "items"}
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px] text-xs">
+          <thead className="bg-white text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-900 dark:text-slate-400">
             <tr>
-              <th className="text-left p-2 font-semibold min-w-[240px]">Description</th>
-              <th className="text-left p-2 font-semibold w-20">Qty</th>
-              <th className="text-left p-2 font-semibold w-24">Rate ₹</th>
-              <th className="text-right p-2 font-semibold w-24">Amount</th>
-              <th className="p-2 w-8" />
+              <th className="min-w-[240px] px-4 py-2.5 text-left font-semibold">Description</th>
+              <th className="w-24 px-3 py-2.5 text-left font-semibold">Qty</th>
+              <th className="w-36 px-3 py-2.5 text-left font-semibold">Rate (₹)</th>
+              <th className="w-32 px-3 py-2.5 text-right font-semibold">Amount</th>
+              <th className="w-12 px-3 py-2.5" />
             </tr>
           </thead>
           <tbody>
             {items.map((row, index) => (
-              <tr key={index} className="border-t">
-                <td className="p-2 relative">
+              <Fragment key={index}>
+              <tr key={index} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70 dark:border-slate-800 dark:hover:bg-slate-800/40">
+                <td className="relative px-4 py-3">
                   <Input
                     value={row.name}
                     onChange={(e) => updateRow(index, { name: e.target.value })}
                     onFocus={() => setSuggestOpen(index)}
                     onBlur={() => setSuggestOpen(null)}
-                    className="h-8 text-xs"
+                    className="h-9 rounded-lg border-slate-200 bg-white text-xs shadow-none focus-visible:ring-sky-500 dark:border-slate-700 dark:bg-slate-950"
                     placeholder={row.source === "draft" ? "Auto-generated from the charge draft" : "Type to search services, e.g. nursing"}
                   />
                   {row.source !== "draft" && suggestOpen === index && suggestionsFor(row.name).length > 0 && (
@@ -1230,51 +1288,91 @@ function ItemsEditor(props: ItemsEditorProps) {
                     </ul>
                   )}
                 </td>
-                <td className="p-2">
+                <td className="px-3 py-3">
                   <Input
                     type="number"
-                    min={1}
-                    value={row.quantity}
-                    onChange={(e) => updateRow(index, { quantity: Number(e.target.value) })}
-                    className="h-8 text-xs"
+                    min={0.01}
+                    value={row.quantity ?? ""}
+                    onChange={(e) => updateRow(index, { quantity: e.target.value === "" ? null : Number(e.target.value) })}
+                    className={`h-9 rounded-lg text-xs shadow-none ${row.quantity === null || row.quantity <= 0 ? "border-rose-300 bg-rose-50 text-rose-700" : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950"}`}
                   />
                 </td>
-                <td className="p-2">
+                <td className="px-3 py-3">
                   <Input
                     type="number"
                     min={0}
-                    value={row.price}
-                    onChange={(e) => updateRow(index, { price: Number(e.target.value) })}
-                    className={`h-8 text-xs ${num(row.price) <= 0 ? "border-rose-300 bg-rose-50 text-rose-700 font-semibold" : ""}`}
-                    title={num(row.price) <= 0 ? "A ₹0 rate cannot be billed — set a rate or delete this line" : undefined}
+                    value={row.price ?? ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      updateRow(index, {
+                        price: value === "" ? null : Number(value),
+                        manualRate: value !== "",
+                        needsManualRate: value === "" && (row.needsManualRate || row.source === "draft" || row.source === "supply"),
+                      });
+                    }}
+                    className={`h-9 rounded-lg text-xs shadow-none ${row.price === null || row.price <= 0 ? "border-rose-300 bg-rose-50 font-semibold text-rose-700" : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950"}`}
+                    title={row.price === null || row.price <= 0 ? "Enter a rate greater than zero or delete this line" : undefined}
                   />
+                  {row.price === null || row.price <= 0 ? (
+                    <Badge className="mt-1 whitespace-nowrap border-rose-300 bg-rose-50 text-rose-700">Rate needed</Badge>
+                  ) : row.manualRate ? (
+                    <Badge className="mt-1 whitespace-nowrap border-sky-200 bg-sky-50 text-sky-700">Manual rate</Badge>
+                  ) : row.needsManualRate ? (
+                    <Badge className="mt-1 whitespace-nowrap border-rose-300 bg-rose-50 text-rose-700">Rate needed</Badge>
+                  ) : null}
                 </td>
-                <td className="p-2 text-right font-mono font-semibold">
+                <td className="px-3 py-3 text-right font-mono font-semibold tabular-nums text-slate-800 dark:text-slate-100">
                   {fmtMoney(computed[index]?.lineTotal ?? 0)}
                 </td>
-                <td className="p-2">
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400" onClick={() => removeRow(index, row)} title={row.source === "draft" ? "Remove auto-generated row (reason required)" : "Remove row"}>
+                <td className="px-3 py-3">
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeRow(index, row)} title={row.source === "draft" ? "Remove auto-generated row (reason required)" : "Remove row"}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </td>
               </tr>
+              {(row.price === null || row.price <= 0) && (
+                <tr key={`${index}-rate-hint`} className="border-t border-rose-100 bg-rose-50/50 dark:border-rose-900/50 dark:bg-rose-950/20">
+                  <td colSpan={5} className="px-4 py-2">
+                    <div className="flex items-start gap-2.5 text-rose-800 dark:text-rose-200">
+                      <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-600 dark:text-rose-300" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold">Rate required to save this bill</p>
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-rose-700 dark:text-rose-300">
+                          {row.rateHint || "Enter a rate for this charge before saving."}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>
-      </div>
+        </div>
+      </section>
       <Button variant="outline" size="sm" className="gap-1.5" onClick={addRow}>
         <Plus className="h-3.5 w-3.5" />
         Add row
       </Button>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
+        <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium">Invoice notes</label>
-            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} className="text-xs" />
+            <label className="text-sm font-semibold text-slate-900 dark:text-slate-100">Invoice notes</label>
+            <p className="text-[11px] text-slate-500">Add a note that should appear with this bill.</p>
+            <Textarea rows={5} value={notes} onChange={(e) => setNotes(e.target.value)} className="resize-y rounded-lg border-slate-200 bg-white text-xs shadow-none dark:border-slate-700 dark:bg-slate-950" />
           </div>
         </div>
-        <div className="rounded-lg border p-3 space-y-1.5 text-xs">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Bill summary</h3>
+              <p className="mt-0.5 text-[11px] text-slate-500">Final amount after discount and advance.</p>
+            </div>
+            <Receipt className="h-4 w-4 text-slate-400" />
+          </div>
+          <div className="space-y-2 text-xs">
           <div className="flex justify-between">
             <span className="text-slate-500">Gross total</span>
             <span className="font-mono">{fmtMoney(gross)}</span>
@@ -1287,7 +1385,7 @@ function ItemsEditor(props: ItemsEditorProps) {
               max={gross}
               value={billDiscount}
               onChange={(e) => setGlobalDiscount(Math.min(Number(e.target.value) || 0, gross))}
-              className={`h-8 w-24 text-xs ${reasonMissing ? "border-rose-300" : overCap ? "border-amber-300" : ""}`}
+              className={`h-9 w-28 rounded-lg text-xs shadow-none ${reasonMissing ? "border-rose-300" : overCap ? "border-amber-300" : "border-slate-200 dark:border-slate-700"}`}
             />
           </div>
           {billDiscount > 0 && (
@@ -1298,33 +1396,47 @@ function ItemsEditor(props: ItemsEditorProps) {
                 onChange={(e) => setDiscountReason(e.target.value)}
                 maxLength={300}
                 placeholder="Mandatory — e.g. loyalty discount / charity case"
-                className={`h-8 text-xs ${reasonMissing ? "border-rose-300" : ""}`}
+                className={`h-9 rounded-lg text-xs shadow-none ${reasonMissing ? "border-rose-300" : "border-slate-200 dark:border-slate-700"}`}
               />
             </div>
           )}
           {overCap && (
             <p className={`text-[11px] ${needsClearance ? "text-rose-600" : "text-amber-600"}`}>
               {needsClearance
-                ? `Above the 10% cap (${fmtMoney(discountCap)}) — billing discount permission required.`
-                : `Above the 10% cap (${fmtMoney(discountCap)}) — granted by your billing discount clearance.`}
+                ? `Above the ${discountCapPercent}% cap (${fmtMoney(discountCap)}) — billing discount permission required.`
+                : `Above the ${discountCapPercent}% cap (${fmtMoney(discountCap)}) — granted by your billing discount clearance.`}
             </p>
           )}
-          <div className="flex justify-between border-t pt-2">
+          <div className="flex justify-between border-t border-slate-200 pt-3 dark:border-slate-700">
             <span className="font-semibold">Final amount</span>
-            <span className="font-mono font-bold text-emerald-700">{fmtMoney(Math.max(0, gross - billDiscount))}</span>
+            <span className="font-mono text-sm font-bold tabular-nums text-emerald-700">{fmtMoney(Math.max(0, gross - billDiscount))}</span>
           </div>
+          <div className="flex justify-between text-slate-500">
+            <span>Advance adjusted</span>
+            <span className="font-mono">{fmtMoney(advanceAdjusted)}</span>
+          </div>
+          <div className="flex justify-between border-t border-slate-200 pt-2 font-semibold dark:border-slate-700">
+            <span>Net payable</span>
+            <span className="font-mono">{fmtMoney(netPayable)}</span>
+          </div>
+          {blockers.length > 0 && (
+            <ul className="list-inside list-disc space-y-1.5 rounded-lg border border-rose-200 bg-rose-50 p-3 text-[11px] leading-relaxed text-rose-800">
+              {blockers.map((blocker, index) => <li key={`${blocker}-${index}`}>{blocker}</li>)}
+            </ul>
+          )}
           <Button
-            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white mt-1"
+            className="mt-2 h-10 w-full rounded-lg bg-emerald-600 font-semibold text-white shadow-sm hover:bg-emerald-700"
             onClick={saveInvoice}
-            disabled={saving}
+            disabled={saving || blockers.length > 0}
           >
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {saving ? "Saving…" : saveLabel}
           </Button>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-slate-500">
+      <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-[11px] leading-relaxed text-slate-500 sm:grid-cols-2 dark:border-slate-700 dark:bg-slate-800/30">
         <span className="flex items-center gap-1"><BedDouble className="h-3 w-3" /> Bed & nursing rates come from Wards & Beds — unset rates show red</span>
         <span className="flex items-center gap-1"><Stethoscope className="h-3 w-3" /> Doctor rows bill each doctor&apos;s consultation fee per in-ward round</span>
         <span className="flex items-center gap-1"><Pill className="h-3 w-3" /> Medication rows use the pharmacy stock price when the medicine matches — otherwise set it</span>

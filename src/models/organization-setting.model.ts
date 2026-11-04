@@ -10,6 +10,7 @@ export interface IOrganizationSetting extends Document {
   fiscalYearStart: string;
   fiscalYearEnd: string;
   timeZone: string;
+  billDiscountCapPercent: number;
   tagline?: string;
   website?: string;
   emergencyHotline?: string;
@@ -26,6 +27,7 @@ const OrganizationSettingSchema: Schema = new Schema(
     gstin: { type: String, trim: true },
     currency: { type: String, default: "INR" },
     timeZone: { type: String, trim: true, default: DEFAULT_HOSPITAL_TIME_ZONE },
+    billDiscountCapPercent: { type: Number, min: 0, max: 100, default: 10 },
     currencySymbol: { type: String, default: "₹" },
     fiscalYearStart: { type: String, default: "April" },
     fiscalYearEnd: { type: String, default: "March" },

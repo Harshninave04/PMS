@@ -89,6 +89,11 @@ export class DoctorController {
                 );
             }
 
+            const consultationFee = Number(body.consultationFee);
+            if (!Number.isFinite(consultationFee) || consultationFee <= 0) {
+                return NextResponse.json({ success: false, message: "Consultation fee must be greater than zero" }, { status: 400 });
+            }
+
             const doctorData: CreateDoctorDto = {
                 userId,
                 departmentId: body.departmentId,
@@ -96,7 +101,7 @@ export class DoctorController {
                 specialization: body.specialization?.trim() || "",
                 qualification: body.qualification?.trim() || "",
                 experienceYears: Number(body.experienceYears) || 0,
-                consultationFee: Number(body.consultationFee) || 0,
+                consultationFee,
                 roomNumber: body.roomNumber?.trim() || "",
                 bio: body.bio?.trim() || "",
                 phone: body.phone?.trim() || "",
@@ -249,6 +254,14 @@ export class DoctorController {
             }
 
             const body = await request.json();
+
+            if (body.consultationFee !== undefined) {
+                const fee = Number(body.consultationFee);
+                if (!Number.isFinite(fee) || fee <= 0) {
+                    return NextResponse.json({ success: false, message: "Consultation fee must be greater than zero" }, { status: 400 });
+                }
+                body.consultationFee = fee;
+            }
 
             if (body.userId && !Types.ObjectId.isValid(body.userId)) {
                 return NextResponse.json(

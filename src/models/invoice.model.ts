@@ -37,6 +37,8 @@ const invoiceSchema = new Schema<IInvoice>({
                 discount: Number,
                 tax: { type: Number, default: 0 },
                 total: Number,
+                manualRate: { type: Boolean, default: false },
+                nursingSupplyId: { type: String },
             }
         ],
         required: true
