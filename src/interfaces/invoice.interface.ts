@@ -17,6 +17,8 @@ export interface IInvoice extends Document {
         discount: number;
         tax?: number;
         total: number;
+        manualRate?: boolean;
+        nursingSupplyId?: string;
     }[];
     totalAmount: number;
     discount: number;

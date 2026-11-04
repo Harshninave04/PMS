@@ -8,6 +8,8 @@ export interface InvoiceItemDto {
     tax?: number;
     category?: string;
     total: number;
+    manualRate?: boolean;
+    nursingSupplyId?: string;
 }
 
 export interface CreateInvoiceDto {

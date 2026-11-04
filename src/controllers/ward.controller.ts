@@ -15,7 +15,7 @@ import { PERMISSION_KEYS } from "@/types/rbac";
 function sanitiseRateField(value: unknown): number | undefined {
     if (value === undefined || value === null || value === "") return undefined;
     const numeric = Number(value);
-    if (Number.isFinite(numeric) && numeric >= 0) return numeric;
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
     return Number.NaN;
 }
 
@@ -74,7 +74,7 @@ export class WardController {
             const bedRate = sanitiseRateField(raw.bedRatePerDay);
             const nursingRate = sanitiseRateField(raw.nursingRatePerDay);
             if (Number.isNaN(bedRate) || Number.isNaN(nursingRate)) {
-                return NextResponse.json({ success: false, message: "Rates must be zero or positive numbers" }, { status: 400 });
+                return NextResponse.json({ success: false, message: "Rates must be greater than zero" }, { status: 400 });
             }
             if (bedRate !== undefined) data.bedRatePerDay = bedRate;
             if (nursingRate !== undefined) data.nursingRatePerDay = nursingRate;
@@ -258,7 +258,7 @@ export class WardController {
             const bedRate = sanitiseRateField(data.bedRatePerDay);
             const nursingRate = sanitiseRateField(data.nursingRatePerDay);
             if (Number.isNaN(bedRate) || Number.isNaN(nursingRate)) {
-                return NextResponse.json({ success: false, message: "Rates must be zero or positive numbers" }, { status: 400 });
+                return NextResponse.json({ success: false, message: "Rates must be greater than zero" }, { status: 400 });
             }
             if (bedRate === undefined) delete data.bedRatePerDay; else data.bedRatePerDay = bedRate;
             if (nursingRate === undefined) delete data.nursingRatePerDay; else data.nursingRatePerDay = nursingRate;

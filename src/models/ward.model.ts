@@ -39,11 +39,11 @@ const wardSchema = new Schema<IWard>(
         // the matching draft rows red and block save until configured.
         bedRatePerDay: {
             type: Number,
-            min: 0
+            min: 0.01
         },
         nursingRatePerDay: {
             type: Number,
-            min: 0
+            min: 0.01
         },
         organizationId: {
             type: Types.ObjectId,

@@ -23,7 +23,7 @@ const serviceSchema = new Schema<IService>(
         defaultRate: {
             type: Number,
             required: true,
-            min: 0
+            min: 0.01
         },
         active: {
             type: Boolean,

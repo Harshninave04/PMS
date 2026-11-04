@@ -14,9 +14,12 @@ import PaymentModel from "@/models/payment.model";
 import NursingMedicalSupply from "@/models/nursing-medical-supply.model";
 import Service from "@/models/service.model";
 import Organization from "@/models/organization.model";
+import OrganizationSetting from "@/models/organization-setting.model";
 import Invoice from "@/models/invoice.model";
 import { Types } from "mongoose";
 import { num, round2 } from "@/lib/money";
+import { hospitalDayKey } from "@/lib/hospital-time";
+import { DEFAULT_HOSPITAL_TIME_ZONE } from "@/types/hospital-profile";
 
 export interface BillingActor {
     userId?: Types.ObjectId | string;
@@ -36,13 +39,15 @@ export function resolveBillingBranchId(actor?: BillingActor): string | undefined
 
 export interface SuggestedInvoiceItem {
     name: string;
-    price: number;
+    price: number | null;
     quantity: number;
     discount: number;
     tax: number;
     total: number;
     source: "BED" | "ROUNDS" | "MEDICATION" | "ORDER" | "ICU_MONITORING";
     detail?: string;
+    needsManualRate?: boolean;
+    rateHint?: string;
 }
 
 // Wards whose patients are monitored around the clock: the draft adds an
@@ -74,10 +79,8 @@ async function applyBranchConvention(query: Record<string, unknown>, actor?: Bil
     }
 }
 
-// Legacy data cover: some older admissions kept a Doctor-profile id inside
-// `doctorId` (the model now refs User), so the plain populate silently leaves
-// the raw ObjectId and cards fall back to "Attending Physician". For those
-// rows only, resolve the name through the Doctor profile's user.
+// Older admissions may keep a Doctor-profile id in `doctorId`, so resolve
+// those names through the Doctor profile's linked user.
 function rawIdString(value: unknown): string {
     if (value instanceof Types.ObjectId) return value.toString();
     if (typeof value === "string") return value;
@@ -112,7 +115,7 @@ async function resolveLegacyDoctorNames(admissions: Array<Record<string, unknown
 }
 
 interface QueueNames {
-    doctorName?: string;
+    doctorName?: string | null;
     flaggedByName?: string;
     sentByName?: string;
 }
@@ -134,7 +137,7 @@ function composeQueueNames(admission: Record<string, unknown>, legacyDoctors: Ma
         : legacyDoctors.get(rawIdString(admission.doctorId));
 
     return {
-        doctorName: resolvedDoctor || "Attending Physician",
+        doctorName: resolvedDoctor || null,
         flaggedByName: typeof flaggedBy?.name === "string" && flaggedBy.name ? flaggedBy.name : undefined,
         sentByName:
             typeof sentBy?.name === "string" && sentBy.name
@@ -196,10 +199,6 @@ export async function getBillingQueue(actor?: BillingActor) {
         const ward = room?.wardId as Record<string, unknown> | undefined;
         const patient = adm.patientId as Record<string, unknown> | undefined;
         const insurance = adm.insurance as { provider?: string; policyNumber?: string } | undefined;
-        const notes = Array.isArray(adm.dischargeNotes)
-            ? (adm.dischargeNotes as Array<Record<string, unknown>>)
-            : [];
-        const latestNote = notes.length > 0 ? notes[notes.length - 1] : undefined;
         const admissionId = String(adm._id ?? "");
         const invoice = invoiceByAdmission.get(admissionId);
         const names = composeQueueNames(adm, legacyDoctorNames);
@@ -227,7 +226,7 @@ export async function getBillingQueue(actor?: BillingActor) {
             wardName: ward?.wardName || "General Ward",
             wardType: ward?.wardType || "General",
             doctorName: names.doctorName,
-            assignedDoctorNames: assignedDoctors.length ? assignedDoctors : [names.doctorName].filter(Boolean),
+            assignedDoctorNames: assignedDoctors.length ? assignedDoctors : names.doctorName ? [names.doctorName] : [],
             assignedNurseNames: assignedNurses,
             flaggedByName: names.flaggedByName,
             dischargeRequestNotes: (adm.dischargeRequestNotes as string | undefined) || undefined,
@@ -240,8 +239,6 @@ export async function getBillingQueue(actor?: BillingActor) {
             status: adm.status,
             dischargeRequested: Boolean(adm.dischargeRequested),
             billingRequested: Boolean(adm.billingRequested),
-            nurseNoteCount: notes.length,
-            latestNurseNote: latestNote?.text as string | undefined,
             invoice: invoice
                 ? {
                       invoiceId: invoice._id,
@@ -322,15 +319,19 @@ function buildBedSegments(
     return segments;
 }
 
-// Billing rates come from the Wards & Beds configuration (Bed overrides first,
-// then the ward rate). An unset rate yields 0 — its draft row renders red and
-// the bill cannot be saved until the rate is configured. Even though the rate
-// can still be edited inside the bill, the master is never written back.
-function firstDefined(...values: unknown[]): number | undefined {
+// Billing rates come from Wards & Beds (bed override, then ward). Missing
+// rates stay null so the accountant can enter a manual bill rate.
+export function firstPositiveRate(...values: unknown[]): number | undefined {
     for (const value of values) {
-        if (value !== undefined && value !== null && Number.isFinite(Number(value))) return Number(value);
+        if (value !== undefined && value !== null && Number.isFinite(Number(value)) && Number(value) > 0) return Number(value);
     }
     return undefined;
+}
+
+export function billingNursingDay(admissionDate: Date, recordedAt: Date, timeZone: string): number {
+    const admissionKey = hospitalDayKey(admissionDate, timeZone);
+    const recordedKey = hospitalDayKey(recordedAt, timeZone);
+    return Math.max(1, Math.floor((Date.parse(`${recordedKey}T00:00:00Z`) - Date.parse(`${admissionKey}T00:00:00Z`)) / 86400000) + 1);
 }
 
 function buildSegmentRows(segments: BedSegment[]): SuggestedInvoiceItem[] {
@@ -339,8 +340,8 @@ function buildSegmentRows(segments: BedSegment[]): SuggestedInvoiceItem[] {
     segments.forEach((segment, index) => {
         const bed = segment.bed ?? undefined;
         const ward = (bed?.roomId as Record<string, unknown> | undefined)?.wardId as Record<string, unknown> | undefined;
-        const bedRate = firstDefined(bed?.bedRatePerDay, ward?.bedRatePerDay);
-        const nursingRate = firstDefined(bed?.nursingRatePerDay, ward?.nursingRatePerDay);
+        const bedRate = firstPositiveRate(bed?.bedRatePerDay, ward?.bedRatePerDay);
+        const nursingRate = firstPositiveRate(bed?.nursingRatePerDay, ward?.nursingRatePerDay);
         const wardLabel = (ward?.wardName as string) || (ward?.wardType as string) || "General";
         const suffix = multi ? ` (segment ${index + 1})` : "";
         const rangeLabel = segment.from && segment.to
@@ -348,12 +349,14 @@ function buildSegmentRows(segments: BedSegment[]): SuggestedInvoiceItem[] {
             : "";
         rows.push({
             name: `Bed charges — ${wardLabel}${suffix}`,
-            price: bedRate ?? 0,
+            price: bedRate && bedRate > 0 ? bedRate : null,
             quantity: segment.days,
             discount: 0,
             tax: 0,
-            total: round2((bedRate ?? 0) * segment.days),
+            total: round2((bedRate && bedRate > 0 ? bedRate : 0) * segment.days),
             source: "BED",
+            needsManualRate: !(bedRate && bedRate > 0),
+            rateHint: "Set the bed rate in Wards & Beds",
             detail:
                 bedRate === undefined
                     ? "No bed rate configured — set it in Wards & Beds (red rows block save)"
@@ -361,12 +364,14 @@ function buildSegmentRows(segments: BedSegment[]): SuggestedInvoiceItem[] {
         });
         rows.push({
             name: `Nursing charges${suffix}`,
-            price: nursingRate ?? 0,
+            price: nursingRate && nursingRate > 0 ? nursingRate : null,
             quantity: segment.days,
             discount: 0,
             tax: 0,
-            total: round2((nursingRate ?? 0) * segment.days),
+            total: round2((nursingRate && nursingRate > 0 ? nursingRate : 0) * segment.days),
             source: "BED",
+            needsManualRate: !(nursingRate && nursingRate > 0),
+            rateHint: "Set the nursing rate in Wards & Beds",
             detail:
                 nursingRate === undefined
                     ? "No nursing rate configured — set it in Wards & Beds (red rows block save)"
@@ -388,7 +393,7 @@ function fmtRate(value: number): string {
 // Doctors without a fee or profile produce a red row that blocks save until
 // the fee is configured; the bill row itself stays editable but the master is
 // never updated from billing.
-async function buildDoctorRoundRows(rounds: Array<Record<string, unknown>>): Promise<SuggestedInvoiceItem[]> {
+export function groupDoctorRounds(rounds: Array<Record<string, unknown>>) {
     const byDoctor = new Map<string, { count: number; latest?: unknown }>();
     for (const round of rounds) {
         const owner = rawIdString(round.doctor ?? round.author) || "__unattributed__";
@@ -399,6 +404,11 @@ async function buildDoctorRoundRows(rounds: Array<Record<string, unknown>>): Pro
         byDoctor.set(owner, entry);
     }
 
+    return byDoctor;
+}
+
+async function buildDoctorRoundRows(rounds: Array<Record<string, unknown>>): Promise<SuggestedInvoiceItem[]> {
+    const byDoctor = groupDoctorRounds(rounds);
     if (byDoctor.size === 0) return [];
 
     const ownerIds = Array.from(byDoctor.keys()).filter((owner) => owner !== "__unattributed__");
@@ -425,12 +435,14 @@ async function buildDoctorRoundRows(rounds: Array<Record<string, unknown>>): Pro
         if (owner === "__unattributed__") {
             rows.push({
                 name: `Doctor charges — ${entry.count} round(s) without a doctor`,
-                price: 0,
+                price: null,
                 quantity: entry.count,
                 discount: 0,
                 tax: 0,
                 total: 0,
                 source: "ROUNDS",
+                needsManualRate: true,
+                rateHint: "Assign a doctor to this round",
                 detail:
                     `No doctor recorded on these rounds — set a price or delete with a reason` +
                     (latestLabel ? ` · last round ${latestLabel}` : ""),
@@ -438,17 +450,19 @@ async function buildDoctorRoundRows(rounds: Array<Record<string, unknown>>): Pro
             continue;
         }
         const profile = profileByUserId.get(owner);
-        const fee = profile?.fee ?? 0;
+        const fee = profile?.fee && profile.fee > 0 ? profile.fee : null;
         rows.push({
-            name: `Doctor charges — ${profile?.name ? `Dr. ${profile.name}` : "unlisted doctor"} (${entry.count} round(s))`,
+            name: `Doctor charges${profile?.name ? ` — Dr. ${profile.name}` : ""} (${entry.count} rounds)`,
             price: fee,
             quantity: entry.count,
             discount: 0,
             tax: 0,
-            total: round2(fee * entry.count),
+            total: round2((fee ?? 0) * entry.count),
             source: "ROUNDS",
+            needsManualRate: fee === null,
+            rateHint: profile ? "Set the consultation fee in Staff > Doctors" : "Add a doctor profile in Staff > Doctors",
             detail:
-                fee > 0
+                fee !== null
                     ? `Billed from the consultation fee on the doctor profile${latestLabel ? ` · last round ${latestLabel}` : ""}`
                     : `${profile ? "Consultation fee not set — configure it in Staff > Doctors" : "No doctor profile exists — add one in Staff > Doctors"} (red rows block save)`,
         });
@@ -459,7 +473,7 @@ async function buildDoctorRoundRows(rounds: Array<Record<string, unknown>>): Pro
 // One row per clinical order title (Lab / Radiology / Procedure / Diet orders
 // the doctor placed on the stay), priced from the Services rate list when the
 // title matches an active service; otherwise a red editable row.
-function buildClinicalOrderRows(orders: Array<Record<string, unknown>>, serviceByExactName: Map<string, number>): SuggestedInvoiceItem[] {
+export function buildClinicalOrderRows(orders: Array<Record<string, unknown>>, serviceByExactName: Map<string, number>): SuggestedInvoiceItem[] {
     const grouped = new Map<string, { orderType: string; title: string; count: number }>();
     for (const order of orders) {
         const orderType = String(order.orderType || "Other").trim();
@@ -475,17 +489,19 @@ function buildClinicalOrderRows(orders: Array<Record<string, unknown>>, serviceB
     const rows: SuggestedInvoiceItem[] = [];
     for (const [, entry] of Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
         const rate = serviceByExactName.get(entry.title.trim().toLowerCase());
-        const price = rate && rate > 0 ? rate : 0;
+        const price = rate && rate > 0 ? rate : null;
         rows.push({
             name: `${entry.orderType} — ${entry.title}`,
             price,
             quantity: entry.count,
             discount: 0,
             tax: 0,
-            total: round2(price * entry.count),
+            total: round2((price ?? 0) * entry.count),
             source: "ORDER",
+            needsManualRate: price === null,
+            rateHint: `Add ${entry.title} to Services (Billing > Rates)`,
             detail:
-                price > 0
+                price !== null
                     ? `Priced from the Services rate list · ${entry.count} order(s) recorded`
                     : `No rate match in Services (Billing > Rates) — set the rate or delete the line (red rows block save)`,
         });
@@ -504,7 +520,7 @@ function buildIcuMonitoringRows(segments: BedSegment[], serviceByExactName: Map<
     }, 0);
     if (!monitoredHours) return [];
     const rate = serviceByExactName.get("icu monitoring");
-    const price = rate && rate > 0 ? rate : 0;
+    const price = rate && rate > 0 ? rate : null;
     return [
         {
             name: "ICU monitoring — hourly",
@@ -512,10 +528,12 @@ function buildIcuMonitoringRows(segments: BedSegment[], serviceByExactName: Map<
             quantity: monitoredHours,
             discount: 0,
             tax: 0,
-            total: round2(price * monitoredHours),
+            total: round2((price ?? 0) * monitoredHours),
             source: "ICU_MONITORING",
+            needsManualRate: price === null,
+            rateHint: 'Add "ICU Monitoring" to Services (Billing > Rates)',
             detail:
-                price > 0
+                price !== null
                     ? `Billed from the Services rate list ("ICU Monitoring") · ${monitoredHours} monitored hour(s)`
                     : `No "ICU Monitoring" rate in Services (Billing > Rates) — add it to price ${monitoredHours} monitored hours (red rows block save)`,
         },
@@ -554,7 +572,6 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
         .populate("dischargeRequestedBy", "name")
         .populate("billingRequestedBy", "name")
         .populate("nursingHandoverHistory.fromNurseId", "name")
-        .populate("dischargeNotes.by", "name")
         .populate({
             path: "bedId",
             populate: {
@@ -587,15 +604,7 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
     const patient = admission.patientId as Record<string, unknown> | undefined;
     const insurance = admission.insurance as { provider?: string; policyNumber?: string } | undefined;
     const names = composeQueueNames(admission as Record<string, unknown>, await resolveLegacyDoctorNames([admission as Record<string, unknown>]));
-    const notes = Array.isArray(admission.dischargeNotes)
-        ? (admission.dischargeNotes as Array<Record<string, unknown>>).map((note) => ({
-              text: note.text,
-              at: note.at as Date,
-              nurseName: (note.by as { name?: string } | undefined)?.name || "Nurse",
-          }))
-        : [];
-
-    const [rounds, givenDoses, supplyRecords, clinicalOrders, activeMedicationOrders, pendingDoses, advanceReceipts] = await Promise.all([
+    const [rounds, givenDoses, supplyRecords, clinicalOrders, activeMedicationOrders, pendingDoses, advanceReceipts, orgSettings] = await Promise.all([
         ClinicalRecord.find({
             admissionId: id,
             recordType: "Progress Note",
@@ -640,7 +649,16 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
             .sort({ date: 1 })
             .limit(50)
             .lean(),
+        OrganizationSetting.findOne().select("timeZone billDiscountCapPercent").lean(),
     ]);
+
+    let timeZone = typeof orgSettings?.timeZone === "string" && orgSettings.timeZone.trim()
+        ? orgSettings.timeZone
+        : DEFAULT_HOSPITAL_TIME_ZONE;
+    try { new Intl.DateTimeFormat("en", { timeZone }); } catch { timeZone = DEFAULT_HOSPITAL_TIME_ZONE; }
+    const discountCapPercent = Number.isFinite(Number(orgSettings?.billDiscountCapPercent))
+        ? Number(orgSettings?.billDiscountCapPercent)
+        : 10;
 
     const supplyNames = Array.from(new Set(supplyRecords.map((record) => String(record.itemName || "").trim()).filter(Boolean)));
     const matchingServices = supplyNames.length
@@ -659,13 +677,16 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
             itemName: record.itemName,
             category: record.category,
             quantity: record.quantity,
-            nursingDay: record.nursingDay,
+            nursingDay: billingNursingDay(new Date(admission.admissionDate as Date), new Date(record.recordedAt as Date), timeZone),
             notes: record.notes || "",
             recordedAt: record.recordedAt,
             nurseName: author?.name || "Nurse",
             serviceName: service?.name,
             rate,
             missingRate: rate === undefined,
+            price: rate ?? null,
+            needsManualRate: rate === undefined,
+            rateHint: `Add ${String(record.itemName || "this supply")} to Services (Billing > Rates)`,
         };
     });
 
@@ -748,17 +769,19 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
     for (const [key, units] of Array.from(medicationMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
         const [medicationName, dosage] = key.split(" | ");
         const pharmacyPrice = pharmacyPriceByName.get(medicationName.trim().toLowerCase());
-        const price = pharmacyPrice && pharmacyPrice > 0 ? pharmacyPrice : 0;
+        const price = pharmacyPrice && pharmacyPrice > 0 ? pharmacyPrice : null;
         medicationRows.push({
             name: dosage ? `Medication — ${medicationName} (${dosage})` : `Medication — ${medicationName}`,
             price,
             quantity: units,
             discount: 0,
             tax: 0,
-            total: round2(price * units),
+            total: round2((price ?? 0) * units),
             source: "MEDICATION",
+            needsManualRate: price === null,
+            rateHint: `Set the medicine price in Pharmacy > Medicines or enter a bill rate`,
             detail:
-                price > 0
+                price !== null
                     ? `${units} dose(s) given on the eMAR · unit price from the pharmacy stock list`
                     : `${units} dose(s) recorded as given on the eMAR — no pharmacy price match, set it`,
         });
@@ -798,7 +821,6 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
         stayDays,
         roundCount: rounds.length,
         doseUnits: givenDoses.length,
-        nurseNotes: notes,
         medicalSupplies,
         // Pending-charge disclosure (Phase 3.4): the bill rows only cover doses
         // GIVEN so far, so the accountant must see — and confirm — what is
@@ -824,7 +846,7 @@ export async function buildAdmissionDraft(admissionId: Types.ObjectId | string, 
         ),
     };
 
-    return { context, items };
+    return { context, items, config: { discountCapPercent, timeZone } };
 }
 
 export type BillingDraft = Awaited<ReturnType<typeof buildAdmissionDraft>>;

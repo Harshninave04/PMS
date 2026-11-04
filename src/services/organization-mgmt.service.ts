@@ -4,7 +4,8 @@ import OrganizationSetting, { IOrganizationSetting } from "@/models/organization
 export class OrganizationMgmtService {
   static async getOrgSettings() {
     await dbConnect();
-    return (await OrganizationSetting.findOne().lean()) as IOrganizationSetting | null;
+    const settings = (await OrganizationSetting.findOne().lean()) as IOrganizationSetting | null;
+    return settings ? { ...settings, billDiscountCapPercent: settings.billDiscountCapPercent ?? 10 } : { billDiscountCapPercent: 10 };
   }
 
   static async updateOrgSettings(data: Partial<IOrganizationSetting>) {
