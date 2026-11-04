@@ -416,27 +416,26 @@ export default function CreateInvoicePage() {
     status: "UNPAID",
   });
 
-  const blockers = useMemo(() => {
-    const messages: string[] = [];
-    const namedRows = items.filter((row) => row.name.trim());
-    if (namedRows.length === 0) messages.push("Add at least one charge row with a description.");
-    if (items.some((row) => !row.name.trim() && row.price !== null && row.price > 0)) {
-      messages.push("Add a description to every row with a rate.");
-    }
-    for (const row of namedRows) {
-      if (row.price === null || row.price <= 0) messages.push(`Rate needed for “${row.name}”.`);
-      if (row.quantity === null || row.quantity <= 0) messages.push(`Quantity must be greater than zero for “${row.name}”.`);
-    }
-    if (billDiscount > 0 && !reasonValue) messages.push("Enter a reason for the discount.");
-    if (discountCap !== null && billDiscount > discountCap && !canDiscountOverCap) {
-      messages.push(`Discount exceeds the configured ${discountCapPercent}% cap; billing discount permission is required.`);
-    }
-    if (discountCap === null) messages.push("The configured discount cap is still loading.");
-    if (pendingMedicationOrders.length > 0 && !pendingConfirm) messages.push("Confirm the pending medication items were handled.");
-    if (manualMode && !manualPatientId) messages.push("Choose a patient for this manual invoice.");
-    if (round2(gross - billDiscount) <= 0) messages.push("Final amount must be greater than zero.");
-    return messages;
-  }, [items, billDiscount, reasonValue, discountCap, discountCapPercent, canDiscountOverCap, pendingMedicationOrders.length, pendingConfirm, manualMode, manualPatientId, gross]);
+  // Cheap string list, rebuilt each render; React Compiler memoizes it
+  // automatically, so no hand-written dependency array is needed here.
+  const blockers: string[] = [];
+  const namedRows = items.filter((row) => row.name.trim());
+  if (namedRows.length === 0) blockers.push("Add at least one charge row with a description.");
+  if (items.some((row) => !row.name.trim() && row.price !== null && row.price > 0)) {
+    blockers.push("Add a description to every row with a rate.");
+  }
+  for (const row of namedRows) {
+    if (row.price === null || row.price <= 0) blockers.push(`Rate needed for “${row.name}”.`);
+    if (row.quantity === null || row.quantity <= 0) blockers.push(`Quantity must be greater than zero for “${row.name}”.`);
+  }
+  if (billDiscount > 0 && !reasonValue) blockers.push("Enter a reason for the discount.");
+  if (discountCap !== null && billDiscount > discountCap && !canDiscountOverCap) {
+    blockers.push(`Discount exceeds the configured ${discountCapPercent}% cap; billing discount permission is required.`);
+  }
+  if (discountCap === null) blockers.push("The configured discount cap is still loading.");
+  if (pendingMedicationOrders.length > 0 && !pendingConfirm) blockers.push("Confirm the pending medication items were handled.");
+  if (manualMode && !manualPatientId) blockers.push("Choose a patient for this manual invoice.");
+  if (round2(gross - billDiscount) <= 0) blockers.push("Final amount must be greater than zero.");
 
   const saveInvoice = async () => {
     const validRows = items.filter((row) => row.name?.trim());
