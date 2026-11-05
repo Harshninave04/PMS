@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import Appointment from "@/models/appointment.model";
 import Patient from "@/models/patient.model";
@@ -8,6 +9,7 @@ import Department from "@/models/department.model";
 import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 import { isDoctorActor } from "@/lib/rbac/doctor-scope";
+import { withBranchScope } from "@/lib/rbac/branch-scope";
 
 export async function GET(request: NextRequest) {
   const denied = await requirePermission(request, "opd.list:view");
@@ -23,12 +25,12 @@ export async function GET(request: NextRequest) {
         if (!User) {}
         if (!Department) {}
 
-        const cancelled = await Appointment.find({
+        const cancelled = await Appointment.find(withBranchScope(authResult, {
             status: "CANCELLED",
             ...(isDoctorActor(authResult.context)
                 ? { doctorId: authResult.context.doctorProfileId!.toString() }
                 : {})
-        })
+        }))
             .populate('patientId', 'name contact uhid age gender')
             .populate({
                 path: 'doctorId',
@@ -77,18 +79,32 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        if (isDoctorActor(authResult.context)) {
-            const appt = await Appointment.findById(appointmentId).select("doctorId").lean();
-            if (!appt || appt.doctorId?.toString() !== authResult.context.doctorProfileId!.toString()) {
-                return NextResponse.json(
-                    { success: false, error: "Forbidden: You can only cancel your own appointments" },
-                    { status: 403 }
-                );
-            }
+        if (!Types.ObjectId.isValid(appointmentId)) {
+            return NextResponse.json(
+                { success: false, error: "Valid appointment ID is required" },
+                { status: 400 }
+            );
         }
 
-        const updated = await Appointment.findByIdAndUpdate(
-            appointmentId,
+        // Branch scope: a branch-confined caller can only ever reach their own
+        // branch's appointment — any other branch record answers 404.
+        const appt = await Appointment.findOne(withBranchScope(authResult, { _id: new Types.ObjectId(appointmentId) })).select("doctorId").lean();
+        if (!appt) {
+            return NextResponse.json(
+                { success: false, error: "Appointment not found" },
+                { status: 404 }
+            );
+        }
+
+        if (isDoctorActor(authResult.context) && appt.doctorId?.toString() !== authResult.context.doctorProfileId!.toString()) {
+            return NextResponse.json(
+                { success: false, error: "Forbidden: You can only cancel your own appointments" },
+                { status: 403 }
+            );
+        }
+
+        const updated = await Appointment.findOneAndUpdate(
+            withBranchScope(authResult, { _id: new Types.ObjectId(appointmentId) }),
             {
                 status: "CANCELLED",
                 queueStatus: "CANCELLED",
@@ -109,7 +125,10 @@ export async function POST(request: NextRequest) {
             .lean();
 
         if (!updated) {
-            return NextResponse.json({ success: false, error: "Appointment not found" }, { status: 404 });
+            return NextResponse.json(
+                { success: false, error: "Appointment not found" },
+                { status: 404 }
+            );
         }
 
         return NextResponse.json({

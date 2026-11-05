@@ -1,4 +1,4 @@
-﻿# Medistra HMS — Client Overview
+# Medistra HMS — Client Overview
 
 ## 1. About Medistra HMS
 

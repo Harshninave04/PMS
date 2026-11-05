@@ -162,7 +162,7 @@ export default function CompletedTodayPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <div><CardTitle className="text-base">Completed today</CardTitle><p className="mt-1 text-xs text-slate-500">{loading ? "Loading visitsâ€¦" : `${count} completed ${count === 1 ? "visit" : "visits"}`}</p></div>
+          <div><CardTitle className="text-base">Completed today</CardTitle><p className="mt-1 text-xs text-slate-500">{loading ? "Loading visits…" : `${count} completed ${count === 1 ? "visit" : "visits"}`}</p></div>
           <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">{count}</Badge>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -183,7 +183,7 @@ export default function CompletedTodayPage() {
       <Dialog open={Boolean(selectedId)} onOpenChange={closeVisit}>
         <DialogContent className="prescription-dialog-content max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader className="no-print">
-            <DialogTitle>{patient?.name || (detailLoading ? "Loading visitâ€¦" : "Completed visit")}</DialogTitle>
+            <DialogTitle>{patient?.name || (detailLoading ? "Loading visit…" : "Completed visit")}</DialogTitle>
             <DialogDescription>Clinical details for this appointment completed today.</DialogDescription>
           </DialogHeader>
           {detailLoading ? <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading visit details</div> : detailError ? (
@@ -218,7 +218,7 @@ export default function CompletedTodayPage() {
 
                   <section className="prescription-keep-together flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-slate-200 pb-2 text-[10px]">
                     <p><span className="font-semibold">Prescribed by:</span> {formatPrescriptionDoctorName(doctorUser?.name) || "Doctor"}{doctor?.qualification ? ` · ${doctor.qualification}` : ""}{doctor?.specialization ? ` · ${doctor.specialization}` : ""}</p>
-                    <p className="text-slate-600">{[doctorDepartment?.name, doctor?.licenseNo ? `Reg. ${doctor.licenseNo}` : ""].filter(Boolean).join(" Â· ")}</p>
+                    <p className="text-slate-600">{[doctorDepartment?.name, doctor?.licenseNo ? `Reg. ${doctor.licenseNo}` : ""].filter(Boolean).join(" · ")}</p>
                   </section>
 
                   <section className="prescription-keep-together grid grid-cols-2 gap-3 rounded border border-slate-300 p-2">
@@ -234,7 +234,7 @@ export default function CompletedTodayPage() {
                           <thead className="bg-slate-100"><tr><th className="p-1.5">#</th><th className="p-1.5">Medicine</th><th className="p-1.5">Dose</th><th className="p-1.5">Frequency</th><th className="p-1.5">Duration</th><th className="p-1.5">Instructions</th></tr></thead>
                           <tbody className="divide-y divide-slate-200">{prescription.medications.map((medicine, index) => (
                             <tr key={`${medicine.name}-${index}`}>
-                              <td className="p-1.5">{index + 1}</td><td className="p-1.5 font-medium">{medicine.name || "â€”"}</td><td className="p-1.5">{medicine.dosage || "â€”"}</td><td className="p-1.5">{medicine.frequency || "â€”"}</td><td className="p-1.5">{medicine.duration || "â€”"}</td><td className="p-1.5">{medicine.instructions || "â€”"}</td>
+                              <td className="p-1.5">{index + 1}</td><td className="p-1.5 font-medium">{medicine.name || "—"}</td><td className="p-1.5">{medicine.dosage || "—"}</td><td className="p-1.5">{medicine.frequency || "—"}</td><td className="p-1.5">{medicine.duration || "—"}</td><td className="p-1.5">{medicine.instructions || "—"}</td>
                             </tr>
                           ))}</tbody>
                         </table>
@@ -253,7 +253,7 @@ export default function CompletedTodayPage() {
               )}
 
               {!prescription && <div className="space-y-4 no-print">
-                <section className="space-y-3"><h3 className="font-semibold text-slate-900 dark:text-white">Patient information</h3><div className="grid gap-4 rounded-lg bg-slate-50 p-4 sm:grid-cols-3 dark:bg-slate-800/60"><FieldIfPresent label="UHID" value={patient?.uhid} /><FieldIfPresent label="Phone" value={patient?.contact} /><FieldIfPresent label="Email" value={patient?.email} /><FieldIfPresent label="Age / Gender" value={[patient?.age, patient?.gender].filter(Boolean).join(" / ")} /><FieldIfPresent label="Date of birth" value={patient?.dateOfBirth ? formatHospitalDate(patient.dateOfBirth, hospital.timeZone) : undefined} /><FieldIfPresent label="Blood group" value={patient?.bloodGroup} /><FieldIfPresent label="Address" value={patient?.address} /><FieldIfPresent label="Emergency contact" value={patient?.emergencyContact} /><FieldIfPresent label="Marital status" value={patient?.maritalStatus} /><FieldIfPresent label="Guardian" value={[patient?.guardianName, patient?.guardianRelation].filter(Boolean).join(" Â· ")} /><FieldIfPresent label="Allergies" value={patient?.allergies?.join(", ")} /><FieldIfPresent label="Medical history" value={patient?.medicalHistory?.join(", ")} /><FieldIfPresent label="Token" value={details.appointment.tokenNumber} /><FieldIfPresent label="Completed at" value={formattedCompletedAt} /><FieldIfPresent label="Consulting doctor" value={doctorUser?.name} /></div></section>
+                <section className="space-y-3"><h3 className="font-semibold text-slate-900 dark:text-white">Patient information</h3><div className="grid gap-4 rounded-lg bg-slate-50 p-4 sm:grid-cols-3 dark:bg-slate-800/60"><FieldIfPresent label="UHID" value={patient?.uhid} /><FieldIfPresent label="Phone" value={patient?.contact} /><FieldIfPresent label="Email" value={patient?.email} /><FieldIfPresent label="Age / Gender" value={[patient?.age, patient?.gender].filter(Boolean).join(" / ")} /><FieldIfPresent label="Date of birth" value={patient?.dateOfBirth ? formatHospitalDate(patient.dateOfBirth, hospital.timeZone) : undefined} /><FieldIfPresent label="Blood group" value={patient?.bloodGroup} /><FieldIfPresent label="Address" value={patient?.address} /><FieldIfPresent label="Emergency contact" value={patient?.emergencyContact} /><FieldIfPresent label="Marital status" value={patient?.maritalStatus} /><FieldIfPresent label="Guardian" value={[patient?.guardianName, patient?.guardianRelation].filter(Boolean).join(" · ")} /><FieldIfPresent label="Allergies" value={patient?.allergies?.join(", ")} /><FieldIfPresent label="Medical history" value={patient?.medicalHistory?.join(", ")} /><FieldIfPresent label="Token" value={details.appointment.tokenNumber} /><FieldIfPresent label="Completed at" value={formattedCompletedAt} /><FieldIfPresent label="Consulting doctor" value={doctorUser?.name} /></div></section>
                 <section className="space-y-3"><h3 className="font-semibold text-slate-900 dark:text-white">Consultation</h3><div className="grid gap-4 rounded-lg border border-slate-200 p-4 sm:grid-cols-2 dark:border-slate-800"><FieldIfPresent label="Chief complaint" value={clinical?.chiefComplaint} /><FieldIfPresent label="Diagnosis" value={clinical?.assessment} /><FieldIfPresent label="History / clinical notes" value={clinical?.historyOfPresentIllness || clinical?.details} /><FieldIfPresent label="Objective findings" value={clinical?.objectiveFindings} /><FieldIfPresent label="Clinical plan / investigations" value={clinical?.plan} /><FieldIfPresent label="Clinical instructions" value={clinical?.instructions} /><FieldIfPresent label="Follow-up date" value={clinical?.followUpDate ? formatHospitalDate(clinical.followUpDate, hospital.timeZone) : undefined} />{clinical?.admitAdvised && <FieldIfPresent label="Admission advised" value={`Yes. Reason: ${clinical.admitReason || "Not recorded"}`} />}</div></section>
                 <section className="space-y-3"><h3 className="font-semibold text-slate-900 dark:text-white">Prescription</h3><p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">No prescription recorded for this visit.</p></section>
               </div>}

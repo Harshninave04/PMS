@@ -9,6 +9,7 @@ import { PERMISSION_KEYS } from "@/types/rbac";
 import { canCompleteAppointment, isDoctorRole } from "@/lib/rbac/doctor-scope";
 import { supportsMongoTransactions } from "@/lib/mongo-transaction-support";
 import { buildConsultationDocuments, isAppointmentReadyForConsultation, normalizeConsultationInput } from "@/lib/consultation-save";
+import { withBranchScope } from "@/lib/rbac/branch-scope";
 
 export async function POST(
   request: NextRequest,
@@ -40,7 +41,9 @@ export async function POST(
   try {
     await dbConnect();
 
-    const appointment = await Appointment.findById(appointmentId)
+    // Branch scope: a branch-confined caller can only ever reach their own
+    // branch's appointment — any other branch record answers 404.
+    const appointment = await Appointment.findOne(withBranchScope(authResult, { _id: appointmentId }))
       .populate("patientId")
       .populate({
         path: "doctorId",
@@ -144,7 +147,7 @@ export async function POST(
 
       appointmentUpdateAttempted = true;
       const completedAppointment = await Appointment.findOneAndUpdate(
-        {
+        withBranchScope(authResult, {
           _id: appointmentId,
           doctorId: aptDoctorProfileId,
           status: { $nin: ["COMPLETED", "CANCELLED"] },
@@ -153,7 +156,7 @@ export async function POST(
             { queueStatus: "IN_CONSULTATION" },
             { status: "IN_PROGRESS" },
           ],
-        },
+        }),
         {
           status: "COMPLETED",
           queueStatus: "COMPLETED",

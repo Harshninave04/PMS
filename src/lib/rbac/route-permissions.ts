@@ -94,6 +94,8 @@ export const ROUTE_PERMISSIONS: readonly RouteRule[] = [
     get("/patient/reports", K("patients", "profile", "view")),
     post("/patient/documents", K("patients", "documents", "upload")),
     del("/patient/documents", K("patients", "documents", "delete")),
+    // Authorized five-minute read links; legacy public URLs stay until migrated.
+    get("/patient/documents/[id]/url", K("patients", "documents", "view")),
     post("/upload", K("patients", "documents", "upload")),
 
     // OPD

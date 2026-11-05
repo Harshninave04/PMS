@@ -1,4 +1,4 @@
-﻿# Billing & Discharge Flow — Implementation Plan (Agent Handoff Document)
+# Billing & Discharge Flow — Implementation Plan (Agent Handoff Document)
 
 Status: IN PROGRESS (Phase 1 + 2 verified; Phase 3 implemented — see Section 13)
 Last updated: 2026-10-24

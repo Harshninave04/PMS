@@ -68,6 +68,7 @@ export interface AddPatientDocumentDto {
     category: "LAB_REPORT" | "PRESCRIPTION" | "DISCHARGE_SUMMARY" | "ID_PROOF" | "CONSENT_FORM" | "RADIOLOGY" | "OTHER";
     fileUrl: string;
     fileName: string;
+    storageKey?: string;
     fileSize?: string;
     notes?: string;
 }

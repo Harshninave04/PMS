@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import Appointment from "@/models/appointment.model";
 import Patient from "@/models/patient.model";
@@ -9,6 +10,7 @@ import { AppointmentService } from "@/services/appointment.service";
 import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 import { isDoctorActor } from "@/lib/rbac/doctor-scope";
+import { withBranchScope } from "@/lib/rbac/branch-scope";
 
 export async function GET(request: NextRequest) {
   const denied = await requirePermission(request, "opd.list:view");
@@ -24,12 +26,12 @@ export async function GET(request: NextRequest) {
         if (!User) {}
         if (!Department) {}
 
-        const rescheduled = await Appointment.find({
+        const rescheduled = await Appointment.find(withBranchScope(authResult, {
             rescheduledFrom: { $exists: true, $ne: null },
             ...(isDoctorActor(authResult.context)
                 ? { doctorId: authResult.context.doctorProfileId!.toString() }
                 : {})
-        })
+        }))
             .populate('patientId', 'name contact uhid age gender')
             .populate({
                 path: 'doctorId',
@@ -72,7 +74,16 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const existing = await Appointment.findById(appointmentId);
+        if (!Types.ObjectId.isValid(appointmentId)) {
+            return NextResponse.json(
+                { success: false, error: "Valid appointment ID is required" },
+                { status: 400 }
+            );
+        }
+
+        // Branch scope: a branch-confined caller can only ever reach their own
+        // branch's appointment — any other branch record answers 404.
+        const existing = await Appointment.findOne(withBranchScope(authResult, { _id: new Types.ObjectId(appointmentId) }));
         if (!existing) {
             return NextResponse.json({ success: false, error: "Appointment not found" }, { status: 404 });
         }
@@ -109,7 +120,11 @@ export async function POST(request: NextRequest) {
             updateData.doctorId = newDoctorId;
         }
 
-        const updated = await Appointment.findByIdAndUpdate(appointmentId, updateData, { new: true })
+        const updated = await Appointment.findOneAndUpdate(
+            withBranchScope(authResult, { _id: new Types.ObjectId(appointmentId) }),
+            updateData,
+            { new: true }
+        )
             .populate('patientId', 'name contact uhid age gender')
             .populate({
                 path: 'doctorId',
@@ -119,6 +134,13 @@ export async function POST(request: NextRequest) {
                 ]
             })
             .lean();
+
+        if (!updated) {
+            return NextResponse.json(
+                { success: false, error: "Appointment not found" },
+                { status: 404 }
+            );
+        }
 
         return NextResponse.json({
             success: true,

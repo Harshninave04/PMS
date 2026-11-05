@@ -206,6 +206,26 @@ function PatientDocumentsContent() {
     return matchCat && matchSearch;
   });
 
+  // Open a document through the authorized URL endpoint: migrated documents
+  // get a short-lived signed link, legacy records fall back to their URL.
+  const [openingDocId, setOpeningDocId] = useState<string | null>(null);
+  const handleOpenDoc = async (doc: { _id: string; title: string }) => {
+    setOpeningDocId(doc._id);
+    try {
+      const res = await fetch(`/api/patient/documents/${doc._id}/url`);
+      const data = await res.json();
+      if (res.ok && data.success && data.data?.url) {
+        window.open(data.data.url, "_blank", "noopener,noreferrer");
+      } else {
+        toast(data.message || "Failed to open document", "error");
+      }
+    } catch {
+      toast("Error opening document", "error");
+    } finally {
+      setOpeningDocId(null);
+    }
+  };
+
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -377,14 +397,15 @@ function PatientDocumentsContent() {
               </CardContent>
 
               <div className="p-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/40 rounded-b-xl">
-                <a
-                  href={doc.fileUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline"
+                <button
+                  type="button"
+                  onClick={() => handleOpenDoc(doc)}
+                  disabled={openingDocId === doc._id}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50"
                 >
-                  <ExternalLink className="h-3.5 w-3.5" /> View / Download
-                </a>
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  {openingDocId === doc._id ? "Opening..." : "View / Download"}
+                </button>
 
                 <Button
                   variant="outline"

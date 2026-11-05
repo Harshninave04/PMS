@@ -5,6 +5,11 @@ import defaultPatientService, { PatientDuplicateError, PatientService } from "@/
 import { CreatePatientDto, UpdatePatientDto, AddPatientDocumentDto } from "@/dto/patient.dto";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
+import { withBranchScope } from "@/lib/rbac/branch-scope";
+import { documentOpenLink, SIGNED_URL_TTL_SECONDS } from "@/lib/document-url";
+import storage, { StorageUnconfiguredError } from "@/lib/storage";
+import Patient from "@/models/patient.model";
+import type { IPatientDocument } from "@/interfaces/patient.interface";
 import {
     isDoctorActor,
     getAssignedPatientIds,
@@ -458,6 +463,90 @@ export class PatientController {
             );
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : "Failed to delete document";
+            return NextResponse.json(
+                { success: false, message },
+                { status: 500 }
+            );
+        }
+    }
+
+    /**
+     * A short-lived, authorized read link (five minutes) for one document.
+     *
+     * The same authorization the patient routes use applies first — the route
+     * rule permission plus the branch-scoped lookup — so a document from
+     * another branch is answered 404, and a legacy record that has only its
+     * public URL (nothing migrated yet) keeps working instead of breaking.
+     */
+    async getDocumentSignedUrl(request: NextRequest, documentId: string): Promise<NextResponse> {
+        try {
+            await dbConnect();
+            const auth = await authorizeRequest(request, PERMISSION_KEYS.PATIENT_VIEW, "Patient");
+            if (!auth.isAuthorized) return auth.response;
+
+            if (!documentId || !Types.ObjectId.isValid(documentId)) {
+                return NextResponse.json(
+                    { success: false, message: "A valid document ID is required" },
+                    { status: 400 }
+                );
+            }
+
+            // Branch membership travels inside the query itself: a
+            // branch-confined caller's 404 makes the other branch invisible.
+            const docId = new Types.ObjectId(documentId);
+            const patient = await Patient.findOne(
+                withBranchScope(auth, { "documents._id": docId })
+            ).lean();
+            if (!patient) {
+                return NextResponse.json(
+                    { success: false, message: "Document not found or not accessible" },
+                    { status: 404 }
+                );
+            }
+
+            const document = (patient.documents ?? []).find((doc: IPatientDocument) =>
+                doc._id ? new Types.ObjectId(doc._id.toString()).equals(docId) : false
+            );
+            if (!document) {
+                return NextResponse.json(
+                    { success: false, message: "Document not found or not accessible" },
+                    { status: 404 }
+                );
+            }
+
+            const link = documentOpenLink(document, SIGNED_URL_TTL_SECONDS);
+            if (link.kind === "legacy") {
+                return NextResponse.json(
+                    {
+                        success: true,
+                        message: "Legacy document URL returned unchanged until migration",
+                        data: { url: link.url }
+                    },
+                    { status: 200 }
+                );
+            }
+
+            try {
+                const signed = await storage.createSignedUrl(link.storageKey, link.expiresIn);
+                return NextResponse.json(
+                    {
+                        success: true,
+                        message: "Signed document URL created",
+                        data: { url: signed.url, expiresIn: signed.expiresIn }
+                    },
+                    { status: 200 }
+                );
+            } catch (signError: unknown) {
+                if (signError instanceof StorageUnconfiguredError) {
+                    return NextResponse.json(
+                        { success: false, message: "Document storage is not configured for this deployment" },
+                        { status: 503 }
+                    );
+                }
+                throw signError;
+            }
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to create the document link";
             return NextResponse.json(
                 { success: false, message },
                 { status: 500 }
