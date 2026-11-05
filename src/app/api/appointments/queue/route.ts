@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Types } from "mongoose";
 import dbConnect from "@/lib/dbConnect";
 import Appointment from "@/models/appointment.model";
 import Patient from "@/models/patient.model";
@@ -8,6 +9,7 @@ import Department from "@/models/department.model";
 import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 import { isDoctorRole } from "@/lib/rbac/doctor-scope";
+import { withBranchScope } from "@/lib/rbac/branch-scope";
 
 // Queue serving order: EMERGENCY -> URGENT -> NORMAL, then the order the
 // tokens were issued. Tokens themselves are never renumbered.
@@ -67,10 +69,10 @@ export async function GET(request: NextRequest) {
         const todayEnd = new Date(todayStart);
         todayEnd.setDate(todayEnd.getDate() + 1);
 
-        const query: any = {
+        const query: any = withBranchScope(authResult, {
             appointmentDate: { $gte: todayStart, $lt: todayEnd },
             status: { $nin: ["CANCELLED"] }
-        };
+        });
 
         if (doctorId && doctorId !== 'ALL') {
             query.doctorId = doctorId;
@@ -153,11 +155,11 @@ export async function POST(request: NextRequest) {
                 const todayEnd = new Date(todayStart);
                 todayEnd.setDate(todayEnd.getDate() + 1);
 
-                const query: any = {
+                const query: any = withBranchScope(authResult, {
                     appointmentDate: { $gte: todayStart, $lt: todayEnd },
                     queueStatus: "WAITING",
                     status: { $nin: ["CANCELLED", "NO_SHOW"] }
-                };
+                });
                 if (body.doctorId && body.doctorId !== "ALL") {
                     query.doctorId = body.doctorId;
                 }
@@ -213,19 +215,33 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({ success: false, error: "Invalid action" }, { status: 400 });
         }
 
-        // Doctor isolation: a targeted queue action may only touch the doctor's
-        // own appointment (CALL_NEXT already picks from the doctor's own queue).
-        if (isDoctorRole(authResult.context.roleName) && action !== "CALL_NEXT") {
-            const target = await Appointment.findById(targetId).select("doctorId").lean();
-            if (!target || target.doctorId?.toString() !== authResult.context.doctorProfileId!.toString()) {
-                return NextResponse.json(
-                    { success: false, error: "Forbidden: You can only manage your own appointments" },
-                    { status: 403 }
-                );
+        // Branch scope + validity: a targeted queue action may only touch an
+        // appointment of the caller's own branch (404 otherwise), and a doctor
+        // may only manage appointments assigned to them (403 otherwise).
+        // CALL_NEXT already picks from the branch- and doctor-scoped queue.
+        if (action !== "CALL_NEXT") {
+            if (!Types.ObjectId.isValid(targetId)) {
+                return NextResponse.json({ success: false, error: "Valid appointment ID is required" }, { status: 400 });
+            }
+            if (isDoctorRole(authResult.context.roleName)) {
+                const target = await Appointment.findOne(withBranchScope(authResult, { _id: targetId })).select("doctorId").lean();
+                if (!target) {
+                    return NextResponse.json({ success: false, error: "Appointment not found" }, { status: 404 });
+                }
+                if (target.doctorId?.toString() !== authResult.context.doctorProfileId!.toString()) {
+                    return NextResponse.json(
+                        { success: false, error: "Forbidden: You can only manage your own appointments" },
+                        { status: 403 }
+                    );
+                }
             }
         }
 
-        const updated = await Appointment.findByIdAndUpdate(targetId, updateData, { new: true })
+        const updated = await Appointment.findOneAndUpdate(
+            withBranchScope(authResult, { _id: targetId }),
+            updateData,
+            { new: true }
+        )
             .populate('patientId', 'name contact uhid age gender bloodGroup')
             .populate({
                 path: 'doctorId',
@@ -235,6 +251,10 @@ export async function POST(request: NextRequest) {
                 ]
             })
             .lean();
+
+        if (!updated) {
+            return NextResponse.json({ success: false, error: "Appointment not found" }, { status: 404 });
+        }
 
         return NextResponse.json({ success: true, data: updated });
     } catch (error: any) {

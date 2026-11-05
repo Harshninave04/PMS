@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, CreateBucketCommand, HeadBucketCommand } from "@aws-sdk/client-s3";
+import { createHmac, createHash } from "node:crypto";
 
 // Support both SUPABASE_URL and typo SUPERBASE_URL from env
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.SUPERBASE_URL || "";
@@ -20,6 +21,95 @@ export interface UploadResult {
     fileSize: string;
     contentType: string;
     storageProvider: "supabase" | "s3" | "local_fallback";
+}
+
+/** Thrown when no real storage provider is configured outside development. */
+export class StorageUnconfiguredError extends Error {
+    constructor() {
+        super("Object storage is not configured for this deployment");
+        this.name = "StorageUnconfiguredError";
+    }
+}
+
+export function isDevelopmentEnvironment(): boolean {
+    return process.env.NODE_ENV === "development";
+}
+
+export interface SignedUrlResult {
+    url: string;
+    expiresIn: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* S3 SigV4 presigned GET (no s3-request-presigner dependency)                */
+/* -------------------------------------------------------------------------- */
+
+/** RFC 3986 percent-encoding (AWS canonical-URI rules). */
+function uriEncode(value: string): string {
+    return encodeURIComponent(value).replace(/[!'()*]/g, (char) => "%" + char.charCodeAt(0).toString(16).toUpperCase());
+}
+
+function sha256Hex(value: string): string {
+    return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function hmacSha256(key: Buffer | string, value: string): Buffer {
+    return createHmac("sha256", key).update(value, "utf8").digest();
+}
+
+/**
+ * Presigns a GET for `key` using SigV4 query encoding. Only used by the S3
+ * gateway path; the Supabase client signs URLs with `createSignedUrl`.
+ */
+function presignS3GetObject(key: string, expireSeconds: number): string {
+    const base = S3_ENDPOINT
+        ? new URL(S3_ENDPOINT)
+        : new URL(`https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com`);
+    const path = (S3_ENDPOINT ? `/${S3_BUCKET}/${key}` : `/${key}`)
+        .split("/")
+        .filter(Boolean)
+        .map(uriEncode)
+        .join("/");
+    const authority = base.host;
+
+    const timestamp = new Date();
+    const amzDate = timestamp.toISOString().replace(/[:-]/g, "").replace(/\.\d{3}$/, "");
+    const dateStamp = amzDate.slice(0, 8);
+
+    const credential = `${S3_ACCESS_KEY}/${dateStamp}/${S3_REGION}/s3/aws4_request`;
+    // AWS requires query names in byte order — this list already is.
+    const canonicalQuery = [
+        ["X-Amz-Algorithm", "AWS4-HMAC-SHA256"],
+        ["X-Amz-Credential", credential],
+        ["X-Amz-Date", amzDate],
+        ["X-Amz-Expires", String(expireSeconds)],
+        ["X-Amz-SignedHeaders", "host"],
+    ].map(([name, value]) => `${name}=${uriEncode(value)}`).join("&");
+
+    const canonicalRequest = [
+        "GET",
+        path,
+        canonicalQuery,
+        `host:${authority}`,
+        "",
+        "host",
+        "UNSIGNED-PAYLOAD"
+    ].join("\n");
+
+    const stringToSign = [
+        "AWS4-HMAC-SHA256",
+        amzDate,
+        `${dateStamp}/${S3_REGION}/s3/aws4_request`,
+        sha256Hex(canonicalRequest)
+    ].join("\n");
+
+    const kDate = hmacSha256(`AWS4${S3_SECRET_KEY}`, dateStamp);
+    const kRegion = hmacSha256(kDate, S3_REGION);
+    const kService = hmacSha256(kRegion, "s3");
+    const kSigning = hmacSha256(kService, "aws4_request");
+    const signature = createHmac("sha256", kSigning).update(stringToSign, "utf8").digest("hex");
+
+    return `${base.protocol}//${authority}/${path}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
 
 class StorageService {
@@ -69,8 +159,11 @@ class StorageService {
                 if (!error && buckets) {
                     const exists = buckets.some((b) => b.name === SUPABASE_BUCKET);
                     if (!exists) {
+                        // New buckets start out private. The visibility of an
+                        // existing bucket is never changed from code — that is
+                        // a manual operator task after data migration.
                         await this.supabaseClient.storage.createBucket(SUPABASE_BUCKET, {
-                            public: true,
+                            public: false,
                             fileSizeLimit: 52428800 // 50 MB
                         });
                     }
@@ -91,6 +184,43 @@ class StorageService {
         }
 
         this.bucketInitialized = true;
+    }
+
+    /**
+     * A short-lived, authorized download link for an object this service knows
+     * by key. Never changes bucket visibility or object ACLs.
+     */
+    async createSignedUrl(key: string, expireSeconds = 300): Promise<SignedUrlResult> {
+        if (!key) throw new Error("A storage key is required to create a signed URL");
+
+        // 1. Supabase storage API signs URLs for both public and private buckets.
+        if (this.supabaseClient) {
+            try {
+                const { data, error } = await this.supabaseClient.storage
+                    .from(SUPABASE_BUCKET)
+                    .createSignedUrl(key, expireSeconds);
+                if (!error && data?.signedUrl) return { url: data.signedUrl, expiresIn: expireSeconds };
+                console.warn("Supabase signed URL failed, trying the S3 gateway instead:", error);
+            } catch (err) {
+                console.warn("Supabase signed URL request failed, trying the S3 gateway instead:", err);
+            }
+        }
+
+        // 2. S3-compatible gateway: presign a GET with SigV4 query parameters.
+        if (this.s3Client) {
+            return { url: presignS3GetObject(key, expireSeconds), expiresIn: expireSeconds };
+        }
+
+        // 3. Development fallback (same fake host the fallback upload used),
+        // so the signed-URL endpoint keeps working while credentials are filled in.
+        if (isDevelopmentEnvironment()) {
+            return {
+                url: `https://storage.medistra.hospital/${SUPABASE_BUCKET}/${key}`,
+                expiresIn: expireSeconds
+            };
+        }
+
+        throw new StorageUnconfiguredError();
     }
 
     /**
@@ -117,8 +247,7 @@ class StorageService {
                     Bucket: S3_BUCKET,
                     Key: key,
                     Body: fileBuffer,
-                    ContentType: contentType,
-                    ACL: "public-read"
+                    ContentType: contentType
                 });
 
                 await this.s3Client.send(command);
@@ -183,6 +312,11 @@ class StorageService {
 
 
         // 3. Development Fallback (when storage keys not yet filled in env)
+        // The fallback link is fake and would silently lose the uploaded file,
+        // so outside development this is refused instead of reported as success.
+        if (!isDevelopmentEnvironment()) {
+            throw new StorageUnconfiguredError();
+        }
         console.warn("⚠️ No Supabase or S3 credentials found. Using fallback mock storage link.");
         const fallbackUrl = `https://storage.medistra.hospital/${SUPABASE_BUCKET}/${key}`;
         return {

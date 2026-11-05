@@ -168,7 +168,7 @@ export default function ReceptionistDashboard() {
             Reception
           </span>
           <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Welcome back</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Todayâ€™s appointments and patient search.</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Today’s appointments and patient search.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/appointments/book" className={buttonVariants({ className: "gap-2 bg-emerald-600 text-white hover:bg-emerald-700" })}>
@@ -198,7 +198,7 @@ export default function ReceptionistDashboard() {
           {dischargeQueueError ? (
             <p role="alert" className="text-sm text-red-600">{dischargeQueueError}</p>
           ) : dischargeQueueLoading ? (
-            <p className="py-5 text-center text-sm text-slate-500">Loading discharge statusâ€¦</p>
+            <p className="py-5 text-center text-sm text-slate-500">Loading discharge status…</p>
           ) : readyForDischarge.length === 0 ? (
             <p className="py-5 text-center text-sm text-slate-500">No patients are currently ready for discharge.</p>
           ) : (
@@ -208,14 +208,14 @@ export default function ReceptionistDashboard() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="font-semibold text-slate-900 dark:text-white">{patient.patientName} <span className="font-mono text-xs font-normal text-slate-500">{patient.uhid}</span></p>
-                      <p className="text-xs text-slate-500">{[patient.admissionType, patient.wardName, `Room ${patient.roomNumber || "â€”"}`, `Bed ${patient.bedNumber || "â€”"}`].filter(Boolean).join(" Â· ")}{patient.admissionDate ? ` Â· Admitted ${new Date(patient.admissionDate).toLocaleDateString()}` : ""}</p>
+                      <p className="text-xs text-slate-500">{[patient.admissionType, patient.wardName, `Room ${patient.roomNumber || "—"}`, `Bed ${patient.bedNumber || "—"}`].filter(Boolean).join(" · ")}{patient.admissionDate ? ` · Admitted ${new Date(patient.admissionDate).toLocaleDateString()}` : ""}</p>
                     </div>
-                    <Badge className="border-emerald-300 bg-emerald-100 text-emerald-900">Billing Completed â€” Ready for Discharge</Badge>
+                    <Badge className="border-emerald-300 bg-emerald-100 text-emerald-900">Billing Completed — Ready for Discharge</Badge>
                   </div>
                   <div className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4 dark:text-slate-300">
-                    <p><span className="font-medium">Assigned doctor:</span> {(patient.assignedDoctorNames ?? []).map(formatDoctorName).filter(Boolean).join(", ") || formatDoctorName(patient.doctorName) || "â€”"}</p>
-                    <p><span className="font-medium">Assigned nurse:</span> {patient.assignedNurseNames?.join(", ") || "â€”"}</p>
-                    <p><span className="font-medium">Bill:</span> {patient.invoice?.invoiceNumber || "Final bill"} Â· {patient.invoice?.status || "â€”"}</p>
+                    <p><span className="font-medium">Assigned doctor:</span> {(patient.assignedDoctorNames ?? []).map(formatDoctorName).filter(Boolean).join(", ") || formatDoctorName(patient.doctorName) || "—"}</p>
+                    <p><span className="font-medium">Assigned nurse:</span> {patient.assignedNurseNames?.join(", ") || "—"}</p>
+                    <p><span className="font-medium">Bill:</span> {patient.invoice?.invoiceNumber || "Final bill"} · {patient.invoice?.status || "—"}</p>
                     <p><span className="font-medium">Outstanding balance:</span> {fmtMoney(Number(patient.invoice?.balanceAmount ?? 0))}</p>
                   </div>
                   <p className="text-[11px] text-emerald-800 dark:text-emerald-300">Discharge readiness: final bill complete; awaiting authorized discharge.</p>
@@ -238,7 +238,7 @@ export default function ReceptionistDashboard() {
           <Card key={label}>
             <CardContent className="p-5">
               <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
-              <p className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{value ?? "â€”"}</p>
+              <p className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{value ?? "—"}</p>
             </CardContent>
           </Card>
         ))}
@@ -248,23 +248,23 @@ export default function ReceptionistDashboard() {
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle className="text-base">Today's appointments</CardTitle>
           <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-500">Pending payment: {data?.pendingPayment ?? "â€”"}</span>
+            <span className="text-xs text-slate-500">Pending payment: {data?.pendingPayment ?? "—"}</span>
             <Link href="/appointments/list" className="text-sm font-semibold text-emerald-700 hover:underline dark:text-emerald-400">View all</Link>
           </div>
         </CardHeader>
         <CardContent className="p-0">
           {!data ? (
-            <p className="px-5 py-8 text-center text-sm text-slate-500">{dashboardError ? "Today's appointments are unavailable." : "Loading appointmentsâ€¦"}</p>
+            <p className="px-5 py-8 text-center text-sm text-slate-500">{dashboardError ? "Today's appointments are unavailable." : "Loading appointments…"}</p>
           ) : data.appointments.length === 0 ? (
             <p className="px-5 py-8 text-center text-sm text-slate-500">No appointments scheduled for today.</p>
           ) : (
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {data.appointments.map((appointment, index) => (
                 <li key={`${appointment.token}-${appointment.patientId}-${index}`} className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-3 px-5 py-3 sm:grid-cols-[4rem_minmax(0,1fr)_minmax(8rem,0.8fr)_5rem_7rem]">
-                  <span className="font-mono text-xs font-bold text-emerald-700 dark:text-emerald-400">{appointment.token || "â€”"}</span>
+                  <span className="font-mono text-xs font-bold text-emerald-700 dark:text-emerald-400">{appointment.token || "—"}</span>
                   <span className="truncate text-sm font-medium text-slate-900 dark:text-white">{appointment.patient || "Patient"}</span>
-                  <span className="hidden truncate text-sm text-slate-600 dark:text-slate-300 sm:block">{formatDoctorName(appointment.doctor) || "â€”"}</span>
-                  <span className="hidden text-sm text-slate-500 sm:block">{appointment.time || "â€”"}</span>
+                  <span className="hidden truncate text-sm text-slate-600 dark:text-slate-300 sm:block">{formatDoctorName(appointment.doctor) || "—"}</span>
+                  <span className="hidden text-sm text-slate-500 sm:block">{appointment.time || "—"}</span>
                   <span className={`justify-self-end rounded-full px-2.5 py-1 text-xs font-medium ${statusClass[appointment.status]}`}>{appointment.status}</span>
                 </li>
               ))}
@@ -288,7 +288,7 @@ export default function ReceptionistDashboard() {
               className="pl-9"
             />
           </div>
-          {searchLoading && <p className="text-sm text-slate-500">Searchingâ€¦</p>}
+          {searchLoading && <p className="text-sm text-slate-500">Searching…</p>}
           {searchError && <p role="alert" className="text-sm text-red-600">{searchError}</p>}
           {!searchLoading && !searchError && searchQuery.trim() && searchResults.length === 0 && <p className="text-sm text-slate-500">No patients found.</p>}
           {searchResults.length > 0 && (
@@ -299,7 +299,7 @@ export default function ReceptionistDashboard() {
                   <li key={patient._id}>
                     <Link href={`/patients/list?query=${encodeURIComponent(patientQuery)}`} className="flex flex-wrap items-center justify-between gap-1 px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-900">
                       <span className="text-sm font-medium text-slate-900 dark:text-white">{patient.name}</span>
-                      <span className="text-xs text-slate-500">{[patient.contact, patient.uhid].filter(Boolean).join(" Â· ")}</span>
+                      <span className="text-xs text-slate-500">{[patient.contact, patient.uhid].filter(Boolean).join(" · ")}</span>
                     </Link>
                   </li>
                 );

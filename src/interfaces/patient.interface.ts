@@ -6,6 +6,8 @@ export interface IPatientDocument {
     category: string;
     fileUrl: string;
     fileName: string;
+    /** Object-storage key; documents uploaded before private buckets leave it unset. */
+    storageKey?: string;
     fileSize?: string;
     uploadedAt: Date;
     notes?: string;

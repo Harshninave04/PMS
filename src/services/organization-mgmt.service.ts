@@ -1,4 +1,4 @@
-﻿import dbConnect from "@/lib/dbConnect";
+import dbConnect from "@/lib/dbConnect";
 import OrganizationSetting, { IOrganizationSetting } from "@/models/organization-setting.model";
 
 export class OrganizationMgmtService {

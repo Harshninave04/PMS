@@ -12,6 +12,10 @@ const documentSubSchema = new Schema(
         },
         fileUrl: { type: String, required: true },
         fileName: { type: String, required: true },
+        // Object-storage key for documents uploaded through the app. Records
+        // that predate private buckets only have fileUrl and stay readable
+        // until scripts/migrate-documents-private.ts fills this in.
+        storageKey: { type: String },
         fileSize: { type: String },
         uploadedAt: { type: Date, default: Date.now },
         notes: { type: String }
