@@ -66,9 +66,9 @@ export class ServiceController {
                     { status: 400 }
                 );
             }
-            if (!Number.isFinite(rate) || rate < 0) {
+            if (!Number.isFinite(rate) || rate <= 0) {
                 return NextResponse.json(
-                    { success: false, message: "Default rate must be zero or a positive number" },
+                    { success: false, message: "Default rate must be greater than zero" },
                     { status: 400 }
                 );
             }
@@ -133,8 +133,8 @@ export class ServiceController {
             if (raw.category !== undefined) data.category = String(raw.category).trim().slice(0, 60) || "General";
             if (raw.defaultRate !== undefined) {
                 const rate = Number(raw.defaultRate);
-                if (!Number.isFinite(rate) || rate < 0) {
-                    return NextResponse.json({ success: false, message: "Default rate must be zero or a positive number" }, { status: 400 });
+                if (!Number.isFinite(rate) || rate <= 0) {
+                    return NextResponse.json({ success: false, message: "Default rate must be greater than zero" }, { status: 400 });
                 }
                 data.defaultRate = rate;
             }

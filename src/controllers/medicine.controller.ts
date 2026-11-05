@@ -58,6 +58,11 @@ export class MedicineController {
             if (!auth.isAuthorized) return auth.response;
 
             const data = await req.json();
+            const price = Number(data.unitPrice);
+            if (!Number.isFinite(price) || price <= 0) {
+                return NextResponse.json({ success: false, message: "Medicine price must be greater than zero" }, { status: 400 });
+            }
+            data.unitPrice = price;
             const medicine = await MedicineService.create(data);
             return NextResponse.json({ success: true, data: medicine }, { status: 201 });
         } catch (error: unknown) {
@@ -120,6 +125,13 @@ export class MedicineController {
 
             const resolvedParams = await params;
             const data = await req.json();
+            if (data.unitPrice !== undefined) {
+                const price = Number(data.unitPrice);
+                if (!Number.isFinite(price) || price <= 0) {
+                    return NextResponse.json({ success: false, message: "Medicine price must be greater than zero" }, { status: 400 });
+                }
+                data.unitPrice = price;
+            }
             const medicine = await MedicineService.update(resolvedParams.id, data);
             if (!medicine) {
                 return NextResponse.json({ success: false, message: 'Medicine not found' }, { status: 404 });

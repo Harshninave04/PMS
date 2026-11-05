@@ -27,7 +27,7 @@ const doctorSchema = new Schema<IDoctor>(
         },
         experienceYears: {
             type: Number,
-            default: 0
+            min: 0.01
         },
         consultationFee: {
             type: Number,

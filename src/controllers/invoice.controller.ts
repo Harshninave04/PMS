@@ -20,11 +20,14 @@ import {
     BillingActor,
 } from "@/services/billing-flow.service";
 import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
+import OrganizationSetting from "@/models/organization-setting.model";
+import InvoiceRateAudit from "@/models/invoice-rate-audit.model";
+import { buildManualRateAuditRows } from "@/lib/invoice-rate-audit";
 
 // Server-side money rules. The client's numbers are never trusted: these
 // helpers reject NaN/negatives/zero quantities, validate line discounts and
 // recompute every total from price * qty. Trade payment money stays 2-decimal.
-function validateAndRecomputeTotals(data: CreateInvoiceDto): { ok: true } | { ok: false; message: string } {
+export function validateAndRecomputeTotals(data: CreateInvoiceDto): { ok: true } | { ok: false; message: string } {
     if (!Array.isArray(data.items) || data.items.length === 0) {
         return { ok: false, message: "At least one charge row is required" };
     }
@@ -51,10 +54,7 @@ function validateAndRecomputeTotals(data: CreateInvoiceDto): { ok: true } | { ok
         if (typeof priceRaw === "string" && priceRaw.trim() === "") {
             return { ok: false, message: `Row ${i + 1}: rate must be a number` };
         }
-        if (price < 0) {
-            return { ok: false, message: `Row ${i + 1}: rate must be zero or a positive number` };
-        }
-        if (price === 0) {
+        if (price <= 0 || !Number.isFinite(price)) {
             return { ok: false, message: `Row ${i + 1}: rate must be greater than zero — delete the row if it is not chargeable` };
         }
         const quantity = num(row?.quantity);
@@ -76,6 +76,7 @@ function validateAndRecomputeTotals(data: CreateInvoiceDto): { ok: true } | { ok
         const taxValue = round2(round2(gross - discount) * (tax / 100));
         totalAmount = round2(totalAmount + gross);
         taxAmount = round2(taxAmount + taxValue);
+        const nursingSupplyId = (row as typeof row & { nursingSupplyId?: unknown }).nursingSupplyId;
         items.push({
             name,
             price,
@@ -83,7 +84,14 @@ function validateAndRecomputeTotals(data: CreateInvoiceDto): { ok: true } | { ok
             discount,
             tax,
             total: round2(gross - discount + taxValue),
+            ...(typeof nursingSupplyId === "string" && nursingSupplyId ? { nursingSupplyId } : {}),
+            manualRate: (row as typeof row & { manualRate?: unknown }).manualRate === true,
         });
+    }
+
+    const supplyIds = items.map((item) => (item as typeof item & { nursingSupplyId?: string }).nursingSupplyId).filter(Boolean);
+    if (new Set(supplyIds).size !== supplyIds.length) {
+        return { ok: false, message: "A nursing supply cannot be billed more than once" };
     }
 
     const requestedDiscount = num((data as { discount?: unknown }).discount);
@@ -103,7 +111,10 @@ function validateAndRecomputeTotals(data: CreateInvoiceDto): { ok: true } | { ok
     } else {
         delete (data as { discountReason?: string }).discountReason;
     }
-    const finalAmount = round2(Math.max(0, totalAmount - discount + taxAmount));
+    const finalAmount = round2(totalAmount - discount + taxAmount);
+    if (finalAmount <= 0) {
+        return { ok: false, message: "Final amount must be greater than zero" };
+    }
 
     data.items = items as CreateInvoiceDto["items"];
     data.totalAmount = totalAmount;
@@ -180,9 +191,9 @@ export class InvoiceController {
 
             const data: CreateInvoiceDto = await request.json();
 
-            if (!data.patientId || !data.items || !Array.isArray(data.items) || data.totalAmount === undefined || data.discount === undefined || data.finalAmount === undefined) {
+            if (!data.patientId || !data.items || !Array.isArray(data.items)) {
                 return NextResponse.json(
-                    { success: false, message: "Required fields are missing: patientId, items, totalAmount, discount, finalAmount" },
+                    { success: false, message: "Required fields are missing: patientId and items" },
                     { status: 400 }
                 );
             }
@@ -248,7 +259,7 @@ export class InvoiceController {
             // Server does not trust client totals: validate rows and recompute
             // gross/discount/tax/final from price * quantity. What the billing
             // desk submitted is kept for the draft-vs-final audit trail below.
-            const submittedFinalAmount = round2(num(data.finalAmount));
+            const submittedFinalAmount = Number.isFinite(Number(data.finalAmount)) ? round2(num(data.finalAmount)) : 0;
             const totals = validateAndRecomputeTotals(data);
             if (!totals.ok) {
                 return NextResponse.json(
@@ -260,14 +271,18 @@ export class InvoiceController {
             // Bill-discount cap: any discount above this share of the gross is a
             // management decision and needs the discount clearance ("Discount
             // above limit" on the Create Bill sub-item in the permission matrix).
-            const cap = round2(data.totalAmount * 0.1);
+            const settings = await OrganizationSetting.findOne().select("billDiscountCapPercent").lean();
+            const discountCapPercent = Number.isFinite(Number(settings?.billDiscountCapPercent))
+                ? Number(settings?.billDiscountCapPercent)
+                : 10;
+            const cap = round2(data.totalAmount * discountCapPercent / 100);
             if (num(data.discount) > cap) {
                 const allowed = await hasRequestPermission("billing.create:discount");
                 if (!allowed) {
                     return NextResponse.json(
                         {
                             success: false,
-                            message: `Discounts above 10% of the gross amount (${cap.toFixed(2)}) require the billing discount permission (billing.create:discount)`,
+                            message: `Discounts above ${discountCapPercent}% of the gross amount (${cap.toFixed(2)}) require the billing discount permission (billing.create:discount)`,
                         },
                         { status: 403 }
                     );
@@ -364,6 +379,12 @@ export class InvoiceController {
                     if (session) await session.startTransaction();
 
                     const invoice = await this.invoiceService.createInvoice(data, session ? { session } : undefined);
+
+                    const auditRows = buildManualRateAuditRows(auth.context.userId, invoice._id as Types.ObjectId, data.items);
+                    if (auditRows.length) {
+                        if (session) await InvoiceRateAudit.insertMany(auditRows, { session });
+                        else await InvoiceRateAudit.insertMany(auditRows);
+                    }
 
                     // Phase 3.6: apply the stay's unconsumed ADVANCE receipts
                     // against the fresh bill — oldest first, capped at the final

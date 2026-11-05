@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import AdmissionController from "@/controllers/admission.controller";
-import { requirePermission } from "@/lib/rbac/guard";
+import { authorizeRequest } from "@/lib/rbac/guard";
+import { nurseNotesForbiddenStatus } from "@/lib/nurse-notes-access";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-    const denied = await requirePermission(request, "nursing.patients:update");
-    if (denied) return denied;
-
+    const auth = await authorizeRequest(request, "nursing.patients:update", "Admission");
+    if (!auth.isAuthorized) return auth.response;
+    const forbiddenStatus = nurseNotesForbiddenStatus(auth.context.roleName);
+    if (forbiddenStatus) {
+        return NextResponse.json({ success: false, message: "Forbidden" }, { status: forbiddenStatus });
+    }
     try {
         return await AdmissionController.addDischargeNote(request);
     } catch (e: unknown) {
