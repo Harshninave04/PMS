@@ -102,41 +102,39 @@ export const AppointmentController = {
             }
 
             const emergencyBooking = body.priority === "EMERGENCY" || body.type === "EMERGENCY";
-            if (!emergencyBooking) {
-                const appointmentDate = new Date(body.appointmentDate);
-                if (!Number.isFinite(appointmentDate.getTime())) {
-                    return NextResponse.json({ success: false, error: "Enter a valid appointment date." }, { status: 400 });
-                }
+            const appointmentDate = new Date(body.appointmentDate);
+            if (!Number.isFinite(appointmentDate.getTime())) {
+                return NextResponse.json({ success: false, error: "Enter a valid appointment date." }, { status: 400 });
+            }
+            if (!emergencyBooking && body.appointmentTime) {
                 const dayNames: DayOfWeek[] = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
                 const schedules = await DoctorSchedule.find({ doctorId: doctor._id, dayOfWeek: dayNames[appointmentDate.getDay()] }).lean();
                 const schedule = schedules.find((item) => item.status === "ACTIVE");
                 if (!schedule) {
                     return NextResponse.json({ success: false, error: "The doctor is unavailable on the selected date." }, { status: 409 });
                 }
-                if (body.appointmentTime) {
-                    const [startHour, startMinute] = schedule.startTime.split(":").map(Number);
-                    const [endHour, endMinute] = schedule.endTime.split(":").map(Number);
-                    const [slotHour, slotMinute] = String(body.appointmentTime).split(":").map(Number);
-                    const start = startHour * 60 + startMinute;
-                    const end = endHour * 60 + endMinute;
-                    const slot = slotHour * 60 + slotMinute;
-                    const duration = Math.max(5, schedule.slotDurationMinutes || 15);
-                    if (!/^\d{2}:\d{2}$/.test(String(body.appointmentTime)) || !Number.isFinite(slot) || slot < start || slot + duration > end || (slot - start) % duration !== 0) {
-                        return NextResponse.json({ success: false, error: "Choose a valid time slot from the doctor’s schedule." }, { status: 400 });
-                    }
-                    const dayStart = new Date(appointmentDate);
-                    dayStart.setHours(0, 0, 0, 0);
-                    const dayEnd = new Date(dayStart);
-                    dayEnd.setDate(dayEnd.getDate() + 1);
-                    const existingSlot = await Appointment.findOne({
-                        doctorId: doctor._id,
-                        appointmentDate: { $gte: dayStart, $lt: dayEnd },
-                        appointmentTime: body.appointmentTime,
-                        status: { $nin: ["CANCELLED", "NO_SHOW"] },
-                    }).select("_id").lean();
-                    if (existingSlot) {
-                        return NextResponse.json({ success: false, error: "That time slot has just been booked. Choose another slot." }, { status: 409 });
-                    }
+                const [startHour, startMinute] = schedule.startTime.split(":").map(Number);
+                const [endHour, endMinute] = schedule.endTime.split(":").map(Number);
+                const [slotHour, slotMinute] = String(body.appointmentTime).split(":").map(Number);
+                const start = startHour * 60 + startMinute;
+                const end = endHour * 60 + endMinute;
+                const slot = slotHour * 60 + slotMinute;
+                const duration = Math.max(5, schedule.slotDurationMinutes || 15);
+                if (!/^\d{2}:\d{2}$/.test(String(body.appointmentTime)) || !Number.isFinite(slot) || slot < start || slot + duration > end || (slot - start) % duration !== 0) {
+                    return NextResponse.json({ success: false, error: "Choose a valid time slot from the doctor’s schedule." }, { status: 400 });
+                }
+                const dayStart = new Date(appointmentDate);
+                dayStart.setHours(0, 0, 0, 0);
+                const dayEnd = new Date(dayStart);
+                dayEnd.setDate(dayEnd.getDate() + 1);
+                const existingSlot = await Appointment.findOne({
+                    doctorId: doctor._id,
+                    appointmentDate: { $gte: dayStart, $lt: dayEnd },
+                    appointmentTime: body.appointmentTime,
+                    status: { $nin: ["CANCELLED", "NO_SHOW"] },
+                }).select("_id").lean();
+                if (existingSlot) {
+                    return NextResponse.json({ success: false, error: "That time slot has just been booked. Choose another slot." }, { status: 409 });
                 }
             }
 

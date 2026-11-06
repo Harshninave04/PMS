@@ -168,6 +168,7 @@ export default function NewAdmissionPage() {
   const [duplicatePatients, setDuplicatePatients] = useState<PatientDuplicateMatch[]>([]);
   const [canConfirmSharedPhone, setCanConfirmSharedPhone] = useState(false);
   const [bedError, setBedError] = useState("");
+  const [emergencyAdmission, setEmergencyAdmission] = useState(false);
   const [formData, setFormData] = useState({
     patientId: "",
     doctorId: "",
@@ -404,6 +405,7 @@ export default function NewAdmissionPage() {
           doctorId: formData.doctorId,
           bedId: formData.bedId,
           status: "ADMITTED",
+          admissionType: emergencyAdmission ? "EMERGENCY" : "ELECTIVE",
           reasonForAdmission: formData.reasonForAdmission,
           notes: formData.notes,
         }),
@@ -442,7 +444,7 @@ export default function NewAdmissionPage() {
         <Card className="rounded-xl border-slate-200 shadow-sm dark:border-slate-800">
           <CardContent className="space-y-4 p-4 sm:p-5">
             <section className="space-y-4">
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">1. Patient</h2>
+              <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-900 dark:text-white">1. Patient</h2><button type="button" aria-pressed={emergencyAdmission} onClick={() => setEmergencyAdmission((active) => !active)} className={`rounded-lg border px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${emergencyAdmission ? "border-rose-700 bg-rose-600 text-white shadow-sm hover:bg-rose-700" : "border-rose-300 bg-white text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:bg-slate-950 dark:text-rose-300"}`}>{emergencyAdmission ? "Emergency Patient · Active" : "Emergency Patient"}</button></div>
               <div ref={patientPickerRef} className="relative">
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <div className="relative min-w-0 flex-1">
