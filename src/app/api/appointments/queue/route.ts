@@ -10,6 +10,7 @@ import { authorizeRequest, requirePermission } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 import { isDoctorRole } from "@/lib/rbac/doctor-scope";
 import { withBranchScope } from "@/lib/rbac/branch-scope";
+import { isReceptionistRole } from "@/lib/rbac/roles";
 
 // Queue serving order: EMERGENCY -> URGENT -> NORMAL, then the order the
 // tokens were issued. Tokens themselves are never renumbered.
@@ -44,6 +45,9 @@ export async function GET(request: NextRequest) {
 
   const authResult = await authorizeRequest(request, PERMISSION_KEYS.APPOINTMENT_VIEW);
   if (!authResult.isAuthorized) return authResult.response;
+  if (isReceptionistRole(authResult.context.roleName)) {
+    return NextResponse.json({ success: false, error: "Forbidden: Reception does not have access to the OPD queue." }, { status: 403 });
+  }
 
     try {
         await dbConnect();
@@ -69,13 +73,13 @@ export async function GET(request: NextRequest) {
         const todayEnd = new Date(todayStart);
         todayEnd.setDate(todayEnd.getDate() + 1);
 
-        const query: any = withBranchScope(authResult, {
+        const query = withBranchScope(authResult, {
             appointmentDate: { $gte: todayStart, $lt: todayEnd },
             status: { $nin: ["CANCELLED"] }
         });
 
         if (doctorId && doctorId !== 'ALL') {
-            query.doctorId = doctorId;
+            Object.assign(query, { doctorId });
         }
 
         const queue = await Appointment.find(query)
@@ -111,8 +115,8 @@ export async function GET(request: NextRequest) {
                 estimatedWaitTimeMins: waitingCount * 15
             }
         });
-    } catch (error: any) {
-        return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    } catch (error: unknown) {
+        return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "Failed to load appointment queue." }, { status: 400 });
     }
 }
 
@@ -122,6 +126,9 @@ export async function POST(request: NextRequest) {
 
   const authResult = await authorizeRequest(request, PERMISSION_KEYS.APPOINTMENT_UPDATE);
   if (!authResult.isAuthorized) return authResult.response;
+  if (isReceptionistRole(authResult.context.roleName)) {
+    return NextResponse.json({ success: false, error: "Forbidden: Reception does not have access to the OPD queue." }, { status: 403 });
+  }
 
     try {
         await dbConnect();
@@ -144,7 +151,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: false, error: "appointmentId and action are required" }, { status: 400 });
         }
 
-        const updateData: any = {};
+        const updateData: Record<string, string | Date> = {};
         const now = new Date();
         let targetId = appointmentId;
 
@@ -155,16 +162,16 @@ export async function POST(request: NextRequest) {
                 const todayEnd = new Date(todayStart);
                 todayEnd.setDate(todayEnd.getDate() + 1);
 
-                const query: any = withBranchScope(authResult, {
+                const query = withBranchScope(authResult, {
                     appointmentDate: { $gte: todayStart, $lt: todayEnd },
                     queueStatus: "WAITING",
                     status: { $nin: ["CANCELLED", "NO_SHOW"] }
                 });
                 if (body.doctorId && body.doctorId !== "ALL") {
-                    query.doctorId = body.doctorId;
+                    Object.assign(query, { doctorId: body.doctorId });
                 }
                 if (appointmentId) {
-                    query._id = appointmentId;
+                    Object.assign(query, { _id: appointmentId });
                 }
 
                 const candidates = await Appointment.find(query)
@@ -257,7 +264,7 @@ export async function POST(request: NextRequest) {
         }
 
         return NextResponse.json({ success: true, data: updated });
-    } catch (error: any) {
-        return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    } catch (error: unknown) {
+        return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "Failed to update appointment queue." }, { status: 400 });
     }
 }

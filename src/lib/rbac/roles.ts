@@ -26,6 +26,11 @@ export function isNurseRole(roleName: string | null | undefined): boolean {
   return /(^|[^a-z])nurses?($|[^a-z])/i.test(roleName ?? "");
 }
 
+export function isReceptionistRole(roleName: string | null | undefined): boolean {
+  const normalized = (roleName ?? "").trim().toUpperCase();
+  return normalized === "RECEPTIONIST" || normalized === "FRONT_DESK_MANAGER";
+}
+
 /**
  * One plain sentence per role, for the roles list. Written for a hospital
  * administrator, not for a developer: it says what the person does all day.

@@ -1,4 +1,4 @@
-import mongoose, { model, models, Schema, Types } from "mongoose";
+import { model, models, Schema } from "mongoose";
 import { IAppointment } from "@/interfaces/appointment.interface";
 
 const appointmentSchema = new Schema<IAppointment>(
@@ -76,6 +76,13 @@ const appointmentSchema = new Schema<IAppointment>(
         },
         notes: {
             type: String
+        },
+        triage: {
+            temperature: { type: Number, min: 30, max: 45 },
+            bloodPressure: { type: String, trim: true, maxlength: 15 },
+            pulse: { type: Number, min: 20, max: 250 },
+            spo2: { type: Number, min: 50, max: 100 },
+            weight: { type: Number, min: 0.3, max: 400 },
         },
         consultationFee: {
             type: Number,

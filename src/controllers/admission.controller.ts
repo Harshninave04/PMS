@@ -71,6 +71,9 @@ export class AdmissionController {
 
             const data: CreateAdmissionDto = await request.json();
 
+            // Admission dates default to the current server time when omitted.
+            data.admissionDate ||= new Date();
+
             // Enforce branch multi-tenancy
             if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
                 data.branchId = auth.context.branchId.toString();
@@ -87,9 +90,9 @@ export class AdmissionController {
                 data.doctorId = auth.context.userId.toString();
             }
 
-            if (!data.patientId || !data.doctorId || !data.bedId || !data.admissionDate) {
+            if (!data.patientId || !data.doctorId || !data.bedId) {
                 return NextResponse.json(
-                    { success: false, message: "Patient, Doctor, Bed, and Admission Date are required" },
+                    { success: false, message: "Patient, Doctor, and Bed are required" },
                     { status: 400 }
                 );
             }
