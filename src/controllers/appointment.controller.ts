@@ -7,6 +7,11 @@ import { Types } from "mongoose";
 import { authorizeRequest } from "@/lib/rbac/guard";
 import { PERMISSION_KEYS } from "@/types/rbac";
 import { isDoctorActor } from "@/lib/rbac/doctor-scope";
+import { isSuperAdminRole } from "@/lib/rbac/default-permissions";
+import Doctor from "@/models/doctor.model";
+import Appointment from "@/models/appointment.model";
+import AppointmentFeeOverrideAudit from "@/models/appointment-fee-override-audit.model";
+import DoctorSchedule, { type DayOfWeek } from "@/models/doctor-schedule.model";
 
 interface PopulatedPatient {
     name?: string;
@@ -50,6 +55,7 @@ export const AppointmentController = {
             if (!auth.isAuthorized) return auth.response;
 
             const body = await req.json();
+            const isAdmin = isSuperAdminRole(auth.context.roleName);
 
             // Enforce branch multi-tenancy: if user has branchId and is not GLOBAL, lock branchId
             if (auth.context.branchId && auth.grant.orgScope !== "GLOBAL") {
@@ -59,6 +65,79 @@ export const AppointmentController = {
             // Enforce doctor relational constraint: doctor with OWN scope can only book for themselves
             if ((auth.grant.relScope === "OWN" || isDoctorActor(auth.context)) && auth.context.doctorProfileId) {
                 body.doctorId = auth.context.doctorProfileId.toString();
+            }
+
+            const doctor = await Doctor.findById(body.doctorId).select("consultationFee status").lean();
+            if (!doctor || doctor.status !== "ACTIVE") {
+                return NextResponse.json({ success: false, error: "Select an active doctor." }, { status: 400 });
+            }
+            const configuredFee = Number(doctor.consultationFee ?? 0);
+            const feeOverrideRequested = body.consultationFee !== undefined && body.consultationFee !== null && body.consultationFee !== "";
+            if (feeOverrideRequested && !isAdmin) {
+                return NextResponse.json({ success: false, error: "Only an administrator may override the consultation fee." }, { status: 403 });
+            }
+            const overriddenFee = feeOverrideRequested ? Number(body.consultationFee) : configuredFee;
+            if (!Number.isFinite(overriddenFee) || overriddenFee < 0) {
+                return NextResponse.json({ success: false, error: "Consultation fee must be a valid non-negative amount." }, { status: 400 });
+            }
+            body.consultationFee = overriddenFee;
+
+            if (body.triage && typeof body.triage === "object") {
+                const triage = body.triage as Record<string, unknown>;
+                const ranges: Record<string, [number, number]> = { temperature: [30, 45], pulse: [20, 250], spo2: [50, 100], weight: [0.3, 400] };
+                for (const [key, [min, max]] of Object.entries(ranges)) {
+                    if (triage[key] !== undefined && (!Number.isFinite(Number(triage[key])) || Number(triage[key]) < min || Number(triage[key]) > max)) {
+                        return NextResponse.json({ success: false, error: `Triage ${key} is outside the valid range.` }, { status: 400 });
+                    }
+                }
+                if (triage.bloodPressure !== undefined && !/^\s*(\d{2,3})\s*\/\s*(\d{2,3})\s*$/.test(String(triage.bloodPressure))) {
+                    return NextResponse.json({ success: false, error: "Blood pressure must use systolic/diastolic format." }, { status: 400 });
+                }
+                if (triage.bloodPressure !== undefined) {
+                    const [systolic, diastolic] = String(triage.bloodPressure).split("/").map(Number);
+                    if (systolic < 40 || systolic > 300 || diastolic < 20 || diastolic > 200) {
+                        return NextResponse.json({ success: false, error: "Blood pressure values are outside the valid range." }, { status: 400 });
+                    }
+                }
+            }
+
+            const emergencyBooking = body.priority === "EMERGENCY" || body.type === "EMERGENCY";
+            if (!emergencyBooking) {
+                const appointmentDate = new Date(body.appointmentDate);
+                if (!Number.isFinite(appointmentDate.getTime())) {
+                    return NextResponse.json({ success: false, error: "Enter a valid appointment date." }, { status: 400 });
+                }
+                const dayNames: DayOfWeek[] = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+                const schedules = await DoctorSchedule.find({ doctorId: doctor._id, dayOfWeek: dayNames[appointmentDate.getDay()] }).lean();
+                const schedule = schedules.find((item) => item.status === "ACTIVE");
+                if (!schedule) {
+                    return NextResponse.json({ success: false, error: "The doctor is unavailable on the selected date." }, { status: 409 });
+                }
+                if (body.appointmentTime) {
+                    const [startHour, startMinute] = schedule.startTime.split(":").map(Number);
+                    const [endHour, endMinute] = schedule.endTime.split(":").map(Number);
+                    const [slotHour, slotMinute] = String(body.appointmentTime).split(":").map(Number);
+                    const start = startHour * 60 + startMinute;
+                    const end = endHour * 60 + endMinute;
+                    const slot = slotHour * 60 + slotMinute;
+                    const duration = Math.max(5, schedule.slotDurationMinutes || 15);
+                    if (!/^\d{2}:\d{2}$/.test(String(body.appointmentTime)) || !Number.isFinite(slot) || slot < start || slot + duration > end || (slot - start) % duration !== 0) {
+                        return NextResponse.json({ success: false, error: "Choose a valid time slot from the doctor’s schedule." }, { status: 400 });
+                    }
+                    const dayStart = new Date(appointmentDate);
+                    dayStart.setHours(0, 0, 0, 0);
+                    const dayEnd = new Date(dayStart);
+                    dayEnd.setDate(dayEnd.getDate() + 1);
+                    const existingSlot = await Appointment.findOne({
+                        doctorId: doctor._id,
+                        appointmentDate: { $gte: dayStart, $lt: dayEnd },
+                        appointmentTime: body.appointmentTime,
+                        status: { $nin: ["CANCELLED", "NO_SHOW"] },
+                    }).select("_id").lean();
+                    if (existingSlot) {
+                        return NextResponse.json({ success: false, error: "That time slot has just been booked. Choose another slot." }, { status: 409 });
+                    }
+                }
             }
 
             // Support quick patient creation if patient details provided without patientId
@@ -79,9 +158,9 @@ export const AppointmentController = {
                 const newPatient = await defaultPatientService.createPatient({
                     name: String(body.patientName || "").trim() || (emergencyRegistration ? "Unknown" : ""),
                     contact: String(body.contact || "").trim(),
-                    age: Number(body.patientAge) || 30,
+                    age: body.patientAge !== undefined && Number.isFinite(Number(body.patientAge)) ? Number(body.patientAge) : emergencyRegistration ? 0 : 30,
                     gender: body.patientGender || "OTHER",
-                    bloodGroup: body.patientBloodGroup || "O+",
+                    bloodGroup: body.patientBloodGroup || undefined,
                     address: body.patientAddress || "Walk-in Registration",
                     emergencyContact: String(body.contact || "").trim() || "Not provided",
                     branchId: patientBranchId,
@@ -101,6 +180,16 @@ export const AppointmentController = {
             }
 
             const appointment = await AppointmentService.createAppointment(body);
+            if (isAdmin && feeOverrideRequested && overriddenFee !== configuredFee) {
+                await AppointmentFeeOverrideAudit.create({
+                    appointmentId: appointment?._id,
+                    doctorId: doctor._id,
+                    actorId: auth.context.userId,
+                    roleName: auth.context.roleName,
+                    configuredFee,
+                    overriddenFee,
+                });
+            }
             return NextResponse.json({ success: true, data: appointment }, { status: 201 });
         } catch (error: unknown) {
             if (error instanceof PatientDuplicateError) {

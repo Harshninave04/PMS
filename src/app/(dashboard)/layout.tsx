@@ -14,6 +14,7 @@ import { SoftwareMetadataService } from "@/services/software-metadata.service";
 import { currentPermissionEpoch } from "@/lib/rbac/audit";
 import { isPublicPage, permissionsForPage } from "@/lib/rbac/permissions.config";
 import { PATHNAME_HEADER, canOpenPage } from "@/lib/rbac/page-guard";
+import { isReceptionistRole } from "@/lib/rbac/roles";
 
 /**
  * Every dashboard page passes through here, so this is where "hidden in the
@@ -38,7 +39,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const resolved = await resolveRequestIdentity().catch(() => null);
   const identity = resolved && "identity" in resolved ? resolved.identity : null;
   const session = identity ? null : await getServerSession(authOptions);
+  const roleName = identity?.roleName ?? session?.user?.roleName ?? null;
 
+  if (pathname.replace(/\/+$/, "").toLowerCase() === "/appointments/queue" && isReceptionistRole(roleName)) forbidden();
   if (identity && !canOpenPage(required, identity.permissions, publicPage)) forbidden();
 
   const snapshot: PermissionSnapshot = {
@@ -56,7 +59,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <PermissionsProvider
       snapshot={snapshot}
       isSuperAdmin={identity?.permissions.isSuperAdmin ?? session?.user?.roleName === "ADMIN"}
-      roleName={identity?.roleName ?? session?.user?.roleName ?? null}
+      roleName={roleName}
     >
       <BrandingProvider branding={branding}>
         <MasterLayout>{children}</MasterLayout>

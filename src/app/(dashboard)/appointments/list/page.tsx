@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useCallback, useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { usePermissions } from "@/components/permissions/permission-context";
+import { isReceptionistRole } from "@/lib/rbac/roles";
 import {
   Dialog,
   DialogContent,
@@ -23,16 +25,11 @@ import {
   Calendar as CalendarIcon,
   Clock,
   User,
-  Stethoscope,
-  Building2,
   Printer,
   Trash2,
-  Edit,
   Eye,
   CheckCircle2,
-  AlertCircle,
   Loader2,
-  Phone,
   RefreshCw,
   XCircle,
 } from "lucide-react";
@@ -76,14 +73,22 @@ interface AppointmentItem {
   paymentMode?: string;
 }
 
+interface DoctorOption {
+  _id: string;
+  userId?: { name?: string };
+  name?: string;
+  specialization?: string;
+  departmentId?: { name?: string };
+  roomNumber?: string;
+}
+
 export default function AppointmentsListPage() {
   const [appointments, setAppointments] = useState<AppointmentItem[]>([]);
-  const [doctors, setDoctors] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<DoctorOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedDoctor, setSelectedDoctor] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
-  const [selectedType, setSelectedType] = useState("ALL");
   const [timeFilter, setTimeFilter] = useState<"ALL" | "TODAY" | "TOMORROW" | "WEEK">("TODAY");
 
   // Modals
@@ -96,10 +101,11 @@ export default function AppointmentsListPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const { toast } = useToast();
+  const { roleName } = usePermissions();
+  const isReceptionist = isReceptionistRole(roleName);
 
-  const fetchAppointments = async () => {
+  const fetchAppointments = useCallback(async () => {
     try {
-      setLoading(true);
       const [apptRes, docRes] = await Promise.all([
         fetch("/api/appointments"),
         fetch("/api/doctor"),
@@ -109,16 +115,16 @@ export default function AppointmentsListPage() {
 
       if (apptData.success) setAppointments(apptData.data || []);
       if (docData.success) setDoctors(docData.data || []);
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Unable to load appointments.", variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
-    fetchAppointments();
-  }, []);
+    void Promise.resolve().then(fetchAppointments);
+  }, [fetchAppointments]);
 
   // Filtered Appointments
   const filteredAppointments = useMemo(() => {
@@ -146,16 +152,15 @@ export default function AppointmentsListPage() {
 
       const matchesDoc = selectedDoctor === "ALL" || apt.doctorId?._id === selectedDoctor;
       const matchesStatus = selectedStatus === "ALL" || apt.status === selectedStatus;
-      const matchesType = selectedType === "ALL" || apt.type === selectedType;
 
       const aptDateStr = new Date(apt.appointmentDate).toISOString().split("T")[0];
       let matchesTime = true;
       if (timeFilter === "TODAY") matchesTime = aptDateStr === todayStr;
       else if (timeFilter === "TOMORROW") matchesTime = aptDateStr === tomorrowStr;
 
-      return matchesSearch && matchesDoc && matchesStatus && matchesType && matchesTime;
+      return matchesSearch && matchesDoc && matchesStatus && matchesTime;
     });
-  }, [appointments, search, selectedDoctor, selectedStatus, selectedType, timeFilter]);
+  }, [appointments, search, selectedDoctor, selectedStatus, timeFilter]);
 
   // Summary Metrics
   const totalCount = appointments.length;
@@ -183,8 +188,8 @@ export default function AppointmentsListPage() {
       } else {
         toast({ title: "Error", description: data.error, variant: "destructive" });
       }
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } catch (err: unknown) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Unable to update appointment status.", variant: "destructive" });
     }
   };
 
@@ -248,8 +253,8 @@ export default function AppointmentsListPage() {
         toast({ title: "Deleted", description: "Appointment record removed." });
         fetchAppointments();
       }
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } catch (err: unknown) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Unable to delete appointment.", variant: "destructive" });
     }
   };
 
@@ -318,7 +323,7 @@ export default function AppointmentsListPage() {
               <Clock className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-xs font-medium text-slate-500">Today's Appointments</p>
+              <p className="text-xs font-medium text-slate-500">Today&apos;s Appointments</p>
               <h3 className="text-2xl font-bold text-slate-900 dark:text-white">{todayAppointments.length}</h3>
             </div>
           </CardContent>
@@ -523,7 +528,7 @@ export default function AppointmentsListPage() {
                         <div className="space-y-1">
                           <div>{getStatusBadge(apt.status)}</div>
                           {/* Quick Workflow Action */}
-                          {apt.status === "SCHEDULED" && (
+                          {!isReceptionist && apt.status === "SCHEDULED" && (
                             <button
                               onClick={() => handleQuickStatusChange(apt._id, "CHECK_IN")}
                               className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-semibold flex items-center gap-0.5"
@@ -531,7 +536,7 @@ export default function AppointmentsListPage() {
                               + Check In Patient
                             </button>
                           )}
-                          {apt.status === "CHECKED_IN" && (
+                          {!isReceptionist && apt.status === "CHECKED_IN" && (
                             <button
                               onClick={() => handleQuickStatusChange(apt._id, "START_CONSULTATION")}
                               className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-semibold flex items-center gap-0.5"
@@ -539,7 +544,7 @@ export default function AppointmentsListPage() {
                               ▶ Start Consultation
                             </button>
                           )}
-                          {apt.status === "IN_PROGRESS" && (
+                          {!isReceptionist && apt.status === "IN_PROGRESS" && (
                             <button
                               onClick={() => handleQuickStatusChange(apt._id, "COMPLETE")}
                               className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-semibold flex items-center gap-0.5"

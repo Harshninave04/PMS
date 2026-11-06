@@ -10,6 +10,13 @@ export interface IAppointment extends Document {
     type: string;
     reason: string;
     notes?: string;
+    triage?: {
+        temperature?: number;
+        bloodPressure?: string;
+        pulse?: number;
+        spo2?: number;
+        weight?: number;
+    };
     tokenNumber?: string;
     queueStatus?: "WAITING" | "CALLED" | "IN_CONSULTATION" | "COMPLETED" | "CANCELLED" | "NO_SHOW" | "TRIAGE" | "SKIPPED";
     priority?: "NORMAL" | "URGENT" | "EMERGENCY" | "VIP";

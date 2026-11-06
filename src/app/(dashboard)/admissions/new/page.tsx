@@ -9,7 +9,6 @@ import {
   Check,
   CheckCircle2,
   ClipboardPlus,
-  Info,
   Loader2,
   Search,
   Siren,
@@ -29,8 +28,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
-import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
-import { hospitalDateTimeInputToUtc } from "@/lib/hospital-date";
 import { PatientDuplicateDialog, type PatientDuplicateMatch, type SharedPhoneRelation } from "@/components/patients/patient-duplicate-dialog";
 
 interface Patient {
@@ -123,13 +120,6 @@ const bedTypeLabel = (bedType?: string) => {
 const isRecordedBloodGroup = (value?: string | null) =>
   Boolean(value && ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].includes(value));
 
-const admissionTypes = [
-  { value: "EMERGENCY", label: "Emergency" },
-  { value: "ELECTIVE", label: "Elective" },
-  { value: "TRANSFER", label: "Transfer" },
-  { value: "DAYCARE", label: "Daycare" },
-] as const;
-
 function InlineError({
   message,
   onRetry,
@@ -148,7 +138,6 @@ function InlineError({
 }
 
 export default function NewAdmissionPage() {
-  const hospital = useHospitalProfile();
   const router = useRouter();
   const { toast } = useToast();
   const patientPickerRef = useRef<HTMLDivElement>(null);
@@ -178,15 +167,12 @@ export default function NewAdmissionPage() {
   });
   const [duplicatePatients, setDuplicatePatients] = useState<PatientDuplicateMatch[]>([]);
   const [canConfirmSharedPhone, setCanConfirmSharedPhone] = useState(false);
-  const [dateChanged, setDateChanged] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [bedError, setBedError] = useState("");
   const [formData, setFormData] = useState({
     patientId: "",
     doctorId: "",
     wardId: "",
     bedId: "",
-    admissionDate: "",
-    admissionType: "ELECTIVE",
     reasonForAdmission: "",
     notes: "",
   });
@@ -334,12 +320,6 @@ export default function NewAdmissionPage() {
     [beds, formData.wardId],
   );
 
-  const missing = [
-    !formData.patientId && "patient",
-    !formData.doctorId && "doctor",
-    !formData.bedId && "bed",
-  ].filter((field): field is string => Boolean(field));
-
   const handleFieldChange = (
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => {
@@ -358,7 +338,6 @@ export default function NewAdmissionPage() {
     sharedPhone?: { patient: PatientDuplicateMatch; relation: SharedPhoneRelation },
   ) => {
     event?.preventDefault();
-    const emergencyRegistration = formData.admissionType === "EMERGENCY";
     setNewPatientLoading(true);
     try {
       const response = await fetch("/api/admission/patients", {
@@ -369,7 +348,6 @@ export default function NewAdmissionPage() {
           age: Number(newPatient.age),
           gender: newPatient.gender,
           contact: newPatient.contact.trim(),
-          emergencyRegistration,
           ...(sharedPhone ? { confirmSharedPhone: true, relatedPatientId: sharedPhone.patient._id, relation: sharedPhone.relation } : {}),
         }),
       });
@@ -398,13 +376,13 @@ export default function NewAdmissionPage() {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (submitting || missing.length > 0) return;
-
-    const admissionInstant = dateChanged && formData.admissionDate
-      ? hospitalDateTimeInputToUtc(formData.admissionDate, hospital.timeZone)
-      : new Date();
-    if (!admissionInstant) {
-      toast("Enter a valid admission date and time in the hospital time zone", "error");
+    if (submitting) return;
+    if (!formData.bedId) {
+      setBedError("Select an available bed to continue.");
+      return;
+    }
+    if (!formData.patientId || !formData.doctorId) {
+      toast("Select a patient and attending doctor to continue.", "error");
       return;
     }
 
@@ -414,6 +392,7 @@ export default function NewAdmissionPage() {
       setBeds(availableBeds);
       if (!availableBeds.some((bed) => bed._id === formData.bedId && getBedWardId(bed) === formData.wardId)) {
         setFormData((previous) => ({ ...previous, bedId: "" }));
+        setBedError("That bed is no longer available. Choose another bed.");
         toast("That bed is no longer available. Choose another bed.", "error");
         return;
       }
@@ -424,8 +403,6 @@ export default function NewAdmissionPage() {
           patientId: formData.patientId,
           doctorId: formData.doctorId,
           bedId: formData.bedId,
-          admissionDate: admissionInstant.toISOString(),
-          admissionType: formData.admissionType,
           status: "ADMITTED",
           reasonForAdmission: formData.reasonForAdmission,
           notes: formData.notes,
@@ -446,7 +423,7 @@ export default function NewAdmissionPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-3 pb-24">
+    <div className="mx-auto w-full max-w-7xl space-y-4 pb-6">
       <header>
         <Link href="/admissions" className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-200">
           <ArrowLeft className="h-4 w-4" /> Admissions
@@ -464,7 +441,7 @@ export default function NewAdmissionPage() {
       <form onSubmit={handleSubmit}>
         <Card className="rounded-xl border-slate-200 shadow-sm dark:border-slate-800">
           <CardContent className="space-y-4 p-4 sm:p-5">
-            <section className="space-y-2">
+            <section className="space-y-4">
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white">1. Patient</h2>
               <div ref={patientPickerRef} className="relative">
                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -474,7 +451,7 @@ export default function NewAdmissionPage() {
                     {patientListOpen && <div id="patient-options" role="listbox" className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
                       {patientsLoading ? <div className="flex items-center gap-2 px-3 py-4 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading patients...</div> : filteredPatients.length ? filteredPatients.map((patient) => <button key={patient._id} type="button" role="option" aria-selected={patient._id === formData.patientId} onClick={() => selectPatient(patient)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:hover:bg-emerald-950/40">
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{patient.name.trim().charAt(0).toUpperCase() || "?"}</span>
-                        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-slate-900 dark:text-white">{patient.name}</span><span className="block truncate text-xs text-slate-500">{patient.uhid || "No UHID"} · {patient.age} years · {patient.gender} · {patient.contact}</span></span>
+                        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-slate-900 dark:text-white">{patient.name}</span><span className="block truncate text-xs text-slate-500">{patient.uhid || "No UHID"} | {patient.age} years | {patient.gender} | {patient.contact}</span></span>
                       </button>) : <p className="px-3 py-4 text-sm text-slate-500">{patientsError ? "Patient list unavailable" : "No matching patients"}</p>}
                     </div>}
                   </div>
@@ -485,43 +462,38 @@ export default function NewAdmissionPage() {
               {selectedPatient && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900 dark:bg-emerald-950/20">
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-900 dark:text-white">{selectedPatient.name}</span>{selectedPatient.uhid && <Badge variant="outline">{selectedPatient.uhid}</Badge>}{isRecordedBloodGroup(selectedPatient.bloodGroup) && <Badge variant="outline">Blood group: {selectedPatient.bloodGroup}</Badge>}</div>
-                  <p className="text-xs text-slate-600 dark:text-slate-400">{selectedPatient.age} years · {selectedPatient.gender} · {selectedPatient.contact}</p>
-                  {typeof selectedPatient.sharedPhoneWithPatientId === "object" && selectedPatient.sharedPhoneWithPatientId?.name && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Shares phone with: {selectedPatient.sharedPhoneWithPatientId.name} ({selectedPatient.sharedPhoneRelation})</p>
-                  )}
+                  <p className="text-xs text-slate-600 dark:text-slate-400">{selectedPatient.age} years | {selectedPatient.gender} | {selectedPatient.contact}</p>
+                  {typeof selectedPatient.sharedPhoneWithPatientId === "object" && selectedPatient.sharedPhoneWithPatientId?.name && <p className="text-xs text-slate-500 dark:text-slate-400">Shares phone with: {selectedPatient.sharedPhoneWithPatientId.name} ({selectedPatient.sharedPhoneRelation})</p>}
                   {selectedPatient.allergies?.length ? <p role="alert" className="flex items-center gap-1.5 text-xs font-semibold text-rose-700 dark:text-rose-300"><Siren className="h-3.5 w-3.5" /> Allergy warning: {selectedPatient.allergies.join(", ")}</p> : <p className="text-xs text-slate-500 dark:text-slate-400">No allergies recorded</p>}
                 </div>
-                <Button type="button" variant="outline" size="sm" onClick={() => window.open(`/patients/profile?id=${selectedPatient._id}`, "_blank", "noopener,noreferrer")}>View Profile</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => window.open("/patients/profile?id=" + selectedPatient._id, "_blank", "noopener,noreferrer")}>View Profile</Button>
               </div>}
             </section>
 
-            <section className="space-y-2">
+            <section className="space-y-4">
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white">2. Admission details</h2>
               {doctorsError && <InlineError message={doctorsError} onRetry={() => void loadDoctors()} />}
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div className="space-y-1.5"><Label htmlFor="doctorId">Attending doctor *</Label><Select id="doctorId" name="doctorId" value={formData.doctorId} onChange={handleFieldChange} disabled={doctorsLoading}><option value="">{doctorsLoading ? "Loading doctors..." : "Select doctor"}</option>{doctors.map((doctor) => { const detail = doctor.department || doctor.specialization; return <option key={doctor._id} value={doctor._id}>Dr. {doctor.name}{detail ? ` — ${detail}` : ""}</option>; })}</Select></div>
-                <div className="space-y-1.5"><Label>Admission type *</Label><div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">{admissionTypes.map((type) => { const selected = formData.admissionType === type.value; return <button key={type.value} type="button" aria-pressed={selected} onClick={() => setFormData((previous) => ({ ...previous, admissionType: type.value }))} className={`flex min-h-10 items-center justify-between gap-1 rounded-lg border px-2.5 py-2 text-left text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${selected ? type.value === "EMERGENCY" ? "border-rose-500 bg-rose-50 text-rose-800 ring-1 ring-rose-400 dark:bg-rose-950/40 dark:text-rose-200" : "border-emerald-500 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100" : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"}`}>{type.value === "EMERGENCY" && <Siren className="h-4 w-4" />}{type.label}{selected && <Check className="h-4 w-4" />}</button>; })}</div></div>
-                <div className="space-y-1.5">{wardsError ? <InlineError message={wardsError} onRetry={() => void loadWards()} /> : <><Label htmlFor="wardId">Ward *</Label><Select id="wardId" name="wardId" value={formData.wardId} onChange={(event) => setFormData((previous) => ({ ...previous, wardId: event.target.value, bedId: "" }))} disabled={wardsLoading}><option value="">{wardsLoading ? "Loading wards..." : "Select ward"}</option>{wards.map((ward) => <option key={ward._id} value={ward._id} disabled={ward.availableBeds === 0}>{ward.wardName} ({ward.availableBeds} {ward.availableBeds === 1 ? "bed" : "beds"} free)</option>)}</Select></>}</div>
-                <div className="space-y-1.5"><div className="flex items-center justify-between"><Label>Available bed *</Label>{bedsLoading && <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />}</div>{bedsError ? <InlineError message={bedsError} onRetry={() => void loadBeds()} /> : !formData.wardId ? <p className="rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-500 dark:border-slate-700">Choose a ward to see available beds.</p> : bedsLoading ? <p className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-500 dark:border-slate-700"><Loader2 className="h-4 w-4 animate-spin" /> Refreshing beds...</p> : bedsInWard.length ? <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{bedsInWard.map((bed) => { const selected = formData.bedId === bed._id; const room = bed.roomId && typeof bed.roomId !== "string" ? bed.roomId : null; const floor = selectedWard?.floor ?? (room?.wardId && typeof room.wardId !== "string" ? room.wardId.floor : undefined); return <button key={bed._id} type="button" aria-pressed={selected} onClick={() => setFormData((previous) => ({ ...previous, bedId: bed._id }))} className={`rounded-lg border p-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${selected ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-500/30 dark:bg-emerald-950/30" : "border-slate-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"}`}><span className="flex items-center justify-between gap-1"><span className="font-semibold text-slate-900 dark:text-white">Bed {bed.bedNumber}</span>{selected ? <Check className="h-4 w-4 text-emerald-600" /> : <BedDouble className="h-4 w-4 text-slate-400" />}</span><span className="mt-1 block text-xs text-slate-500">Room {room?.roomNumber || "—"}{floor !== undefined ? ` · Floor ${floor}` : ""}</span><span className="mt-1 block text-[11px] text-emerald-700 dark:text-emerald-300">Available · {bedTypeLabel(bed.bedType)}</span></button>; })}</div> : <p className="rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-500 dark:border-slate-700">No available beds in this ward. Choose another ward.</p>}</div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-2"><Label htmlFor="doctorId">Attending doctor *</Label><Select id="doctorId" name="doctorId" value={formData.doctorId} onChange={handleFieldChange} disabled={doctorsLoading}><option value="">{doctorsLoading ? "Loading doctors..." : "Select doctor"}</option>{doctors.map((doctor) => { const detail = doctor.department || doctor.specialization; return <option key={doctor._id} value={doctor._id}>Dr. {doctor.name}{detail ? " - " + detail : ""}</option>; })}</Select></div>
+                <div className="space-y-2">{wardsError ? <InlineError message={wardsError} onRetry={() => void loadWards()} /> : <><Label htmlFor="wardId">Ward *</Label><Select id="wardId" name="wardId" value={formData.wardId} onChange={(event) => { setBedError(""); setFormData((previous) => ({ ...previous, wardId: event.target.value, bedId: "" })); }} disabled={wardsLoading}><option value="">{wardsLoading ? "Loading wards..." : "Select ward"}</option>{wards.map((ward) => <option key={ward._id} value={ward._id} disabled={ward.availableBeds === 0}>{ward.wardName} ({ward.availableBeds} {ward.availableBeds === 1 ? "bed" : "beds"} free)</option>)}</Select></>}</div>
               </div>
+              <section aria-labelledby="available-bed-heading" className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2"><Label id="available-bed-heading">Available bed *</Label><span className="text-xs text-slate-600 dark:text-slate-300">Refreshes every 15s</span></div>
+                {bedError && <p id="bed-error" className="text-sm text-rose-600 dark:text-rose-400" role="alert">{bedError}</p>}
+                {bedsLoading && <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Refreshing beds...</div>}
+                {bedsError && <InlineError message={bedsError} onRetry={() => void loadBeds()} />}
+                {!bedsLoading && !bedsError && !formData.wardId && <p className="text-sm text-slate-500">Choose a ward to see available beds.</p>}
+                {!bedsLoading && !bedsError && formData.wardId && (bedsInWard.length ? <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,200px),1fr))] gap-4">{bedsInWard.map((bed) => { const selected = formData.bedId === bed._id; const room = bed.roomId && typeof bed.roomId !== "string" ? bed.roomId : null; const floor = selectedWard?.floor ?? (room?.wardId && typeof room.wardId !== "string" ? room.wardId.floor : undefined); return <label key={bed._id} className={`cursor-pointer rounded-lg border p-3 text-left transition focus-within:outline-none focus-within:ring-2 focus-within:ring-emerald-500 ${selected ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-500/30 dark:bg-emerald-950/30" : "border-slate-200 bg-white hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900"}`}><input className="sr-only" type="radio" name="bedId" value={bed._id} checked={selected} aria-describedby={bedError ? "bed-error" : undefined} onChange={() => { setBedError(""); setFormData((previous) => ({ ...previous, bedId: bed._id })); }} /><span className="flex items-center justify-between gap-1"><span className="font-semibold text-slate-900 dark:text-white">Bed {bed.bedNumber}</span>{selected ? <Check className="h-4 w-4 text-emerald-600" /> : <BedDouble className="h-4 w-4 text-slate-400" />}</span><span className="mt-1 block text-xs text-slate-600 dark:text-slate-300">Room {room?.roomNumber || "-"}{floor !== undefined ? " | Floor " + floor : ""}</span><span className="mt-1 block text-xs text-emerald-700 dark:text-emerald-300">Available | {bedTypeLabel(bed.bedType)}</span></label>; })}</div> : <p className="text-sm text-slate-500">No available beds in this ward. Choose another ward.</p>)}
+              </section>
             </section>
 
-            <section className="space-y-2">
+            <section className="space-y-4">
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white">3. Reason and notes</h2>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2"><div className="space-y-1.5"><Label htmlFor="reasonForAdmission">Reason for admission</Label><Input id="reasonForAdmission" name="reasonForAdmission" value={formData.reasonForAdmission} onChange={handleFieldChange} placeholder="Enter reason for admission" /></div><div className="space-y-1.5"><Label htmlFor="notes">Notes (optional)</Label><Input id="notes" name="notes" value={formData.notes} onChange={handleFieldChange} placeholder="Optional note" /></div></div>
-              {formData.admissionType === "EMERGENCY" && <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><Siren className="h-4 w-4 shrink-0" />Emergency selected. Patient name and phone may be added later.</div>}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2"><div className="space-y-2"><Label htmlFor="reasonForAdmission">Reason for admission</Label><Input id="reasonForAdmission" name="reasonForAdmission" value={formData.reasonForAdmission} onChange={handleFieldChange} placeholder="Enter reason for admission" /></div><div className="space-y-2"><Label htmlFor="notes">Notes (optional)</Label><Input id="notes" name="notes" value={formData.notes} onChange={handleFieldChange} placeholder="Optional note" /></div></div>
             </section>
-
-            <details open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)} className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-              <summary className="cursor-pointer list-none text-sm font-medium text-slate-700 dark:text-slate-200">Advanced details <span className="font-normal text-slate-500">· admission date and time</span></summary>
-              <div className="mt-3 max-w-sm space-y-1.5"><Label htmlFor="admissionDate">Admission date and time</Label><Input id="admissionDate" type="datetime-local" name="admissionDate" value={formData.admissionDate} onChange={(event) => { handleFieldChange(event); setDateChanged(true); }} /><p className="text-xs text-slate-500">Leave unchanged to use the current time.</p></div>
-            </details>
-            <p className="flex items-center gap-1.5 text-xs text-slate-500" aria-live="polite"><Info className="h-3.5 w-3.5" />{missing.length ? `Select a ${missing.join(", ")} to continue.` : "Ready to admit."} Bed availability refreshes every 15 seconds.</p>
+            <Button type="submit" disabled={submitting || !formData.bedId} className="w-full bg-emerald-600 text-white hover:bg-emerald-700 disabled:cursor-not-allowed">{submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Confirming...</> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Confirm Admission</>}</Button>
           </CardContent>
         </Card>
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 sm:px-6">
-          <div className="mx-auto flex max-w-7xl gap-2"><Button type="button" variant="outline" onClick={() => router.push("/admissions")} className="min-w-24">Cancel</Button><Button type="submit" disabled={submitting || missing.length > 0} className="min-w-0 flex-1 bg-emerald-600 text-white hover:bg-emerald-700">{submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Confirming...</> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Confirm Admission</>}</Button></div>
-        </div>
       </form>
       <Dialog open={newPatientOpen} onOpenChange={setNewPatientOpen}>
         <DialogContent>
@@ -530,10 +502,10 @@ export default function NewAdmissionPage() {
           </DialogHeader>
           <form onSubmit={handleCreatePatient} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="newPatientName">Full Name {formData.admissionType === "EMERGENCY" ? "(optional for emergency)" : "*"}</Label>
+              <Label htmlFor="newPatientName">Full Name *</Label>
               <Input
                 id="newPatientName"
-                required={formData.admissionType !== "EMERGENCY"}
+                required
                 value={newPatient.name}
                 onChange={(event) => setNewPatient((previous) => ({ ...previous, name: event.target.value }))}
               />
@@ -565,11 +537,11 @@ export default function NewAdmissionPage() {
               </div>
             </div>
             <div className="space-y-1.5">
-                <Label htmlFor="newPatientPhone">Phone {formData.admissionType === "EMERGENCY" ? "(optional for emergency)" : "*"}</Label>
+                <Label htmlFor="newPatientPhone">Phone *</Label>
               <Input
                 id="newPatientPhone"
                 type="tel"
-                required={formData.admissionType !== "EMERGENCY"}
+                required
                 value={newPatient.contact}
                 onChange={(event) => setNewPatient((previous) => ({ ...previous, contact: event.target.value }))}
               />
