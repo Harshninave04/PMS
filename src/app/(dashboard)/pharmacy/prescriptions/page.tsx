@@ -51,7 +51,12 @@ export default function PharmacyPrescriptionsPage() {
       if (data.success) {
         const records = data.data || [];
         setPrescriptions(records);
-        const requestedId = new URLSearchParams(window.location.search).get("prescriptionId");
+        const params = new URLSearchParams(window.location.search);
+        const requestedStatus = params.get("status")?.toUpperCase();
+        if (requestedStatus && ["ALL", "PENDING", "DISPENSED", "PARTIAL"].includes(requestedStatus)) {
+          setStatusFilter(requestedStatus);
+        }
+        const requestedId = params.get("prescriptionId");
         if (requestedId) {
           const requestedPrescription = records.find((prescription: { _id: string }) => prescription._id === requestedId);
           if (requestedPrescription) setSelectedPrescription(requestedPrescription);
@@ -85,6 +90,21 @@ export default function PharmacyPrescriptionsPage() {
       const matchesStatus = statusFilter === "ALL" || currentStatus === statusFilter;
 
       return matchesSearch && matchesStatus;
+    }).sort((a, b) => {
+      const statusRank = (status?: string) => {
+        switch (status || "PENDING") {
+          case "PENDING": return 0;
+          case "PARTIAL": return 1;
+          case "DISPENSED": return 2;
+          case "CANCELLED": return 3;
+          default: return 4;
+        }
+      };
+      const statusOrder = statusRank(a.dispenseStatus) - statusRank(b.dispenseStatus);
+      if (statusOrder !== 0) return statusOrder;
+      const dateA = new Date(a.createdAt || a.visitDate || 0).getTime();
+      const dateB = new Date(b.createdAt || b.visitDate || 0).getTime();
+      return dateB - dateA;
     });
   }, [prescriptions, search, statusFilter]);
 

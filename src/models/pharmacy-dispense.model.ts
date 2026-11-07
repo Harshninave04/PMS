@@ -5,6 +5,9 @@ export interface IDispensedItem {
     medicineName: string;
     batchNumber?: string;
     dosageForm?: string;
+    expiryDate?: Date;
+    mrp?: number;
+    hsnCode?: string;
     quantity: number;
     unitPrice: number;
     discountPercent?: number;
@@ -19,6 +22,9 @@ export interface IPharmacyDispense {
     patientName: string;
     patientPhone?: string;
     uhid?: string;
+    patientAge?: number;
+    patientGender?: string;
+    doctorName?: string;
     items: IDispensedItem[];
     subtotal: number;
     discountAmount: number;
@@ -28,6 +34,7 @@ export interface IPharmacyDispense {
     paymentStatus: "PAID" | "PENDING" | "REFUNDED";
     dispensedBy?: Types.ObjectId;
     pharmacistName?: string;
+    pharmacistRegistrationNo?: string;
     notes?: string;
     createdAt?: Date;
     updatedAt?: Date;
@@ -39,6 +46,9 @@ const dispensedItemSchema = new Schema<IDispensedItem>(
         medicineName: { type: String, required: true },
         batchNumber: { type: String },
         dosageForm: { type: String, default: "TABLET" },
+        expiryDate: { type: Date },
+        mrp: { type: Number, min: 0 },
+        hsnCode: { type: String, trim: true },
         quantity: { type: Number, required: true, min: 1 },
         unitPrice: { type: Number, required: true, default: 0 },
         discountPercent: { type: Number, default: 0 },
@@ -56,6 +66,9 @@ const pharmacyDispenseSchema = new Schema<IPharmacyDispense>(
         patientName: { type: String, required: true },
         patientPhone: { type: String },
         uhid: { type: String },
+        patientAge: { type: Number, min: 0 },
+        patientGender: { type: String, trim: true },
+        doctorName: { type: String, trim: true },
         items: [dispensedItemSchema],
         subtotal: { type: Number, required: true, default: 0 },
         discountAmount: { type: Number, default: 0 },
@@ -73,6 +86,7 @@ const pharmacyDispenseSchema = new Schema<IPharmacyDispense>(
         },
         dispensedBy: { type: Schema.Types.ObjectId, ref: "User" },
         pharmacistName: { type: String, default: "Chief Pharmacist" },
+        pharmacistRegistrationNo: { type: String, trim: true },
         notes: { type: String }
     },
     { timestamps: true }

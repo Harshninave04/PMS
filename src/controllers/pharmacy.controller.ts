@@ -105,7 +105,7 @@ export class PharmacyController {
             if (!auth.isAuthorized) return auth.response;
 
             const body = await req.json();
-            const dispense = await PharmacyService.createDispense(body);
+            const dispense = await PharmacyService.createDispense({ ...body, dispensedBy: auth.context.userId });
             return NextResponse.json({ success: true, data: dispense }, { status: 201 });
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : "Failed to create dispense";

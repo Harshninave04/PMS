@@ -5,6 +5,8 @@ export interface IOrganizationSetting extends Document {
   cinNumber?: string;
   panNumber?: string;
   gstin?: string;
+  drugLicenseNo?: string;
+  pharmacistRegistrationNo?: string;
   currency: string;
   currencySymbol: string;
   fiscalYearStart: string;
@@ -25,6 +27,8 @@ const OrganizationSettingSchema: Schema = new Schema(
     cinNumber: { type: String, trim: true },
     panNumber: { type: String, trim: true },
     gstin: { type: String, trim: true },
+    drugLicenseNo: { type: String, trim: true },
+    pharmacistRegistrationNo: { type: String, trim: true },
     currency: { type: String, default: "INR" },
     timeZone: { type: String, trim: true, default: DEFAULT_HOSPITAL_TIME_ZONE },
     billDiscountCapPercent: { type: Number, min: 0, max: 100, default: 10 },

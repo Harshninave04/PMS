@@ -16,6 +16,7 @@ const medicineSchema = new Schema<IMedicine>(
         gstRate: { type: Number, default: 12 },
         expiryDate: { type: Date, required: true },
         unitPrice: { type: Number, required: true, min: 0.01 },
+        mrp: { type: Number, min: 0 },
         stockQuantity: { type: Number, required: true, default: 0 },
         reorderLevel: { type: Number, required: true, default: 10 },
         minStockLevel: { type: Number, default: 5 },

@@ -212,8 +212,8 @@ export default function PharmacistDashboard() {
     return expiry >= now && expiry <= new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   }).sort((a, b) => new Date(a.expiryDate!).getTime() - new Date(b.expiryDate!).getTime()).slice(0, 4);
   const lowStockItems = activeMedicines.filter((medicine) => medicine.stockQuantity <= (medicine.reorderLevel ?? 10)).sort((a, b) => a.stockQuantity - b.stockQuantity).slice(0, 4);
-  const byNewest = (a: Prescription, b: Prescription) => new Date(b.visitDate || b.createdAt || 0).getTime() - new Date(a.visitDate || a.createdAt || 0).getTime();
-  const pendingPrescriptions = prescriptions.filter((prescription) => !prescription.dispenseStatus || prescription.dispenseStatus === "PENDING" || prescription.dispenseStatus === "PARTIAL").sort((a, b) => new Date(a.createdAt || a.visitDate || 0).getTime() - new Date(b.createdAt || b.visitDate || 0).getTime());
+  const byNewest = (a: Prescription, b: Prescription) => new Date(b.createdAt || b.visitDate || 0).getTime() - new Date(a.createdAt || a.visitDate || 0).getTime();
+  const pendingPrescriptions = prescriptions.filter((prescription) => !prescription.dispenseStatus || prescription.dispenseStatus === "PENDING" || prescription.dispenseStatus === "PARTIAL").sort(byNewest);
   const currentPrescription = pendingPrescriptions[0];
   const waitingQueue = pendingPrescriptions.slice(0, 5);
   const recentPrescriptions = [...prescriptions].sort(byNewest).slice(0, 4);

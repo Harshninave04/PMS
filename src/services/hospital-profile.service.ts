@@ -10,7 +10,7 @@ export const getHospitalProfile = cache(async () => {
     Organization.findOne({ branchType: "MAIN", isActive: true })
       .select("organizationName organizationId email phone address city state pincode country logo")
       .lean(),
-    OrganizationSetting.findOne().select("gstin timeZone").lean(),
+    OrganizationSetting.findOne().select("gstin timeZone drugLicenseNo pharmacistRegistrationNo").lean(),
   ]);
   return hospitalProfileFromRecords(
     organization as Record<string, unknown> | null,

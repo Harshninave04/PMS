@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import DynamicIcon from "./dynamic-icon";
 import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
 import { PERMISSIONS_UPDATED_EVENT } from "@/components/permissions/permission-context";
-import { ChevronDown, ChevronRight, LogOut, Shield } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, LogOut, Shield } from "lucide-react";
 
 interface MenuItem {
   _id: string;
@@ -81,10 +81,32 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
 
 
   const isDoctor = session?.user?.roleName?.toUpperCase() === "DOCTOR";
+  const isPharmacist = session?.user?.roleName?.toUpperCase() === "PHARMACIST";
+  const isDashboardHome = pathname === "/dashboard" || pathname === "/dashboard/main";
+  const showBottomLogout = isPharmacist || isDashboardHome;
   const hiddenDoctorMenus = new Set(["Dashboard", "Today's Completed Patients"]);
-  const displayMenus = isDoctor
+  const filteredMenus = isDoctor
     ? menus.filter((menu) => !hiddenDoctorMenus.has(menu.name))
     : menus;
+  const pharmacyOrder = ["Dashboard", "Prescriptions", "Dispense Medicines", "Medicines", "Categories"];
+  const pharmacyIcons: Record<string, string> = {
+    Dashboard: "House",
+    Prescriptions: "FileText",
+    "Dispense Medicines": "Pill",
+    Medicines: "BriefcaseMedical",
+    Categories: "Layers3",
+  };
+  const displayMenus = isPharmacist
+    ? pharmacyOrder.flatMap((name) => {
+        if (name === "Dashboard") {
+          const dashboard = menus.find((menu) => menu.name === name);
+          const destination = dashboard?.children?.find((child) => child.name === name) ?? dashboard;
+          return destination ? [{ ...destination, name, children: undefined, icon: pharmacyIcons[name] }] : [];
+        }
+        const destination = menus.flatMap((menu) => menu.children ?? []).find((child) => child.name === name);
+        return destination ? [{ ...destination, icon: pharmacyIcons[name], children: undefined }] : [];
+      })
+    : filteredMenus;
 
   // Home is active while the dashboard page is open. The real route is
   // /dashboard/main (the role-aware reception dashboard); "/dashboard" is
@@ -108,12 +130,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
 
       <aside
         className={cn(
-          "fixed top-0 bottom-0 left-0 z-50 flex w-72 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 transition-transform duration-300 ease-in-out lg:static lg:translate-x-0",
+          "fixed top-0 bottom-0 left-0 z-50 flex w-[min(15rem,85vw)] flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 transition-transform duration-300 ease-in-out lg:static lg:h-full lg:translate-x-0",
+          isPharmacist ? "lg:w-60" : "lg:w-64",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
         {/* Sidebar Header Brand */}
-        <div className="flex h-16 items-center gap-3 border-b border-slate-200 dark:border-slate-800/80 px-6">
+        <div className={cn("flex shrink-0 items-center gap-3 border-b border-slate-200 dark:border-slate-800/80", isPharmacist ? "h-[3.75rem] px-3" : "h-16 px-6")}>
           {hospital.logo ? (
             <img
               src={hospital.logo}
@@ -122,20 +145,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
             />
           ) : null}
           {hospital.name && <div className="flex flex-col">
-            <span className="text-base font-bold tracking-tight text-slate-900 dark:text-white">
+            <span className={cn("font-bold tracking-tight text-slate-900 dark:text-white", isPharmacist ? "text-sm" : "text-base")}>
               {hospital.name}
             </span>
           </div>}
         </div>
 
         {/* Navigation Menu List */}
-        <div className="flex-1 overflow-y-auto scrollbar-slim px-3 py-4 space-y-1">
-          <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <div className={cn("min-h-0 flex-1 overflow-y-auto scrollbar-slim px-3", isPharmacist ? "py-3" : "py-4", "space-y-1")}>
+          <div className={cn("font-semibold uppercase text-slate-500 dark:text-slate-400", isPharmacist ? "px-2 pb-3 text-[10px] tracking-wide" : "px-3 pb-2 text-[11px] tracking-wider")}>
             Navigation Menu
           </div>
 
+          <div className={cn(isPharmacist && "space-y-1")}>
           {loading ? (
-            <div className="space-y-2 px-3 py-2">
+            <div className={cn("px-3 py-2", isPharmacist ? "space-y-1" : "space-y-2")}>
               {[1, 2, 3, 4, 5].map((i) => (
                 <div key={i} className="h-9 w-full rounded-lg bg-slate-800/50 animate-pulse" />
               ))}
@@ -171,11 +195,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
                       href={menu.path || "#"}
                       onClick={() => setMobileOpen?.(false)}
                       className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white",
+                        cn("flex items-center gap-3 rounded-lg font-medium transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white", isPharmacist ? "min-h-9 gap-2 px-2.5 py-1 text-[13px]" : "px-3 py-2 text-sm"),
                         isLeafActive(menu.path) ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20" : "text-slate-600 dark:text-slate-300"
                       )}
                     >
-                      <DynamicIcon name={menu.icon || "Circle"} className={cn("h-4 w-4", isLeafActive(menu.path) ? "text-white" : "text-slate-400")} />
+                      <DynamicIcon name={menu.icon || "Circle"} className={cn("h-4 w-4 shrink-0", isLeafActive(menu.path) ? "text-white" : "text-slate-400")} />
                       <span>{menu.name}</span>
                     </Link>
                   )}
@@ -208,33 +232,45 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
               );
             })
           )}
+          </div>
         </div>
 
         {/* User Profile & Footer Section */}
-        <div className="border-t border-slate-200 dark:border-slate-800/80 p-3 bg-slate-50 dark:bg-slate-950/40">
-          <div className="flex items-center justify-between rounded-xl bg-white dark:bg-slate-800/60 p-3 shadow-sm dark:shadow-none border border-slate-100 dark:border-transparent">
+        <div className={cn("shrink-0 border-t border-slate-200 bg-slate-50 dark:border-slate-800/80 dark:bg-slate-950/40", isPharmacist ? "p-2" : "p-3")}>
+          <div className={cn("flex items-center justify-between rounded-xl border border-slate-100 bg-white shadow-sm dark:border-transparent dark:bg-slate-800/60 dark:shadow-none", isPharmacist ? "p-2.5" : "p-3")}>
             <div className="flex items-center gap-3 overflow-hidden">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white font-bold text-sm">
+              <div className={cn("flex shrink-0 items-center justify-center rounded-full bg-emerald-600 font-bold text-white", isPharmacist ? "h-8 w-8 text-xs" : "h-9 w-9 text-sm")}>
                 {session?.user?.name ? session.user.name.charAt(0).toUpperCase() : "U"}
               </div>
               <div className="flex flex-col truncate">
                 <span className="truncate text-xs font-semibold text-slate-900 dark:text-white">
                   {session?.user?.name || "User"}
                 </span>
-                <span className="truncate text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                  <Shield className="h-3 w-3" />
+                <span className="flex items-center gap-1 truncate text-[10px] text-emerald-600 dark:text-emerald-400">
+                  {isPharmacist ? <Circle className="h-2.5 w-2.5" /> : <Shield className="h-3 w-3" />}
                   {session?.user?.roleName?.replace(/_/g, " ") || "Staff"}
                 </span>
               </div>
             </div>
+            {!showBottomLogout && (
+              <button
+                onClick={() => signOut({ callbackUrl: "/login" })}
+                title="Sign Out"
+                className="rounded-lg p-1.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          {showBottomLogout && (
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
-              title="Sign Out"
-              className="rounded-lg p-1.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-slate-700 dark:text-slate-300 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-400"
             >
               <LogOut className="h-4 w-4" />
+              Logout
             </button>
-          </div>
+          )}
         </div>
       </aside>
     </>

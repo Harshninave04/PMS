@@ -14,6 +14,7 @@ export interface IMedicine extends Document {
     gstRate?: number;
     expiryDate: Date;
     unitPrice: number;
+    mrp?: number;
     stockQuantity: number;
     reorderLevel: number;
     minStockLevel?: number;

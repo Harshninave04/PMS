@@ -8,6 +8,8 @@ export interface HospitalProfile {
   phone?: string;
   email?: string;
   gstin?: string;
+  drugLicenseNo?: string;
+  pharmacistRegistrationNo?: string;
   logo?: string;
   timeZone: string;
 }
@@ -45,6 +47,8 @@ export function hospitalProfileFromRecords(
     phone: optionalText(organization?.phone),
     email: optionalText(organization?.email),
     gstin: optionalText(settings?.gstin),
+    drugLicenseNo: optionalText(settings?.drugLicenseNo),
+    pharmacistRegistrationNo: optionalText(settings?.pharmacistRegistrationNo),
     logo: optionalText(organization?.logo),
     timeZone,
   };

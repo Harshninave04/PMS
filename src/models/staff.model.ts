@@ -7,6 +7,7 @@ export interface IStaff extends Document {
   designationId?: Types.ObjectId;
   role: string;
   qualification?: string;
+  registrationNo?: string;
   joiningDate?: Date;
   shift: "MORNING" | "EVENING" | "NIGHT" | "ROTATING";
   phone?: string;
@@ -53,6 +54,10 @@ const staffSchema = new Schema<IStaff>(
       default: "NURSE",
     },
     qualification: {
+      type: String,
+      trim: true,
+    },
+    registrationNo: {
       type: String,
       trim: true,
     },

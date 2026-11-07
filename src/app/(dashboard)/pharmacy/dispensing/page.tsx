@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useState, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ShoppingCart,
   Search,
@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
-import { HospitalHeader } from "@/components/print/hospital-header";
+import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
 
 interface CartItem {
   medicineId: string;
@@ -47,6 +47,9 @@ interface CartItem {
   genericName?: string;
   dosageForm?: string;
   batchNumber?: string;
+  expiryDate?: string;
+  mrp?: number;
+  hsnCode?: string;
   availableStock: number;
   unitPrice: number;
   quantity: number;
@@ -55,8 +58,72 @@ interface CartItem {
   totalAmount: number;
 }
 
+const formatINR = (amount: number | string = 0) =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(Number(amount) || 0);
+
+const titleCase = (value?: string) =>
+  (value || "—").trim().toLocaleLowerCase().replace(/(^|\s)(\S)/g, (_match, space: string, letter: string) => `${space}${letter.toLocaleUpperCase()}`);
+
+const formatBillDate = (value: string | Date | undefined, timeZone: string) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  const datePart = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone,
+  }).format(date).replace(/ /g, "-");
+  const timePart = new Intl.DateTimeFormat("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone,
+  }).format(date).toLocaleLowerCase();
+  return `${datePart}, ${timePart}`;
+};
+
+const formatExpiry = (value?: string | Date) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return `${String(date.getUTCMonth() + 1).padStart(2, "0")}/${date.getUTCFullYear()}`;
+};
+
+const numberToWords = (value: number): string => {
+  const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+  const belowThousand = (number: number): string => {
+    const words: string[] = [];
+    if (number >= 100) words.push(`${ones[Math.floor(number / 100)]} Hundred`);
+    number %= 100;
+    if (number >= 20) words.push(tens[Math.floor(number / 10)], ones[number % 10]);
+    else if (number > 0) words.push(ones[number]);
+    return words.filter(Boolean).join(" ");
+  };
+
+  let amount = Math.max(0, Math.floor(Math.abs(value)));
+  if (amount === 0) return "Zero Rupees Only";
+  const groups: [number, string][] = [[10000000, "Crore"], [100000, "Lakh"], [1000, "Thousand"], [1, ""]];
+  const words: string[] = [];
+  for (const [size, label] of groups) {
+    const group = Math.floor(amount / size);
+    if (group) {
+      words.push(`${belowThousand(group)}${label ? ` ${label}` : ""}`);
+      amount %= size;
+    }
+  }
+  return `Rupees ${words.join(" ")} Only`;
+};
+
 function PharmacyDispenseContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const hospital = useHospitalProfile();
   const preselectedPrescriptionId = searchParams.get("prescriptionId");
 
   const [medicines, setMedicines] = useState<any[]>([]);
@@ -79,6 +146,7 @@ function PharmacyDispenseContent() {
 
   // Completed Receipt Modal
   const [completedBill, setCompletedBill] = useState<any | null>(null);
+  const [completedPrescriptionDispense, setCompletedPrescriptionDispense] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const { toast } = useToast();
@@ -121,7 +189,7 @@ function PharmacyDispenseContent() {
   const handleSelectPrescription = (pres: any, currentMeds: any[] = medicines) => {
     setSelectedPrescription(pres);
     setPatientName(pres.patientId?.name || "Patient");
-    setPatientPhone(pres.patientId?.phone || "");
+    setPatientPhone(pres.patientId?.contact || pres.patientId?.phone || "");
     setUhid(pres.patientId?.uhid || "");
     setPatientId(pres.patientId?._id || null);
 
@@ -146,6 +214,9 @@ function PharmacyDispenseContent() {
             genericName: found.genericName,
             dosageForm: found.dosageForm || "TABLET",
             batchNumber: found.batchNumber || "BAT-DEF",
+            expiryDate: found.expiryDate,
+            mrp: found.mrp,
+            hsnCode: found.hsnCode || "",
             availableStock: found.stockQuantity || 0,
             unitPrice: unitPrice,
             quantity: Math.min(qty, found.stockQuantity || 1),
@@ -196,6 +267,9 @@ function PharmacyDispenseContent() {
           genericName: med.genericName,
           dosageForm: med.dosageForm || "TABLET",
           batchNumber: med.batchNumber || "BAT-DEF",
+          expiryDate: med.expiryDate,
+          mrp: med.mrp,
+          hsnCode: med.hsnCode || "",
           availableStock: med.stockQuantity || 0,
           unitPrice: med.unitPrice || 0,
           quantity: initialQty,
@@ -278,6 +352,9 @@ function PharmacyDispenseContent() {
           medicineName: i.medicineName,
           batchNumber: i.batchNumber,
           dosageForm: i.dosageForm,
+          expiryDate: i.expiryDate,
+          mrp: i.mrp,
+          hsnCode: i.hsnCode,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
           gstPercent: i.gstPercent,
@@ -301,7 +378,9 @@ function PharmacyDispenseContent() {
       const data = await res.json();
 
       if (data.success) {
+        const isPrescriptionDispense = Boolean(selectedPrescription?._id);
         toast("Medications dispensed and inventory updated!", "success");
+        setCompletedPrescriptionDispense(isPrescriptionDispense);
         setCompletedBill(data.data);
         // Reset POS
         setCart([]);
@@ -309,7 +388,7 @@ function PharmacyDispenseContent() {
         setPatientName("Walk-in Patient");
         setPatientPhone("");
         setUhid("");
-        loadData();
+        if (!isPrescriptionDispense) loadData();
       } else {
         toast(data.message || "Dispense transaction failed", "error");
       }
@@ -320,9 +399,31 @@ function PharmacyDispenseContent() {
     }
   };
 
-  const handlePrintReceipt = () => {
+  const handlePrintReceipt = useCallback(() => {
+    if (completedPrescriptionDispense) {
+      window.addEventListener("afterprint", () => router.push("/pharmacy/prescriptions"), { once: true });
+    }
     window.print();
-  };
+  }, [completedPrescriptionDispense, router]);
+
+  useEffect(() => {
+    if (!completedBill) return;
+    const printTimer = window.setTimeout(handlePrintReceipt, 350);
+    return () => window.clearTimeout(printTimer);
+  }, [completedBill, handlePrintReceipt]);
+
+  const addressParts = (hospital.address || "").split(",").map((part) => part.trim()).filter(Boolean);
+  const hospitalAddress = [...new Map(addressParts.map((part) => [part.toLocaleLowerCase(), part])).values()].join(", ");
+  const billSubtotal = Number(completedBill?.subtotal) || 0;
+  const billDiscount = Number(completedBill?.discountAmount) || 0;
+  const billTax = Number(completedBill?.taxAmount) || 0;
+  const billTotal = Number(completedBill?.totalAmount) || 0;
+  const cgstAmount = billTax / 2;
+  const sgstAmount = billTax / 2;
+  const roundOff = billTotal - (billSubtotal - billDiscount + billTax);
+  const ageSex = [completedBill?.patientAge != null ? `${completedBill.patientAge} years` : "", completedBill?.patientGender || ""]
+    .filter(Boolean)
+    .join(" / ") || "—";
 
   return (
     <div className="space-y-6 pb-12">
@@ -747,81 +848,103 @@ function PharmacyDispenseContent() {
 
       {/* Completed Dispense Receipt Modal */}
       <Dialog open={!!completedBill} onOpenChange={(open) => !open && setCompletedBill(null)}>
-        <DialogContent className="sm:max-w-[550px]">
-          <DialogHeader>
+        <DialogContent id="print-area" className="pharmacy-bill-print-shell sm:max-w-[550px]">
+          <DialogHeader className="no-print">
             <DialogTitle className="flex items-center gap-2 text-emerald-600">
               <CheckCircle2 className="h-5 w-5" /> Dispense Successful &amp; Invoiced
             </DialogTitle>
           </DialogHeader>
 
           {completedBill && (
-            <div className="space-y-4 pt-2 text-xs" id="pharmacy-receipt-area">
-              {/* Hospital Header */}
-              <div className="pb-3 border-b space-y-0.5">
-                <HospitalHeader className="justify-center border-0 pb-0" />
-              </div>
+            <div className="pharmacy-receipt-print-area space-y-3 text-[10px]">
+              <header className="border-b border-slate-300 pb-2 text-center">
+                {hospital.logo && <img src={hospital.logo} alt="" className="mx-auto mb-1 h-10 w-10 object-contain" />}
+                <h1 className="text-base font-bold">{hospital.name || "Hospital"}</h1>
+                {hospitalAddress && <p>{hospitalAddress}</p>}
+                <p className="flex flex-wrap justify-center gap-x-3">
+                  {hospital.phone && <span>Phone: {hospital.phone}</span>}
+                  {hospital.gstin && <span>GSTIN: {hospital.gstin}</span>}
+                  <span>Drug Licence No.: {hospital.drugLicenseNo || "—"}</span>
+                </p>
+              </header>
 
-              {/* Bill & Patient Meta */}
-              <div className="grid grid-cols-2 gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded font-mono text-[11px]">
-                <div>
-                  <span className="text-slate-400 block text-[9px]">BILL NUMBER</span>
-                  <span className="font-bold text-slate-900 dark:text-white">
-                    {completedBill.billNumber}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-slate-400 block text-[9px]">DATE &amp; TIME</span>
-                  <span>{new Date(completedBill.createdAt).toLocaleString()}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[9px]">PATIENT NAME</span>
-                  <span className="font-bold">{completedBill.patientName}</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-slate-400 block text-[9px]">PAYMENT MODE</span>
-                  <Badge variant="outline" className="text-[10px]">
-                    {completedBill.paymentMode} - PAID
-                  </Badge>
-                </div>
-              </div>
+              <div className="text-center text-[11px] font-bold tracking-wide">PHARMACY TAX INVOICE</div>
 
-              {/* Items List */}
-              <div className="border rounded overflow-hidden">
-                <Table className="text-xs">
-                  <TableHeader className="bg-slate-50 dark:bg-slate-800">
+              <section className="grid grid-cols-2 gap-x-4 gap-y-1 border-y border-slate-300 py-2">
+                <p><strong>Bill No:</strong> {completedBill.billNumber || "—"}</p>
+                <p><strong>Date:</strong> {formatBillDate(completedBill.createdAt, hospital.timeZone)}</p>
+                <p><strong>Patient:</strong> {titleCase(completedBill.patientName)}</p>
+                <p><strong>Age / Sex:</strong> {ageSex}</p>
+                <p><strong>UHID:</strong> {completedBill.uhid || "—"}</p>
+                <p><strong>Doctor:</strong> {completedBill.doctorName ? `Dr. ${titleCase(completedBill.doctorName)}` : "—"}</p>
+                <p className="break-all"><strong>Prescription ID:</strong> {completedBill.prescriptionId || "—"}</p>
+                <p><strong>Payment Mode:</strong> {(completedBill.paymentMode || "—").replace(/_/g, " ")}</p>
+              </section>
+
+              <div className="overflow-visible">
+                <Table className="pharmacy-bill-table text-[9px]">
+                  <TableHeader>
                     <TableRow>
                       <TableHead>Medicine</TableHead>
-                      <TableHead>Batch</TableHead>
+                      <TableHead>Batch + Expiry</TableHead>
                       <TableHead className="text-center">Qty</TableHead>
-                      <TableHead className="text-right">Price</TableHead>
+                      <TableHead className="text-right">MRP</TableHead>
+                      <TableHead className="text-right">Rate</TableHead>
+                      <TableHead className="text-right">Discount %</TableHead>
+                      <TableHead className="text-right">GST %</TableHead>
                       <TableHead className="text-right">Total</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {completedBill.items?.map((item: any, i: number) => (
                       <TableRow key={i}>
-                        <TableCell className="font-medium">{item.medicineName}</TableCell>
-                        <TableCell className="font-mono text-[10px]">{item.batchNumber}</TableCell>
+                        <TableCell className="font-medium">
+                          {item.medicineName}
+                          <span className="block text-[8px] font-normal">{item.dosageForm || "—"} · HSN {item.hsnCode || "—"}</span>
+                        </TableCell>
+                        <TableCell>{item.batchNumber || "—"}<span className="block text-[8px]">Exp: {formatExpiry(item.expiryDate)}</span></TableCell>
                         <TableCell className="text-center">{item.quantity}</TableCell>
-                        <TableCell className="text-right font-mono">₹{item.unitPrice}</TableCell>
-                        <TableCell className="text-right font-bold">₹{item.totalAmount}</TableCell>
+                        <TableCell className="text-right">{item.mrp != null ? formatINR(item.mrp) : "—"}</TableCell>
+                        <TableCell className="text-right">{formatINR(item.unitPrice)}</TableCell>
+                        <TableCell className="text-right">{Number(item.discountPercent) || 0}%</TableCell>
+                        <TableCell className="text-right">{Number(item.gstPercent) || 0}%</TableCell>
+                        <TableCell className="text-right font-semibold">{formatINR(item.totalAmount)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </div>
 
-              {/* Total Settlement */}
-              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 rounded-lg flex items-center justify-between text-sm font-bold text-emerald-800 dark:text-emerald-300">
-                <span>Total Amount Paid:</span>
-                <span className="text-base">₹{(completedBill.totalAmount || 0).toLocaleString("en-IN")}</span>
+              <div className="ml-auto max-w-[18rem] space-y-0.5 text-right text-[10px]">
+                <div className="flex justify-between gap-4"><span>Subtotal</span><span>{formatINR(billSubtotal)}</span></div>
+                <div className="flex justify-between gap-4"><span>Discount</span><span>−{formatINR(billDiscount)}</span></div>
+                <div className="flex justify-between gap-4"><span>CGST 6%</span><span>{formatINR(cgstAmount)}</span></div>
+                <div className="flex justify-between gap-4"><span>SGST 6%</span><span>{formatINR(sgstAmount)}</span></div>
+                <div className="flex justify-between gap-4"><span>Round off</span><span>{roundOff >= 0 ? "+" : "−"}{formatINR(Math.abs(roundOff))}</span></div>
+                <div className="flex justify-between gap-4 border-t border-slate-400 pt-1 text-xs font-bold"><span>Total paid</span><span>{formatINR(billTotal)}</span></div>
               </div>
 
-              <div className="text-[10px] text-slate-400 text-center italic">
-                Keep medicines out of reach of children.
-              </div>
+              <p className="border-t border-slate-300 pt-1"><strong>Amount in words:</strong> {numberToWords(billTotal)}</p>
+              {completedBill.notes && <p><strong>Notes:</strong> {completedBill.notes}</p>}
 
-              <div className="pt-2 flex items-center justify-end gap-2">
+              <footer className="grid grid-cols-[1fr_auto_1fr] items-end gap-3 border-t border-slate-300 pt-2 text-[8px]">
+                <div className="space-y-1">
+                  <p>Return policy: Please retain this bill and contact the pharmacy for return eligibility.</p>
+                  <p className="font-semibold">Keep out of reach of children.</p>
+                </div>
+                <div className="flex h-14 w-14 flex-col items-center justify-center border border-dashed border-slate-500 text-[7px]">
+                  <QrCode className="h-7 w-7" />
+                  <span>QR PLACEHOLDER</span>
+                </div>
+                <div className="text-center">
+                  <div className="mb-1 h-7 border-b border-slate-500" />
+                  <p className="font-semibold">{completedBill.pharmacistName || "Pharmacist"}</p>
+                  <p>Pharmacist Signature</p>
+                  <p>Reg. No.: {completedBill.pharmacistRegistrationNo || hospital.pharmacistRegistrationNo || "—"}</p>
+                </div>
+              </footer>
+
+              <div className="no-print flex items-center justify-end gap-2 pt-2">
                 <Button
                   variant="outline"
                   size="sm"

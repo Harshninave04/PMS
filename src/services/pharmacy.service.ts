@@ -2,6 +2,10 @@ import Medicine from "@/models/medicine.model";
 import MedicineCategory from "@/models/medicine-category.model";
 import PharmacyDispense from "@/models/pharmacy-dispense.model";
 import Prescription from "@/models/prescription.model";
+import "@/models/patient.model";
+import User from "@/models/user.model";
+import Staff from "@/models/staff.model";
+import { Types } from "mongoose";
 
 export type PharmacySalesGroupBy = "day" | "week" | "month";
 
@@ -205,6 +209,58 @@ export class PharmacyService {
             const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
             const randomSuffix = Math.floor(1000 + Math.random() * 9000);
             data.billNumber = `PHARM-${dateStr}-${randomSuffix}`;
+        }
+
+        const items = Array.isArray(data.items) ? data.items : [];
+        const medicineIds = items
+            .map((item: any) => item.medicineId)
+            .filter((id: unknown): id is string => typeof id === "string" && Types.ObjectId.isValid(id));
+        const medicineRecords = medicineIds.length
+            ? await Medicine.find({ _id: { $in: medicineIds } })
+                .select("name dosageForm batchNumber expiryDate mrp unitPrice hsnCode")
+                .lean()
+            : [];
+        const medicineById = new Map(medicineRecords.map((medicine: any) => [String(medicine._id), medicine]));
+        data.items = items.map((item: any) => {
+            const medicine = medicineById.get(String(item.medicineId)) as any;
+            if (!medicine) return item;
+            return {
+                ...item,
+                medicineName: medicine.name || item.medicineName,
+                dosageForm: medicine.dosageForm || item.dosageForm,
+                batchNumber: medicine.batchNumber || item.batchNumber,
+                expiryDate: medicine.expiryDate || item.expiryDate,
+                mrp: medicine.mrp ?? item.mrp,
+                hsnCode: medicine.hsnCode || item.hsnCode,
+            };
+        });
+
+        let prescription: any = null;
+        if (data.prescriptionId && Types.ObjectId.isValid(data.prescriptionId)) {
+            prescription = await Prescription.findById(data.prescriptionId)
+                .populate("patientId", "name age gender uhid contact")
+                .populate("doctorId", "name")
+                .lean();
+            if (prescription) {
+                const patient = prescription.patientId as any;
+                const doctor = prescription.doctorId as any;
+                data.patientId = patient?._id || data.patientId;
+                data.patientName = patient?.name || data.patientName;
+                data.patientAge = patient?.age;
+                data.patientGender = patient?.gender;
+                data.patientPhone = patient?.contact || data.patientPhone;
+                data.uhid = patient?.uhid || data.uhid;
+                data.doctorName = doctor?.name;
+            }
+        }
+
+        if (data.dispensedBy && Types.ObjectId.isValid(data.dispensedBy)) {
+            const [pharmacist, staff] = await Promise.all([
+                User.findById(data.dispensedBy).select("name").lean(),
+                Staff.findOne({ userId: data.dispensedBy }).select("registrationNo").lean(),
+            ]);
+            data.pharmacistName = pharmacist?.name || data.pharmacistName;
+            data.pharmacistRegistrationNo = staff?.registrationNo;
         }
 
         // 1. Check and decrement stock for each item

@@ -49,6 +49,11 @@ body {
    goes on paper — the dashboard shell, filters and behind-the-modal content
    are hidden. Elements marked .no-print are dropped even inside the area. */
 @media print {
+  @page pharmacy-bill {
+    size: A4 portrait;
+    margin: 0;
+  }
+
   body * {
     visibility: hidden !important;
     box-shadow: none !important;
@@ -151,6 +156,77 @@ body {
   .prescription-print-area th,
   .prescription-print-area td,
   .prescription-keep-together {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .pharmacy-receipt-print-area {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-height: 281mm !important;
+    overflow: visible !important;
+    padding: 8mm 9mm !important;
+    font-size: 8pt !important;
+    line-height: 1.25 !important;
+  }
+
+  #print-area.pharmacy-bill-print-shell {
+    page: pharmacy-bill;
+    box-sizing: border-box !important;
+    width: 210mm !important;
+    height: 297mm !important;
+    padding: 0 !important;
+  }
+
+  .pharmacy-bill-table {
+    table-layout: fixed !important;
+  }
+
+  .pharmacy-bill-table th,
+  .pharmacy-bill-table td {
+    overflow-wrap: anywhere !important;
+  }
+
+  .pharmacy-bill-table th:nth-child(1),
+  .pharmacy-bill-table td:nth-child(1) { width: 24% !important; }
+  .pharmacy-bill-table th:nth-child(2),
+  .pharmacy-bill-table td:nth-child(2) { width: 18% !important; }
+  .pharmacy-bill-table th:nth-child(3),
+  .pharmacy-bill-table td:nth-child(3) { width: 6% !important; }
+  .pharmacy-bill-table th:nth-child(4),
+  .pharmacy-bill-table td:nth-child(4) { width: 10% !important; }
+  .pharmacy-bill-table th:nth-child(5),
+  .pharmacy-bill-table td:nth-child(5) { width: 10% !important; }
+  .pharmacy-bill-table th:nth-child(6),
+  .pharmacy-bill-table td:nth-child(6) { width: 9% !important; }
+  .pharmacy-bill-table th:nth-child(7),
+  .pharmacy-bill-table td:nth-child(7) { width: 8% !important; }
+  .pharmacy-bill-table th:nth-child(8),
+  .pharmacy-bill-table td:nth-child(8) { width: 15% !important; }
+
+  .pharmacy-bill-table th,
+  .pharmacy-bill-table td {
+    padding: 3px 2px !important;
+    font-size: 7pt !important;
+  }
+
+  .pharmacy-receipt-print-area table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  .pharmacy-receipt-print-area thead {
+    display: table-header-group;
+  }
+
+  .pharmacy-receipt-print-area th,
+  .pharmacy-receipt-print-area td {
+    border: 1px solid #d1d5db !important;
+    padding: 5px 4px !important;
+    font-size: 8pt !important;
+  }
+
+  .pharmacy-receipt-print-area tr {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
