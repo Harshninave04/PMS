@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -13,7 +12,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from "@/components/ui/toast";
 import { isBillingCompleted, isReadyForDischarge } from "@/lib/discharge-workflow";
 import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
+import { usePermissions } from "@/components/permissions/permission-context";
 import { formatHospitalDateTime, formatLengthOfStay } from "@/lib/hospital-date";
+import { isReceptionistRole } from "@/lib/rbac/roles";
 import {
   Bed,
   Search,
@@ -22,13 +23,11 @@ import {
   LogOut,
   Eye,
   Download,
-  Filter,
   RefreshCw,
   Clock,
   User,
   Shield,
   Activity,
-  AlertCircle,
   Loader2
 } from "lucide-react";
 
@@ -36,13 +35,16 @@ export default function CurrentAdmissionsPage() {
   const router = useRouter();
   const { toast } = useToast();
   const hospital = useHospitalProfile();
+  const { can, roleName } = usePermissions();
+  const receptionistNeedsDoctorFinalization =
+    isReceptionistRole(roleName) && !can("admissions.discharge:view");
 
   const [admissions, setAdmissions] = useState<any[]>([]);
   const [billingQueueRows, setBillingQueueRows] = useState<any[]>([]);
+  const [availableBeds, setAvailableBeds] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
   // Details Modal State
@@ -137,6 +139,15 @@ export default function CurrentAdmissionsPage() {
       } else {
         setBillingQueueRows([]);
       }
+      try {
+        const wardStatsRes = await fetch("/api/ward/stats");
+        const wardStatsResult = await wardStatsRes.json();
+        if (wardStatsRes.ok && wardStatsResult.success) {
+          setAvailableBeds(Number(wardStatsResult.data.availableBeds) || 0);
+        }
+      } catch {
+        setAvailableBeds(null);
+      }
     } catch (err: any) {
       toast("An error occurred while fetching admissions", "error");
     } finally {
@@ -177,15 +188,12 @@ export default function CurrentAdmissionsPage() {
         doctorName.includes(q) ||
         wardName.includes(q);
 
-      // Type filter
-      const matchesType = typeFilter === "ALL" || adm.admissionType === typeFilter;
-
       // Status filter
       const matchesStatus = statusFilter === "ALL" || adm.status === statusFilter;
 
-      return matchesSearch && matchesType && matchesStatus;
+      return matchesSearch && matchesStatus;
     });
-  }, [admissions, searchQuery, typeFilter, statusFilter]);
+  }, [admissions, searchQuery, statusFilter]);
 
   const readyForDischargeRows = useMemo(
     () => billingQueueRows.filter((row) => isReadyForDischarge(row, row.invoice)),
@@ -198,13 +206,29 @@ export default function CurrentAdmissionsPage() {
 
   // Counts
   const counts = useMemo(() => {
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: hospital.timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const admittedToday = admissions.filter((admission) => {
+      if (!admission.admissionDate) return false;
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: hospital.timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date(admission.admissionDate)) === today;
+    }).length;
+
     return {
       total: admissions.length,
-      emergency: admissions.filter((a) => a.admissionType === "EMERGENCY").length,
-      elective: admissions.filter((a) => a.admissionType === "ELECTIVE").length,
-      daycare: admissions.filter((a) => a.admissionType === "DAYCARE").length
+      admittedToday,
+      readyForDischarge: readyForDischargeRows.length,
+      availableBeds,
     };
-  }, [admissions]);
+  }, [admissions, availableBeds, hospital.timeZone, readyForDischargeRows]);
 
   const exportCSV = () => {
     if (filteredAdmissions.length === 0) {
@@ -338,42 +362,42 @@ export default function CurrentAdmissionsPage() {
         <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
           <div>
             <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Emergency
-            </div>
-            <div className="text-xl font-bold text-rose-600 dark:text-rose-400 mt-0.5">
-              {counts.emergency}
-            </div>
-          </div>
-          <div className="h-9 w-9 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center">
-            <AlertCircle className="h-5 w-5" />
-          </div>
-        </div>
-
-        <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
-          <div>
-            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Elective
+              Admitted Today
             </div>
             <div className="text-xl font-bold text-blue-600 dark:text-blue-400 mt-0.5">
-              {counts.elective}
+              {counts.admittedToday}
             </div>
           </div>
           <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-            <User className="h-5 w-5" />
+            <Clock className="h-5 w-5" />
           </div>
         </div>
 
         <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
           <div>
             <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Daycare
+              Ready for Discharge
             </div>
             <div className="text-xl font-bold text-purple-600 dark:text-purple-400 mt-0.5">
-              {counts.daycare}
+              {counts.readyForDischarge}
             </div>
           </div>
           <div className="h-9 w-9 rounded-lg bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center">
-            <Clock className="h-5 w-5" />
+            <Activity className="h-5 w-5" />
+          </div>
+        </div>
+
+        <div className="p-3.5 rounded-xl border bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+          <div>
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              Free Beds
+            </div>
+            <div className="text-xl font-bold text-cyan-600 dark:text-cyan-400 mt-0.5">
+              {counts.availableBeds ?? "—"}
+            </div>
+          </div>
+          <div className="h-9 w-9 rounded-lg bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
+            <Bed className="h-5 w-5" />
           </div>
         </div>
       </div>
@@ -381,7 +405,7 @@ export default function CurrentAdmissionsPage() {
       {/* Filter & Search Bar */}
       <Card className="border shadow-sm">
         <CardContent className="p-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="md:col-span-2 relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <Input
@@ -390,20 +414,6 @@ export default function CurrentAdmissionsPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
-            </div>
-
-            <div>
-              <Select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="w-full"
-              >
-                <option value="ALL">All Admission Types</option>
-                <option value="ELECTIVE">Elective</option>
-                <option value="EMERGENCY">Emergency</option>
-                <option value="TRANSFER">Transfer</option>
-                <option value="DAYCARE">Daycare</option>
-              </Select>
             </div>
 
             <div>
@@ -442,9 +452,13 @@ export default function CurrentAdmissionsPage() {
                 <Badge className="bg-emerald-100 text-emerald-800">Billing Completed</Badge>
                 <Badge className="bg-amber-100 text-amber-800">Discharge Pending</Badge>
                 <span className="text-xs text-slate-600 dark:text-slate-300">Balance: ₹{Number(row.invoice?.balanceAmount || 0).toLocaleString("en-IN")}</span>
-                <Button size="sm" variant="outline" onClick={() => router.push(`/admissions/discharge?admissionId=${row.admissionId}`)}>
-                  Review discharge
-                </Button>
+                {receptionistNeedsDoctorFinalization ? (
+                  <span className="text-xs text-slate-500">Doctor will finalize</span>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => router.push(`/admissions/discharge?admissionId=${row.admissionId}`)}>
+                    Review discharge
+                  </Button>
+                )}
               </div>
             </div>
           ))}
@@ -471,14 +485,13 @@ export default function CurrentAdmissionsPage() {
                   <TableHead>Attending Doctor</TableHead>
                   <TableHead>Admitted At</TableHead>
                   <TableHead>Stay Duration</TableHead>
-                  <TableHead>Type</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredAdmissions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-slate-500 py-12">
+                    <TableCell colSpan={6} className="text-center text-slate-500 py-12">
                       <div className="flex flex-col items-center justify-center">
                         <Bed className="h-10 w-10 text-slate-300 mb-2" />
                         <p className="font-medium">No current admissions found</p>
@@ -582,21 +595,6 @@ export default function CurrentAdmissionsPage() {
                         </Badge>
                       </TableCell>
 
-                      {/* Admission Type */}
-                      <TableCell>
-                        <Badge
-                          className={
-                            adm.admissionType === "EMERGENCY"
-                              ? "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300 border-rose-300"
-                              : adm.admissionType === "DAYCARE"
-                              ? "bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300 border-purple-300"
-                              : "bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300 border-blue-300"
-                          }
-                        >
-                          {adm.admissionType || "ELECTIVE"}
-                        </Badge>
-                      </TableCell>
-
                       {/* Actions */}
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
@@ -633,17 +631,21 @@ export default function CurrentAdmissionsPage() {
                             Transfer
                           </Button>
 
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="h-8 text-xs flex items-center gap-1"
-                            onClick={() =>
-                              router.push(`/admissions/discharge?admissionId=${adm._id}`)
-                            }
-                          >
-                            <LogOut className="h-3 w-3" />
-                            Discharge
-                          </Button>
+                          {receptionistNeedsDoctorFinalization ? (
+                            <span className="text-xs text-slate-500">Doctor will finalize</span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="h-8 text-xs flex items-center gap-1"
+                              onClick={() =>
+                                router.push(`/admissions/discharge?admissionId=${adm._id}`)
+                              }
+                            >
+                              <LogOut className="h-3 w-3" />
+                              Discharge
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -865,16 +867,20 @@ export default function CurrentAdmissionsPage() {
                   <ArrowRightLeft className="h-4 w-4 mr-1.5" />
                   Transfer Patient
                 </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    setDetailsOpen(false);
-                    router.push(`/admissions/discharge?admissionId=${selectedAdmission._id}`);
-                  }}
-                >
-                  <LogOut className="h-4 w-4 mr-1.5" />
-                  Discharge Patient
-                </Button>
+                {receptionistNeedsDoctorFinalization ? (
+                  <span className="self-center text-xs text-slate-500">Doctor will finalize</span>
+                ) : (
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      setDetailsOpen(false);
+                      router.push(`/admissions/discharge?admissionId=${selectedAdmission._id}`);
+                    }}
+                  >
+                    <LogOut className="h-4 w-4 mr-1.5" />
+                    Discharge Patient
+                  </Button>
+                )}
               </DialogFooter>
             </div>
           )}

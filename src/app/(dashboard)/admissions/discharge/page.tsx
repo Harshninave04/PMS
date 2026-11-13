@@ -15,7 +15,9 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useHospitalProfile } from "@/components/hospital-profile/hospital-profile-context";
+import { usePermissions } from "@/components/permissions/permission-context";
 import { formatHospitalDateTime, formatLengthOfStay, hospitalDateTimeInputToUtc, toHospitalDateTimeInput } from "@/lib/hospital-date";
+import { isReceptionistRole } from "@/lib/rbac/roles";
 import {
   LogOut,
   Bed,
@@ -60,6 +62,8 @@ function DischargeContent() {
   const initialAdmissionId = searchParams.get("admissionId") || "";
   const { toast } = useToast();
   const hospital = useHospitalProfile();
+  const { can, roleName } = usePermissions();
+  const isReceptionist = isReceptionistRole(roleName);
 
   const [admissions, setAdmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,8 +114,12 @@ function DischargeContent() {
   };
 
   useEffect(() => {
+    if (isReceptionist && (!initialAdmissionId || !can("admissions.discharge:view"))) {
+      router.replace("/admissions/current");
+      return;
+    }
     fetchAdmissions();
-  }, []);
+  }, [can, initialAdmissionId, isReceptionist, router]);
 
   const handleDischargeClick = (admission: any) => {
     activeSummaryAdmissionId.current = admission._id;

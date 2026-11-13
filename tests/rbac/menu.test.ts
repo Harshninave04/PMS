@@ -123,7 +123,7 @@ async function runMenuTests() {
     const expected: Record<string, string[]> = {
       DOCTOR: ["Dashboard", "OPD Queue", "Today's Completed Patients", "Ward Rounds"],
       NURSE: ["Dashboard", "Patients", "Consultation", "IPD / Admissions", "Wards & Beds", "Nursing"],
-      RECEPTIONIST: ["Home", "Book Appointment", "All Appointments", "Admitted Patients", "Discharge", "Discharge Summary", "Bed Availability", "All Patients"],
+      RECEPTIONIST: ["Home", "Book Appointment", "All Appointments", "Admitted Patients", "Discharge Summary", "Bed Availability", "All Patients"],
       PHARMACIST: ["Dashboard", "Patients", "Consultation", "Pharmacy", "Reports"],
       ACCOUNTANT: ["Dashboard", "Patients", "IPD / Admissions", "Billing", "Reports"],
     };
@@ -136,8 +136,8 @@ async function runMenuTests() {
     const sidebar = visibleMenuItems("RECEPTIONIST");
     const profile = resolveDashboardProfile("RECEPTIONIST");
 
-    assert.deepEqual(sidebar.map((m) => m.name), ["Home", "Book Appointment", "All Appointments", "Admitted Patients", "Discharge", "Discharge Summary", "Bed Availability", "All Patients"]);
-    assert.deepEqual(sidebar.map((m) => m.path), ["/dashboard/main", "/appointments/book", "/appointments/list", "/admissions/current", "/admissions/discharge", "/admissions/summary", "/wards/availability", "/patients/list"]);
+    assert.deepEqual(sidebar.map((m) => m.name), ["Home", "Book Appointment", "All Appointments", "Admitted Patients", "Discharge Summary", "Bed Availability", "All Patients"]);
+    assert.deepEqual(sidebar.map((m) => m.path), ["/dashboard/main", "/appointments/book", "/appointments/list", "/admissions/current", "/admissions/summary", "/wards/availability", "/patients/list"]);
     assert.deepEqual(profile.quickActions, [], "Receptionist dashboard must not render quick actions");
     assert.deepEqual(profile.stats, [], "Receptionist dashboard must not use the generic KPI cards");
     assert.equal(profile.showRecentPatients, false, "Receptionist dashboard must not render admissions activity");
