@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -16,18 +15,40 @@ import { formatHospitalDateTime, formatLengthOfStay } from "@/lib/hospital-date"
 import {
   Clock,
   Search,
-  Filter,
   Download,
   Eye,
   RefreshCw,
   FileText,
-  Calendar,
   Bed,
   CheckCircle2,
   Users,
-  AlertCircle,
   Loader2
 } from "lucide-react";
+
+const parseDateFilter = (value: string): string | null => {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim());
+  if (!match) return null;
+  const [, day, month, year] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  if (
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() !== Number(month) - 1 ||
+    date.getDate() !== Number(day)
+  ) return null;
+  return `${year}-${month}-${day}`;
+};
+
+const hospitalDateKey = (value: string | Date, timeZone: string): string => {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
 
 export default function AdmissionHistoryPage() {
   const router = useRouter();
@@ -41,7 +62,6 @@ export default function AdmissionHistoryPage() {
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [typeFilter, setTypeFilter] = useState("ALL");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
@@ -80,9 +100,9 @@ export default function AdmissionHistoryPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "DISCHARGED":
-        return <Badge className="bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300">DISCHARGED</Badge>;
+        return <Badge className="border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">DISCHARGED</Badge>;
       case "ADMITTED":
-        return <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300">ADMITTED</Badge>;
+        return <Badge className="border-blue-300 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">ADMITTED</Badge>;
       case "TRANSFERRED":
         return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300 border-blue-300">TRANSFERRED</Badge>;
       case "CANCELLED":
@@ -110,21 +130,16 @@ export default function AdmissionHistoryPage() {
         doctorName.includes(q);
 
       const matchesStatus = statusFilter === "ALL" || adm.status === statusFilter;
-      const matchesType = typeFilter === "ALL" || adm.admissionType === typeFilter;
-
       let matchesDate = true;
-      if (startDate) {
-        matchesDate = matchesDate && new Date(adm.admissionDate) >= new Date(startDate);
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        matchesDate = matchesDate && new Date(adm.admissionDate) <= end;
-      }
+      const admissionDate = hospitalDateKey(adm.admissionDate, hospital.timeZone);
+      const startDateKey = parseDateFilter(startDate);
+      const endDateKey = parseDateFilter(endDate);
+      if (startDateKey) matchesDate = matchesDate && admissionDate >= startDateKey;
+      if (endDateKey) matchesDate = matchesDate && admissionDate <= endDateKey;
 
-      return matchesSearch && matchesStatus && matchesType && matchesDate;
+      return matchesSearch && matchesStatus && matchesDate;
     });
-  }, [admissions, searchQuery, statusFilter, typeFilter, startDate, endDate]);
+  }, [admissions, searchQuery, statusFilter, startDate, endDate, hospital.timeZone]);
 
   const kpis = useMemo(() => {
     const total = admissions.length;
@@ -312,7 +327,7 @@ export default function AdmissionHistoryPage() {
       {/* Advanced Filter Bar */}
       <Card className="border shadow-sm">
         <CardContent className="p-4 space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="md:col-span-2 relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <Input
@@ -337,26 +352,16 @@ export default function AdmissionHistoryPage() {
               </Select>
             </div>
 
-            <div>
-              <Select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="w-full"
-              >
-                <option value="ALL">All Types</option>
-                <option value="ELECTIVE">Elective</option>
-                <option value="EMERGENCY">Emergency</option>
-                <option value="TRANSFER">Transfer</option>
-                <option value="DAYCARE">Daycare</option>
-              </Select>
-            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-2 border-t text-xs">
             <div className="flex items-center gap-2">
               <span className="text-slate-500 whitespace-nowrap">From Date:</span>
               <Input
-                type="date"
+                type="text"
+                inputMode="numeric"
+                placeholder="DD/MM/YYYY"
+                aria-label="From date (DD/MM/YYYY)"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 className="h-8"
@@ -366,7 +371,10 @@ export default function AdmissionHistoryPage() {
             <div className="flex items-center gap-2">
               <span className="text-slate-500 whitespace-nowrap">To Date:</span>
               <Input
-                type="date"
+                type="text"
+                inputMode="numeric"
+                placeholder="DD/MM/YYYY"
+                aria-label="To date (DD/MM/YYYY)"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
                 className="h-8"
@@ -374,14 +382,13 @@ export default function AdmissionHistoryPage() {
             </div>
 
             <div className="flex items-center justify-end">
-              {(searchQuery || statusFilter !== "ALL" || typeFilter !== "ALL" || startDate || endDate) && (
+              {(searchQuery || statusFilter !== "ALL" || startDate || endDate) && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => {
                     setSearchQuery("");
                     setStatusFilter("ALL");
-                    setTypeFilter("ALL");
                     setStartDate("");
                     setEndDate("");
                   }}

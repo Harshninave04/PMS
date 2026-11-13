@@ -21,6 +21,8 @@ interface DashboardStats {
   todayAppointments?: number;
   occupiedBeds?: number;
   totalBeds?: number;
+  todayCollections?: number;
+  unpaidBills?: number;
   recentPatients?: {
     name: string;
     id: string;
@@ -35,6 +37,9 @@ type LoadState = "loading" | "ready" | "error";
 function formatStatValue(stat: DashboardStat, data: DashboardStats): string {
   if (stat.kind === "metric") {
     const value = data[stat.metric];
+    if (stat.metric === "todayCollections" && typeof value === "number") {
+      return `₹${value.toLocaleString("en-IN")}`;
+    }
     return typeof value === "number" ? value.toString() : "0";
   }
 
@@ -74,7 +79,8 @@ export default function DashboardPage() {
 
     let cancelled = false;
 
-    fetch("/api/dashboard/stats")
+    const endpoint = roleName === "ACCOUNTANT" ? "/api/finance/stats" : "/api/dashboard/stats";
+    fetch(endpoint)
       .then(async (res) => {
         const json = await res.json();
         if (!res.ok || !json.success) {
@@ -84,7 +90,12 @@ export default function DashboardPage() {
       })
       .then((json) => {
         if (cancelled) return;
-        setLiveData(json.data);
+        setLiveData(roleName === "ACCOUNTANT"
+          ? {
+              todayCollections: json.data.todayCollections,
+              unpaidBills: json.data.counts?.unpaid,
+            }
+          : json.data);
         setLoadState("ready");
       })
       .catch((err) => {
@@ -118,7 +129,7 @@ export default function DashboardPage() {
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200/70 dark:border-emerald-500/20 mb-3">
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
               {profile.label}
-              {roleName ? ` · ${roleName.replace(/_/g, " ")}` : ""}
+              {profile.key !== "finance" && roleName ? ` · ${roleName.replace(/_/g, " ")}` : ""}
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
               Welcome back,{" "}
@@ -135,29 +146,31 @@ export default function DashboardPage() {
               </p>
             )}
           </div>
-          <div className="flex items-center gap-3">
-            {profile.moduleDashboard && (
-              <Link
-                href={profile.moduleDashboard}
-                className={buttonVariants({
-                  className:
-                    "bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-700 dark:hover:bg-slate-600 font-medium shadow-sm gap-2"
-                })}
-              >
-                <LayoutDashboard className="h-4 w-4" />
-                Open {profile.label} Board
-              </Link>
-            )}
-            <Button className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm gap-2">
-              <TrendingUp className="h-4 w-4" />
-              System Status: Active
-            </Button>
-          </div>
+          {profile.key !== "finance" && (
+            <div className="flex items-center gap-3">
+              {profile.moduleDashboard && (
+                <Link
+                  href={profile.moduleDashboard}
+                  className={buttonVariants({
+                    className:
+                      "bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-700 dark:hover:bg-slate-600 font-medium shadow-sm gap-2"
+                  })}
+                >
+                  <LayoutDashboard className="h-4 w-4" />
+                  Open {profile.label} Board
+                </Link>
+              )}
+              <Button className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm gap-2">
+                <TrendingUp className="h-4 w-4" />
+                System Status: Active
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Role-specific KPI Stats Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className={`grid gap-4 sm:grid-cols-2 ${profile.stats.length === 2 ? "lg:grid-cols-2" : "lg:grid-cols-4"}`}>
         {profile.stats.map((stat, idx) => {
           const Icon = stat.icon;
           return (
@@ -195,7 +208,7 @@ export default function DashboardPage() {
         <h2 className="text-base font-bold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
           Quick Actions
         </h2>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className={`grid gap-3 sm:grid-cols-2 ${profile.quickActions.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"}`}>
           {profile.quickActions.map((action, idx) => {
             const Icon = action.icon;
             return (

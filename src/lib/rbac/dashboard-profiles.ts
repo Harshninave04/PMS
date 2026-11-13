@@ -16,14 +16,16 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-/** Metric keys returned by GET /api/dashboard/stats */
+/** Metric keys returned by the dashboard and finance stats APIs. */
 export type DashboardMetricKey =
   | "totalPatients"
   | "totalDoctors"
   | "totalAppointments"
   | "todayAppointments"
   | "occupiedBeds"
-  | "totalBeds";
+  | "totalBeds"
+  | "todayCollections"
+  | "unpaidBills";
 
 export type DashboardStat =
   | {
@@ -181,20 +183,17 @@ const profiles: Record<string, DashboardProfile> = {
 
   finance: {
     key: "finance",
-    label: "Billing & Accounts",
+    label: "Accountant",
     subtitle: "Bills, collections and outstanding dues.",
-    moduleDashboard: "/finance",
+    moduleDashboard: null,
     stats: [
-      metric("totalPatients", "Total Patients", "All time total", Users, TONE.emerald),
-      metric("todayAppointments", "OPD Today", "Visits to bill today", CalendarCheck, TONE.teal),
-      bedOccupancy(TONE.cyan),
-      metric("totalDoctors", "Doctors", "Consulting doctors", Stethoscope, TONE.violet)
+      metric("todayCollections", "Today's Collection", "Collected today", Wallet, TONE.teal),
+      metric("unpaidBills", "Unpaid Bills", "Awaiting payment", Receipt, TONE.cyan)
     ],
     quickActions: [
       { title: "Create Bill", href: "/finance/invoice/create", icon: FilePlus, color: ACTION.emerald },
       { title: "Collect Payment", href: "/finance/invoices", icon: Wallet, color: ACTION.teal },
-      { title: "Outstanding Dues", href: "/finance/outstanding", icon: Receipt, color: ACTION.cyan },
-      { title: "Billing Report", href: "/reports/billing", icon: FileText, color: ACTION.slate }
+      { title: "Outstanding Dues", href: "/finance/outstanding", icon: Receipt, color: ACTION.cyan }
     ],
     showRecentPatients: false
   },

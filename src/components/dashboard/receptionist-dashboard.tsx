@@ -219,7 +219,7 @@ export default function ReceptionistDashboard() {
                     <p><span className="font-medium">Outstanding balance:</span> {fmtMoney(Number(patient.invoice?.balanceAmount ?? 0))}</p>
                   </div>
                   <p className="text-[11px] text-emerald-800 dark:text-emerald-300">Discharge readiness: final bill complete; awaiting authorized discharge.</p>
-                  {can("admissions.discharge:discharge") && can("admissions.summary:print") && (
+                  {can("admissions.discharge:view") && can("admissions.discharge:discharge") && can("admissions.summary:print") && (
                     <div className="flex justify-end">
                       <Link href={`/admissions/discharge?admissionId=${encodeURIComponent(patient.admissionId)}`} className={buttonVariants({ className: "gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700" })}>
                         <FileText className="h-4 w-4" /> Discharge &amp; Print

@@ -71,7 +71,6 @@ const FLAT_NAV_FOR_ROLE: Record<string, readonly { path: string; icon: string; n
         { path: "/appointments/book", icon: "CalendarPlus" },
         { path: "/appointments/list", icon: "Calendar" },
         { path: "/admissions/current", icon: "BedDouble" },
-        { path: "/admissions/discharge", icon: "LogOut" },
         { path: "/admissions/summary", icon: "FileText", name: "Discharge Summary" },
         { path: "/admissions/history", icon: "History" },
         { path: "/wards/availability", icon: "Bed" },
@@ -91,7 +90,18 @@ export function applyRoleNav<T extends MenuNode>(
     roleName: string | null | undefined,
     menus: readonly T[]
 ): T[] {
-    const flat = FLAT_NAV_FOR_ROLE[(roleName ?? "").trim().toUpperCase()];
+    const normalizedRole = (roleName ?? "").trim().toUpperCase();
+    if (normalizedRole === "ACCOUNTANT") {
+        return menus.flatMap((menu) => {
+            if ((menu.path ?? "").toLowerCase() !== "/dashboard") return [menu];
+            const dashboard = menu.children?.find((child) => (child.path ?? "").toLowerCase() === "/dashboard/main");
+            return dashboard
+                ? [{ ...dashboard, name: "Dashboard", icon: "LayoutDashboard", children: undefined } as unknown as T]
+                : [];
+        });
+    }
+
+    const flat = FLAT_NAV_FOR_ROLE[normalizedRole];
     if (!flat) return [...menus];
 
     const byPath = new Map<string, T>();
